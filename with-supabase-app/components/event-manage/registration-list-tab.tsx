@@ -274,22 +274,48 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
       })
 
       if (response.ok) {
+        const contentType = response.headers.get('content-type')
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `报名信息_${new Date().toISOString().split('T')[0]}.xlsx`
+
+        // 根据内容类型确定文件扩展名
+        let filename = '报名信息'
+        if (contentType?.includes('zip')) {
+          // 如果是zip文件（包含附件）
+          const contentDisposition = response.headers.get('content-disposition')
+          const filenameMatch = contentDisposition?.match(/filename="(.+?)"/)
+          if (filenameMatch) {
+            filename = decodeURIComponent(filenameMatch[1])
+          } else {
+            filename = `报名信息_${new Date().toISOString().split('T')[0]}.zip`
+          }
+        } else {
+          // 如果是Excel文件
+          filename = `报名信息_${new Date().toISOString().split('T')[0]}.xlsx`
+        }
+
+        a.download = filename
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)
         window.URL.revokeObjectURL(url)
         setSelectedIds([])
+
+        // 提示用户下载成功
+        if (contentType?.includes('zip')) {
+          alert('已成功下载压缩包，其中包含Excel表格和附件文件')
+        }
       } else {
-        alert('导出失败')
+        const errorData = await response.json().catch(() => ({ error: '未知错误' }))
+        console.error('Export failed with status:', response.status)
+        console.error('Error data:', errorData)
+        alert(`导出失败: ${errorData.error || '未知错误'}`)
       }
     } catch (error) {
       console.error('Error downloading registrations:', error)
-      alert('导出失败')
+      alert(`导出失败: ${error.message || '网络错误'}`)
     }
   }
 
