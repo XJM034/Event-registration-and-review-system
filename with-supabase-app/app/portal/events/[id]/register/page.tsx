@@ -550,7 +550,13 @@ export default function RegisterPage() {
       alert('请先登录')
       return
     }
-    
+
+    // 检查是否是已通过状态
+    if (registration?.status === 'approved') {
+      alert('已报名成功，无法保存草稿。请取消报名后再进行相应的操作。')
+      return
+    }
+
     setIsSaving(true)
     
     try {
@@ -613,7 +619,13 @@ export default function RegisterPage() {
       alert('请先登录')
       return
     }
-    
+
+    // 检查是否是已通过状态
+    if (registration?.status === 'approved') {
+      alert('已报名成功，无法重复提交报名。请取消报名后再进行相应的操作。')
+      return
+    }
+
     if (!validatePlayers()) {
       setActiveTab('players')
       return
@@ -787,6 +799,19 @@ export default function RegisterPage() {
               <h3 className="font-semibold text-yellow-800">您的报名已取消</h3>
               <p className="text-yellow-600 mt-1">您之前取消了这个报名，现在可以修改并重新提交</p>
               <p className="text-sm text-yellow-500 mt-2">所有信息已保留，您可以继续编辑</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 已通过提示 */}
+      {registration?.status === 'approved' && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <div className="flex items-start gap-2">
+            <Check className="h-5 w-5 text-green-600 mt-0.5" />
+            <div>
+              <h3 className="font-semibold text-green-800">报名已通过审核</h3>
+              <p className="text-green-600 mt-1">当前为查看模式，无法修改或重新提交</p>
             </div>
           </div>
         </div>

@@ -28,12 +28,17 @@ interface Notification {
   id: string
   type: 'system' | 'registration' | 'event'
   title: string
+  originalTitle?: string
   message: string
   is_read: boolean
   created_at: string
   event_id?: string
   registration_id?: string
   metadata?: any
+  registration?: {
+    team_data?: any
+  }
+  eventName?: string
 }
 
 export default function MyNotificationsPage() {
@@ -80,10 +85,19 @@ export default function MyNotificationsPage() {
       if (coach) {
         console.log('Loading notifications for coach:', coach.id)
 
-        // 从数据库获取真实通知
+        // 从数据库获取真实通知，并关联报名信息和赛事信息
         const { data: notificationData, error: notifError } = await supabase
           .from('notifications')
-          .select('*')
+          .select(`
+            *,
+            registrations:registration_id (
+              team_data
+            ),
+            events:event_id (
+              name,
+              short_name
+            )
+          `)
           .eq('coach_id', coach.id)
           .order('created_at', { ascending: false })
 
@@ -93,18 +107,39 @@ export default function MyNotificationsPage() {
           console.log(`Loaded ${notificationData.length} notifications`)
 
           // 转换类型以匹配前端接口
-          const formattedNotifications = notificationData.map(n => ({
-            id: n.id,
-            type: n.type === 'approval' ? 'registration' :
-                  n.type === 'rejection' ? 'registration' :
-                  n.type === 'reminder' ? 'event' : 'system',
-            title: n.title,
-            message: n.message,
-            is_read: n.is_read,
-            created_at: n.created_at,
-            event_id: n.event_id,
-            registration_id: n.registration_id
-          }))
+          const formattedNotifications = notificationData.map(n => {
+            // 获取赛事名称
+            const eventName = n.events?.short_name || n.events?.name || ''
+
+            // 根据通知类型构建新的标题
+            let enhancedTitle = n.title
+            if (eventName && (n.type === 'approval' || n.type === 'rejection' || n.type === 'cancellation')) {
+              // 替换标题格式
+              if (n.type === 'approval') {
+                enhancedTitle = `${eventName}报名审核通过`
+              } else if (n.type === 'rejection') {
+                enhancedTitle = `${eventName}报名已驳回`
+              } else if (n.type === 'cancellation') {
+                enhancedTitle = `${eventName}报名已取消`
+              }
+            }
+
+            return {
+              id: n.id,
+              type: n.type === 'approval' ? 'registration' :
+                    n.type === 'rejection' ? 'registration' :
+                    n.type === 'reminder' ? 'event' : 'system',
+              title: enhancedTitle,
+              originalTitle: n.title, // 保留原始标题
+              message: n.message,
+              is_read: n.is_read,
+              created_at: n.created_at,
+              event_id: n.event_id,
+              registration_id: n.registration_id,
+              registration: n.registrations, // 关联的报名信息
+              eventName: eventName // 保存赛事名称
+            }
+          })
 
           setNotifications(formattedNotifications)
           setHasLoaded(true)
@@ -422,9 +457,22 @@ export default function MyNotificationsPage() {
                             {getTimeAgo(notification.created_at)}
                           </span>
                         </div>
-                        <p className="text-sm text-muted-foreground mb-2">
-                          {notification.message}
-                        </p>
+                        {/* 显示团队信息预览作为第二行 */}
+                        {notification.registration?.team_data && (
+                          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground mb-2">
+                            {Object.entries(notification.registration.team_data)
+                              .filter(([key]) => key !== 'id' && key !== 'team_logo' && key !== 'logo')
+                              .slice(0, 3)
+                              .map(([key, value], index) => (
+                                <div key={key} className="flex items-center gap-1">
+                                  {index > 0 && <span className="text-muted-foreground/40">•</span>}
+                                  <span>
+                                    {typeof value === 'string' || typeof value === 'number' ? value : '-'}
+                                  </span>
+                                </div>
+                              ))}
+                          </div>
+                        )}
                         <div className="flex items-center gap-2">
                           {!notification.is_read && (
                             <Button
@@ -455,8 +503,8 @@ export default function MyNotificationsPage() {
                               variant="ghost"
                               onClick={(e) => {
                                 e.preventDefault()
-                                // 在新标签页打开
-                                window.open('/portal/my/registrations', '_blank')
+                                // 跳转到我的报名页面并传递要高亮的报名ID
+                                router.push(`/portal/my/registrations?highlight=${notification.registration_id}`)
                               }}
                             >
                               查看报名

@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useRef } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
@@ -29,6 +30,7 @@ interface Registration {
   submitted_at?: string
   reviewed_at?: string
   created_at: string
+  registration_deadline?: string
   events?: {
     name: string
     start_date: string
@@ -36,19 +38,47 @@ interface Registration {
     address?: string
     type: string
   }
+  registration_settings?: {
+    team_requirements?: {
+      registrationEndDate?: string
+    }
+  }
 }
 
 export default function MyRegistrationsPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [registrations, setRegistrations] = useState<Registration[]>([])
   const [filteredRegistrations, setFilteredRegistrations] = useState<Registration[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [highlightId, setHighlightId] = useState<string | null>(null)
+  const highlightRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    // 获取URL中的highlight参数
+    const highlight = searchParams.get('highlight')
+    if (highlight) {
+      setHighlightId(highlight)
+      // 3秒后清除高亮效果，但不改变URL
+      setTimeout(() => {
+        setHighlightId(null)
+        // 使用 window.history.replaceState 静默更新URL，不触发页面刷新
+        const url = new URL(window.location.href)
+        url.searchParams.delete('highlight')
+        window.history.replaceState({}, '', url.pathname + url.search)
+      }, 3000)
+    }
     loadRegistrations()
   }, [])
+
+  useEffect(() => {
+    // 当高亮元素加载后滚动到该位置
+    if (highlightId && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [highlightId, filteredRegistrations])
 
   useEffect(() => {
     filterRegistrations()
@@ -74,12 +104,13 @@ export default function MyRegistrationsPage() {
         .single()
 
       if (coach) {
-        // 获取报名记录
+        // 获取报名记录和报名设置
         const { data: regs } = await supabase
           .from('registrations')
           .select(`
             *,
             events (
+              id,
               name,
               start_date,
               end_date,
@@ -91,8 +122,25 @@ export default function MyRegistrationsPage() {
           .order('created_at', { ascending: false })
 
         if (regs) {
-          setRegistrations(regs)
+          // 获取每个赛事的报名设置
+          const eventIds = [...new Set(regs.map(r => r.event_id))]
+          const { data: settings } = await supabase
+            .from('registration_settings')
+            .select('event_id, team_requirements')
+            .in('event_id', eventIds)
+
+          // 合并报名设置到报名记录
+          const regsWithSettings = regs.map(reg => {
+            const setting = settings?.find(s => s.event_id === reg.event_id)
+            return {
+              ...reg,
+              registration_deadline: setting?.team_requirements?.registrationEndDate
+            }
+          })
+
+          setRegistrations(regsWithSettings)
         }
+
       }
     } catch (error) {
       console.error('加载报名记录失败:', error)
@@ -138,6 +186,72 @@ export default function MyRegistrationsPage() {
         {config.label}
       </Badge>
     )
+  }
+
+  const handleDeleteRegistration = async (registrationId: string, e: React.MouseEvent) => {
+    e.stopPropagation() // 阻止事件冒泡，避免触发卡片点击
+
+    if (!confirm('确认要删除这条报名信息吗？删除后需要重新填写。')) {
+      return
+    }
+
+    try {
+      const supabase = createClient()
+      const { error } = await supabase
+        .from('registrations')
+        .delete()
+        .eq('id', registrationId)
+
+      if (error) {
+        console.error('删除失败:', error)
+        alert('删除失败，请重试')
+      } else {
+        alert('删除成功')
+        // 重新加载报名数据
+        await loadRegistrations()
+      }
+    } catch (error) {
+      console.error('删除报名失败:', error)
+      alert('删除失败，请重试')
+    }
+  }
+
+  const handleCancelRegistration = async (registrationId: string, e: React.MouseEvent) => {
+    e.stopPropagation() // 阻止事件冒泡
+
+    if (!confirm('确认要取消这条已通过的报名吗？\n\n取消后：\n• 您的报名状态将变为"已取消"\n• 您将失去参赛资格\n• 报名信息会保留，您可以重新提交\n\n确定要继续吗？')) {
+      return
+    }
+
+    try {
+      const supabase = createClient()
+
+      // 更新状态为已取消
+      const { error } = await supabase
+        .from('registrations')
+        .update({
+          status: 'cancelled',
+          cancelled_at: new Date().toISOString()
+        })
+        .eq('id', registrationId)
+
+      if (error) {
+        console.error('取消报名失败:', error)
+        alert(`取消报名失败：${error.message || '请重试'}`)
+      } else {
+        alert('报名已取消，您可以在需要时重新提交')
+        // 重新加载报名数据
+        await loadRegistrations()
+      }
+    } catch (error) {
+      console.error('取消报名失败:', error)
+      alert('取消报名失败，请重试')
+    }
+  }
+
+  const handleEditRegistration = (eventId: string, registrationId: string, e: React.MouseEvent) => {
+    e.stopPropagation() // 阻止事件冒泡
+    router.push(`/portal/events/${eventId}/register?edit=${registrationId}`)
   }
 
   if (isLoading) {
@@ -204,42 +318,134 @@ export default function MyRegistrationsPage() {
         </Card>
       ) : (
         <div className="grid gap-4">
-          {filteredRegistrations.map((reg) => (
+          {filteredRegistrations.map((reg) => {
+            const isHighlighted = highlightId === reg.id
+            return (
             <Card
               key={reg.id}
-              className="cursor-pointer hover:shadow-md transition-shadow"
-              onClick={() => router.push(`/portal/events/${reg.event_id}`)}
+              ref={isHighlighted ? highlightRef : null}
+              className={`hover:shadow-md transition-all duration-500 ${
+                isHighlighted ? 'ring-2 ring-blue-500 ring-offset-2 bg-blue-50/50' : ''
+              }`}
             >
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-semibold">{reg.events?.name}</h3>
+                    <div className="flex items-center gap-3">
+                      <h3
+                        className="text-lg font-semibold cursor-pointer hover:text-blue-600 hover:underline transition-colors"
+                        onClick={() => router.push(`/portal/events/${reg.event_id}`)}
+                      >
+                        {reg.events?.name}
+                      </h3>
                       {getStatusBadge(reg.status)}
                       {reg.events?.type && (
                         <Badge variant="outline">{reg.events.type}</Badge>
                       )}
                     </div>
 
-                    {reg.team_data?.team_name && (
-                      <p className="text-sm text-muted-foreground mb-2">
-                        队伍名称: {reg.team_data.team_name}
-                      </p>
+                    {/* 显示团队信息的前三个字段 */}
+                    {reg.team_data && (
+                      <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mt-2">
+                        {Object.entries(reg.team_data)
+                          .filter(([key]) => key !== 'id' && key !== 'team_logo' && key !== 'logo') // 排除ID和图片字段
+                          .slice(0, 3) // 只取前3个字段
+                          .map(([key, value], index) => (
+                            <div key={key} className="flex items-center gap-1">
+                              {index > 0 && <span className="text-muted-foreground/50">•</span>}
+                              <span className="font-medium">
+                                {typeof value === 'string' || typeof value === 'number' ? value : '-'}
+                              </span>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 操作按钮 */}
+                  <div className="flex gap-2 ml-4">
+                    {/* 草稿状态 */}
+                    {reg.status === 'draft' && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => handleEditRegistration(reg.event_id, reg.id, e)}
+                        >
+                          继续编辑
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={(e) => handleDeleteRegistration(reg.id, e)}
+                        >
+                          删除
+                        </Button>
+                      </>
                     )}
 
-                    <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        {new Date(reg.events?.start_date).toLocaleDateString('zh-CN')} -
-                        {new Date(reg.events?.end_date).toLocaleDateString('zh-CN')}
-                      </span>
-                      {reg.events?.address && (
-                        <span className="flex items-center gap-1">
-                          <MapPin className="h-3 w-3" />
-                          {reg.events.address}
-                        </span>
-                      )}
-                    </div>
+                    {/* 已驳回状态 */}
+                    {reg.status === 'rejected' && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => handleEditRegistration(reg.event_id, reg.id, e)}
+                        >
+                          重新报名
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={(e) => handleDeleteRegistration(reg.id, e)}
+                        >
+                          删除
+                        </Button>
+                      </>
+                    )}
+
+                    {/* 已通过状态 */}
+                    {reg.status === 'approved' && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => handleEditRegistration(reg.event_id, reg.id, e)}
+                        >
+                          查看报名
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={(e) => handleCancelRegistration(reg.id, e)}
+                        >
+                          取消报名
+                        </Button>
+                      </>
+                    )}
+
+                    {/* 已取消状态 */}
+                    {reg.status === 'cancelled' && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => handleEditRegistration(reg.event_id, reg.id, e)}
+                        >
+                          重新报名
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={(e) => handleDeleteRegistration(reg.id, e)}
+                        >
+                          删除
+                        </Button>
+                      </>
+                    )}
+
+                    {/* 待审核状态 - 无按钮 */}
+                    {reg.status === 'submitted' && null}
                   </div>
                 </div>
 
@@ -254,17 +460,22 @@ export default function MyRegistrationsPage() {
 
                 {/* 时间信息 */}
                 <div className="flex items-center gap-4 text-xs text-muted-foreground pt-3 border-t">
-                  <span>创建时间: {new Date(reg.created_at).toLocaleString('zh-CN')}</span>
                   {reg.submitted_at && (
                     <span>提交时间: {new Date(reg.submitted_at).toLocaleString('zh-CN')}</span>
                   )}
                   {reg.reviewed_at && (
                     <span>审核时间: {new Date(reg.reviewed_at).toLocaleString('zh-CN')}</span>
                   )}
+                  {reg.registration_deadline && (
+                    <span className="text-orange-600">
+                      报名截止: {new Date(reg.registration_deadline).toLocaleString('zh-CN')}
+                    </span>
+                  )}
                 </div>
               </CardContent>
             </Card>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

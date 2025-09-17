@@ -717,15 +717,24 @@ export default function EventDetailPage() {
                             </>
                           )}
 
-                          {/* 已通过的可以取消报名 */}
+                          {/* 已通过的可以查看和取消报名 */}
                           {reg.status === 'approved' && (
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => handleCancelRegistration(reg.id)}
-                            >
-                              取消报名
-                            </Button>
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
+                              >
+                                查看报名
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => handleCancelRegistration(reg.id)}
+                              >
+                                取消报名
+                              </Button>
+                            </>
                           )}
 
                           {/* 已取消的可以重新报名和删除（类似已驳回） */}
