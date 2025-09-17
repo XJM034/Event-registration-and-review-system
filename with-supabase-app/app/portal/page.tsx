@@ -6,6 +6,7 @@ import Image from 'next/image'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   Table,
   TableBody,
@@ -14,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Search, Calendar, MapPin, Clock } from 'lucide-react'
+import { Search, Calendar, MapPin, Clock, FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 interface Event {
@@ -45,6 +46,8 @@ export default function PortalHomePage() {
   const [filteredEvents, setFilteredEvents] = useState<Event[]>([])
   const [searchKeyword, setSearchKeyword] = useState('')
   const [isLoading, setIsLoading] = useState(true)
+  const [showNoRegistrationDialog, setShowNoRegistrationDialog] = useState(false)
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchEvents()
@@ -97,9 +100,20 @@ export default function PortalHomePage() {
 
   const getRegistrationStatus = (event: any) => {
     // 从 registration_settings 中获取报名时间
-    const regStartDate = event.registration_settings?.team_requirements?.registrationStartDate
-    const regEndDate = event.registration_settings?.team_requirements?.registrationEndDate
-    
+    let teamReq = event.registration_settings?.team_requirements
+
+    // 如果 team_requirements 是字符串（JSON格式），需要解析
+    if (typeof teamReq === 'string') {
+      try {
+        teamReq = JSON.parse(teamReq)
+      } catch (e) {
+        console.error('解析 team_requirements 失败:', e)
+      }
+    }
+
+    const regStartDate = teamReq?.registrationStartDate
+    const regEndDate = teamReq?.registrationEndDate
+
     if (!regStartDate || !regEndDate) {
       return { canRegister: false, text: '未设置报名时间' }
     }
@@ -123,6 +137,60 @@ export default function PortalHomePage() {
 
   const handleEventClick = (event: Event) => {
     router.push(`/portal/events/${event.id}`)
+  }
+
+  const handleMyRegistrations = async (eventId: string, e: React.MouseEvent) => {
+    e.stopPropagation() // 阻止事件冒泡
+
+    try {
+      const supabase = createClient()
+
+      // 获取当前用户
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push('/auth/login')
+        return
+      }
+
+      // 获取教练信息
+      const { data: coach } = await supabase
+        .from('coaches')
+        .select('id')
+        .eq('auth_id', user.id)
+        .single()
+
+      if (!coach) {
+        alert('未找到教练信息')
+        return
+      }
+
+      // 检查是否有报名记录
+      const { data: registrations } = await supabase
+        .from('registrations')
+        .select('id')
+        .eq('event_id', eventId)
+        .eq('coach_id', coach.id)
+        .limit(1)
+
+      if (!registrations || registrations.length === 0) {
+        // 没有报名记录，显示提醒弹窗
+        setSelectedEventId(eventId)
+        setShowNoRegistrationDialog(true)
+      } else {
+        // 有报名记录，跳转到详情页的"我的报名"标签
+        router.push(`/portal/events/${eventId}?tab=status`)
+      }
+    } catch (error) {
+      console.error('检查报名记录失败:', error)
+      alert('操作失败，请重试')
+    }
+  }
+
+  const handleNewRegistration = () => {
+    if (selectedEventId) {
+      router.push(`/portal/events/${selectedEventId}/register?new=true`)
+    }
+    setShowNoRegistrationDialog(false)
   }
 
   if (isLoading) {
@@ -170,12 +238,13 @@ export default function PortalHomePage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-20"></TableHead>
+                <TableHead></TableHead>
                 <TableHead>名称</TableHead>
                 <TableHead>类型</TableHead>
                 <TableHead>状态</TableHead>
-                <TableHead>时间</TableHead>
-                <TableHead className="w-32"></TableHead>
+                <TableHead>比赛时间</TableHead>
+                <TableHead>比赛地点</TableHead>
+                <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -207,12 +276,7 @@ export default function PortalHomePage() {
                     </TableCell>
                     
                     <TableCell>
-                      <div>
-                        <div className="font-medium">{event.name}</div>
-                        {event.short_name && (
-                          <div className="text-sm text-gray-500">{event.short_name}</div>
-                        )}
-                      </div>
+                      <div className="font-medium">{event.name}</div>
                     </TableCell>
                     
                     <TableCell>{event.type}</TableCell>
@@ -223,15 +287,15 @@ export default function PortalHomePage() {
                     
                     <TableCell>
                       <div className="text-sm">
-                        <div className="flex items-center space-x-1">
-                          <Clock className="h-3 w-3" />
-                          <span>{formatDate(event.start_date)}</span>
-                        </div>
-                        <div className="text-gray-500">至 {formatDate(event.end_date)}</div>
+                        {formatDate(event.start_date)} ~ {formatDate(event.end_date)}
                       </div>
                     </TableCell>
-                    
+
                     <TableCell>
+                      {event.address || '-'}
+                    </TableCell>
+
+                    <TableCell className="text-center">
                       <Button
                         size="sm"
                         variant={regStatus.canRegister ? "default" : "outline"}
@@ -255,6 +319,26 @@ export default function PortalHomePage() {
           </Table>
         </div>
       )}
+
+      {/* 未报名提醒弹窗 */}
+      <Dialog open={showNoRegistrationDialog} onOpenChange={setShowNoRegistrationDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>提示</DialogTitle>
+            <DialogDescription>
+              您还没有报名该赛事，请先创建报名信息。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNoRegistrationDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={handleNewRegistration}>
+              新建报名
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

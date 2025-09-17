@@ -1,12 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Calendar, MapPin, Phone, Clock, Users, ArrowLeft, FileText, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -59,15 +58,13 @@ interface Registration {
 export default function EventDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const eventId = params.id as string
 
   const [event, setEvent] = useState<Event | null>(null)
   const [registration, setRegistration] = useState<Registration | null>(null)
   const [allRegistrations, setAllRegistrations] = useState<Registration[]>([])  // 存储所有报名记录
   const [isLoading, setIsLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('info')
-  const [hasUnread, setHasUnread] = useState(false)
-  const [unreadRegistrations, setUnreadRegistrations] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (eventId) {
@@ -94,28 +91,6 @@ export default function EventDetailPage() {
 
     return () => clearInterval(interval)
   }, [eventId])
-
-  // 当所有报名记录变化时，重新计算未读消息
-  useEffect(() => {
-    if (allRegistrations && allRegistrations.length > 0) {
-      const unreadSet = new Set<string>()
-      let hasAnyUnread = false
-
-      allRegistrations.forEach(reg => {
-        const isUnread = checkUnreadStatus(reg)
-        if (isUnread) {
-          unreadSet.add(reg.id)
-          hasAnyUnread = true
-        }
-      })
-
-      setUnreadRegistrations(unreadSet)
-      setHasUnread(hasAnyUnread)
-    } else {
-      setUnreadRegistrations(new Set())
-      setHasUnread(false)
-    }
-  }, [allRegistrations])
 
   const fetchEventDetails = async () => {
     try {
@@ -219,10 +194,21 @@ export default function EventDetailPage() {
   // 右上角按钮逻辑：只判断是否可以新建报名，不考虑现有报名状态
   const getNewRegistrationStatus = () => {
     if (!event) return null
-    
-    const regStartDate = event.registration_settings?.team_requirements?.registrationStartDate
-    const regEndDate = event.registration_settings?.team_requirements?.registrationEndDate
-    
+
+    let teamReq = event.registration_settings?.team_requirements
+
+    // 如果 team_requirements 是字符串（JSON格式），需要解析
+    if (typeof teamReq === 'string') {
+      try {
+        teamReq = JSON.parse(teamReq)
+      } catch (e) {
+        console.error('解析 team_requirements 失败:', e)
+      }
+    }
+
+    const regStartDate = teamReq?.registrationStartDate
+    const regEndDate = teamReq?.registrationEndDate
+
     if (!regStartDate || !regEndDate) {
       return { canRegister: false, text: '未设置报名时间', variant: 'secondary' as const }
     }
@@ -241,21 +227,13 @@ export default function EventDetailPage() {
   }
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('zh-CN', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    })
+    const date = new Date(dateString)
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
   }
 
   const formatDateTime = (dateString: string) => {
-    return new Date(dateString).toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    const date = new Date(dateString)
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
   }
 
   const handleRegister = () => {
@@ -268,98 +246,6 @@ export default function EventDetailPage() {
     router.push(`/portal/events/${eventId}/register`)
   }
 
-  // 检查单个报名是否有未读状态
-  const checkUnreadStatus = (reg: Registration) => {
-    // 使用 last_status_change 或 reviewed_at 作为状态变更时间
-    const statusChangeTime = reg.last_status_change || reg.reviewed_at
-
-    console.log('检查未读状态:', {
-      status: reg.status,
-      last_status_change: reg.last_status_change,
-      reviewed_at: reg.reviewed_at,
-      last_status_read_at: reg.last_status_read_at,
-      submitted_at: reg.submitted_at,
-      statusChangeTime
-    })
-
-    if (!statusChangeTime) return false
-
-    const changeTime = new Date(statusChangeTime).getTime()
-
-    if (reg.status === 'rejected') {
-      // 驳回消息：检查是否有重新提交（submitted_at 晚于状态变更时间）
-      if (reg.submitted_at) {
-        const lastSubmitTime = new Date(reg.submitted_at).getTime()
-        // 如果重新提交时间晚于状态变更时间，说明已经重新报名了，取消未读
-        const result = lastSubmitTime > changeTime ? false : true
-        console.log('驳回状态未读计算:', { lastSubmitTime, changeTime, result })
-        return result
-      }
-      return true // 被驳回但未重新提交，显示未读
-    } else if (reg.status === 'approved') {
-      // 通过消息：检查是否点击查看过
-      if (!reg.last_status_read_at) {
-        console.log('通过状态 - 从未查看过，显示未读')
-        return true // 从未查看过，显示未读
-      }
-      const lastReadTime = new Date(reg.last_status_read_at).getTime()
-      // 使用状态变更时间与上次阅读时间比较
-      const result = changeTime > lastReadTime
-      console.log('通过状态未读计算:', { changeTime, lastReadTime, result })
-      return result
-    }
-
-    return false
-  }
-
-  // 标记状态为已读（对通过和驳回状态都有效）
-  const markStatusAsRead = async (registrationId: string) => {
-    const reg = allRegistrations.find(r => r.id === registrationId)
-    if (!reg || (reg.status !== 'approved' && reg.status !== 'rejected')) {
-      return // 只对通过和驳回状态的消息进行已读标记
-    }
-
-    try {
-      const supabase = createClient()
-      const currentTime = new Date().toISOString()
-
-      // 更新数据库
-      const { error } = await supabase
-        .from('registrations')
-        .update({
-          last_status_read_at: currentTime
-        })
-        .eq('id', registrationId)
-
-      if (error) {
-        console.error('更新已读状态失败:', error)
-        return
-      }
-
-      // 立即更新本地状态
-      setUnreadRegistrations(prev => {
-        const newSet = new Set(prev)
-        newSet.delete(registrationId)
-        return newSet
-      })
-
-      // 检查是否还有其他未读
-      if (unreadRegistrations.size <= 1) {
-        setHasUnread(false)
-      }
-
-      // 更新本地记录
-      setAllRegistrations(prev => prev.map(r =>
-        r.id === registrationId
-          ? { ...r, last_status_read_at: currentTime }
-          : r
-      ))
-
-      console.log('已读状态更新成功:', { registrationId, time: currentTime })
-    } catch (error) {
-      console.error('标记已读失败:', error)
-    }
-  }
 
   // 我的报名标签页的状态逻辑：基于现有报名状态显示不同操作
   const getMyRegistrationStatus = () => {
@@ -511,20 +397,10 @@ export default function EventDetailPage() {
           <ArrowLeft className="h-4 w-4" />
           返回赛事列表
         </Button>
-        
-        {newRegStatus && (
-          <Button
-            variant={newRegStatus.canRegister ? 'default' : 'outline'}
-            onClick={handleRegister}
-            disabled={!newRegStatus.canRegister}
-          >
-            {newRegStatus.text}
-          </Button>
-        )}
       </div>
 
-      {/* 赛事信息卡片 */}
-      <Card>
+      {/* 赛事信息卡片 - 包含所有赛事相关信息 */}
+      <Card className="mb-6">
         <CardContent className="p-6">
           <div className="flex gap-6">
             {/* 海报 */}
@@ -539,108 +415,135 @@ export default function EventDetailPage() {
                 />
               </div>
             )}
-            
+
             {/* 基本信息 */}
-            <div className="flex-1 space-y-4">
-              <div>
-                <h1 className="text-2xl font-bold">{event.name}</h1>
-                {event.short_name && (
-                  <p className="text-gray-600">{event.short_name}</p>
-                )}
-              </div>
-              
-              <div className="flex gap-2">
-                <Badge>{event.type}</Badge>
-                {eventStatus && (
-                  <Badge variant={eventStatus.variant}>{eventStatus.text}</Badge>
-                )}
-              </div>
-              
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-gray-400" />
-                  <span>比赛时间：{formatDate(event.start_date)} 至 {formatDate(event.end_date)}</span>
+            <div className="flex-1">
+              <div className="space-y-4">
+                <div>
+                  <h1 className="text-2xl font-bold">{event.name}</h1>
+                  {event.short_name && (
+                    <p className="text-gray-600">{event.short_name}</p>
+                  )}
                 </div>
-                
-                {event.registration_settings?.team_requirements?.registrationStartDate && (
-                  <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-gray-400" />
-                    <span>
-                      报名时间：
-                      {formatDateTime(event.registration_settings.team_requirements.registrationStartDate)} 至 {' '}
-                      {formatDateTime(event.registration_settings.team_requirements.registrationEndDate!)}
-                    </span>
+
+                <div className="flex gap-2">
+                  <Badge>{event.type}</Badge>
+                  {eventStatus && (
+                    <Badge variant={eventStatus.variant}>{eventStatus.text}</Badge>
+                  )}
+                </div>
+
+                {/* 使用两列布局 */}
+                <div className="grid grid-cols-2 gap-4">
+                  {/* 左列：比赛时间和报名时间 */}
+                  <div className="space-y-3 text-sm">
+                    <div className="flex items-start gap-2">
+                      <Calendar className="h-4 w-4 text-gray-400 mt-0.5" />
+                      <div>
+                        <div>比赛时间</div>
+                        <div className="text-gray-600">{formatDate(event.start_date)} ~ {formatDate(event.end_date)}</div>
+                      </div>
+                    </div>
+
+                    {(() => {
+                      let teamReq = event.registration_settings?.team_requirements
+                      if (typeof teamReq === 'string') {
+                        try {
+                          teamReq = JSON.parse(teamReq)
+                        } catch (e) {
+                          return null
+                        }
+                      }
+
+                      if (teamReq?.registrationStartDate && teamReq?.registrationEndDate) {
+                        return (
+                          <div className="flex items-start gap-2">
+                            <Clock className="h-4 w-4 text-gray-400 mt-0.5" />
+                            <div>
+                              <div>报名时间</div>
+                              <div className="text-gray-600">
+                                {formatDateTime(teamReq.registrationStartDate)} ~ {formatDateTime(teamReq.registrationEndDate)}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
                   </div>
-                )}
-                
-                {event.address && (
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-gray-400" />
-                    <span>比赛地点：{event.address}</span>
+
+                  {/* 右列：比赛地点和咨询方式 */}
+                  <div className="space-y-3 text-sm">
+                    {event.address && (
+                      <div className="flex items-start gap-2">
+                        <MapPin className="h-4 w-4 text-gray-400 mt-0.5" />
+                        <div>
+                          <div>比赛地点</div>
+                          <div className="text-gray-600">{event.address}</div>
+                        </div>
+                      </div>
+                    )}
+
+                    {event.phone && (
+                      <div className="flex items-start gap-2">
+                        <Phone className="h-4 w-4 text-gray-400 mt-0.5" />
+                        <div>
+                          <div>咨询方式</div>
+                          <div className="text-gray-600">{event.phone}</div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-                
-                {event.phone && (
-                  <div className="flex items-center gap-2">
-                    <Phone className="h-4 w-4 text-gray-400" />
-                    <span>咨询方式：{event.phone}</span>
-                  </div>
-                )}
+                </div>
               </div>
+
+              {/* 赛事详情 */}
+              {event.details && (
+                <div className="border-t pt-4 mt-4">
+                  <h3 className="font-semibold mb-2">赛事介绍</h3>
+                  <div className="text-sm text-gray-600 whitespace-pre-wrap">
+                    {event.details}
+                  </div>
+                </div>
+              )}
+
+              {/* 报名要求 */}
+              {event.requirements && (
+                <div className="border-t pt-4 mt-4">
+                  <h3 className="font-semibold mb-2">报名要求</h3>
+                  <div className="text-sm text-gray-600 whitespace-pre-wrap">
+                    {event.requirements}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* 详细信息标签页 */}
+      {/* 我的报名卡片 */}
       <Card>
-        <CardContent className="p-6">
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="info">赛事详情</TabsTrigger>
-              <TabsTrigger value="requirements">报名要求</TabsTrigger>
-              <TabsTrigger
-                value="status"
-                className="relative"
-                onClick={async () => {
-                  // 标记所有未读消息为已读
-                  for (const regId of unreadRegistrations) {
-                    await markStatusAsRead(regId)
-                  }
-                }}
+        <CardHeader className="relative pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg">我的报名{allRegistrations.length > 0 && `（${allRegistrations.length}）`}</CardTitle>
+              <CardDescription className="mt-1">查看和管理您的报名信息</CardDescription>
+            </div>
+            {newRegStatus && (
+              <Button
+                variant={newRegStatus.canRegister ? 'default' : 'outline'}
+                onClick={handleRegister}
+                disabled={!newRegStatus.canRegister}
+                size="sm"
               >
-                我的报名
-                {hasUnread && (
-                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full shadow-lg animate-pulse border border-white"></span>
-                )}
-              </TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="info" className="mt-6">
-              <div className="prose max-w-none">
-                <h3 className="text-lg font-semibold mb-4">赛事介绍</h3>
-                <div className="whitespace-pre-wrap text-gray-600">
-                  {event.details || '暂无详细介绍'}
-                </div>
-              </div>
-            </TabsContent>
-            
-            <TabsContent value="requirements" className="mt-6">
-              <div className="prose max-w-none">
-                <h3 className="text-lg font-semibold mb-4">报名要求说明</h3>
-                <div className="whitespace-pre-wrap text-gray-600">
-                  {event.requirements || '暂无报名要求说明'}
-                </div>
-              </div>
-            </TabsContent>
-            
-            <TabsContent value="status" className="mt-6">
+                {newRegStatus.text}
+              </Button>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="pt-3 px-6 pb-6">
               {allRegistrations.length > 0 ? (
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">我的报名记录 ({allRegistrations.length})</h3>
-                  </div>
-
                   {/* 显示所有报名记录，按审核时间排序（最新的在前） */}
                   {allRegistrations
                     .sort((a, b) => {
@@ -651,10 +554,6 @@ export default function EventDetailPage() {
                     })
                     .map((reg, index) => (
                     <div key={reg.id} className="border rounded-lg p-4 space-y-3 relative">
-                      {/* 未读标记 */}
-                      {unreadRegistrations.has(reg.id) && (
-                        <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full shadow-lg animate-pulse border border-white"></span>
-                      )}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-gray-500">报名 {index + 1}</span>
@@ -692,7 +591,7 @@ export default function EventDetailPage() {
                                 variant="destructive"
                                 onClick={() => handleDeleteRegistration(reg.id)}
                               >
-                                删除
+                                删除报名
                               </Button>
                             </>
                           )}
@@ -712,7 +611,7 @@ export default function EventDetailPage() {
                                 variant="destructive"
                                 onClick={() => handleDeleteRegistration(reg.id)}
                               >
-                                删除
+                                删除报名
                               </Button>
                             </>
                           )}
@@ -752,7 +651,27 @@ export default function EventDetailPage() {
                                 variant="destructive"
                                 onClick={() => handleDeleteRegistration(reg.id)}
                               >
-                                删除
+                                删除报名
+                              </Button>
+                            </>
+                          )}
+
+                          {/* 待审核状态 - 可以查看和取消 */}
+                          {reg.status === 'pending' && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
+                              >
+                                查看报名
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => handleCancelRegistration(reg.id)}
+                              >
+                                取消报名
                               </Button>
                             </>
                           )}
@@ -837,8 +756,6 @@ export default function EventDetailPage() {
                   )}
                 </div>
               )}
-            </TabsContent>
-          </Tabs>
         </CardContent>
       </Card>
     </div>

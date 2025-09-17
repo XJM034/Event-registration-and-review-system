@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { useNotification } from '@/contexts/notification-context'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -20,6 +21,7 @@ import {
 
 export default function MyPage() {
   const router = useRouter()
+  const { unreadCount, refreshUnreadCount } = useNotification()
   const [user, setUser] = useState<any>(null)
   const [coach, setCoach] = useState<any>(null)
   const [stats, setStats] = useState({
@@ -32,7 +34,17 @@ export default function MyPage() {
 
   useEffect(() => {
     loadUserData()
+    // 刷新未读消息数
+    refreshUnreadCount()
   }, [])
+
+  useEffect(() => {
+    // 当unreadCount变化时，更新统计数据
+    setStats(prev => ({
+      ...prev,
+      unreadNotifications: unreadCount
+    }))
+  }, [unreadCount])
 
   const loadUserData = async () => {
     try {
@@ -66,13 +78,14 @@ export default function MyPage() {
 
         if (registrations) {
           const approved = registrations.filter(r => r.status === 'approved').length
-          const pending = registrations.filter(r => r.status === 'submitted').length
+          // 待审核包括 submitted 和 pending 两种状态
+          const pending = registrations.filter(r => r.status === 'submitted' || r.status === 'pending').length
 
           setStats({
             totalRegistrations: registrations.length,
             approvedRegistrations: approved,
             pendingRegistrations: pending,
-            unreadNotifications: 0 // 这个可以从notifications表获取
+            unreadNotifications: unreadCount // 使用context中的未读数
           })
         }
       }

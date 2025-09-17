@@ -25,7 +25,7 @@ interface Registration {
   event_id: string
   team_data: any
   players_data: any
-  status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'cancelled'
+  status: 'draft' | 'submitted' | 'pending' | 'approved' | 'rejected' | 'cancelled'
   rejection_reason?: string
   submitted_at?: string
   reviewed_at?: string
@@ -132,9 +132,20 @@ export default function MyRegistrationsPage() {
           // 合并报名设置到报名记录
           const regsWithSettings = regs.map(reg => {
             const setting = settings?.find(s => s.event_id === reg.event_id)
+            let teamReq = setting?.team_requirements
+
+            // 如果 team_requirements 是字符串（JSON格式），需要解析
+            if (typeof teamReq === 'string') {
+              try {
+                teamReq = JSON.parse(teamReq)
+              } catch (e) {
+                console.error('解析 team_requirements 失败:', e)
+              }
+            }
+
             return {
               ...reg,
-              registration_deadline: setting?.team_requirements?.registrationEndDate
+              registration_deadline: teamReq?.registrationEndDate
             }
           })
 
@@ -160,9 +171,14 @@ export default function MyRegistrationsPage() {
       )
     }
 
-    // 状态过滤
+    // 状态过滤 - 处理 pending 和 submitted 作为同一种状态
     if (statusFilter !== 'all') {
-      filtered = filtered.filter(reg => reg.status === statusFilter)
+      if (statusFilter === 'submitted') {
+        // 如果筛选"待审核"，同时匹配 submitted 和 pending
+        filtered = filtered.filter(reg => reg.status === 'submitted' || reg.status === 'pending')
+      } else {
+        filtered = filtered.filter(reg => reg.status === statusFilter)
+      }
     }
 
     setFilteredRegistrations(filtered)
@@ -172,6 +188,7 @@ export default function MyRegistrationsPage() {
     const statusConfig = {
       draft: { label: '草稿', variant: 'secondary' as const, icon: FileText },
       submitted: { label: '待审核', variant: 'default' as const, icon: Clock },
+      pending: { label: '待审核', variant: 'default' as const, icon: Clock }, // 处理 pending 状态
       approved: { label: '已通过', variant: 'success' as const, icon: CheckCircle },
       rejected: { label: '已驳回', variant: 'destructive' as const, icon: XCircle },
       cancelled: { label: '已取消', variant: 'outline' as const, icon: AlertCircle }
@@ -379,7 +396,7 @@ export default function MyRegistrationsPage() {
                           variant="destructive"
                           onClick={(e) => handleDeleteRegistration(reg.id, e)}
                         >
-                          删除
+                          删除报名
                         </Button>
                       </>
                     )}
@@ -399,7 +416,7 @@ export default function MyRegistrationsPage() {
                           variant="destructive"
                           onClick={(e) => handleDeleteRegistration(reg.id, e)}
                         >
-                          删除
+                          删除报名
                         </Button>
                       </>
                     )}
@@ -439,13 +456,30 @@ export default function MyRegistrationsPage() {
                           variant="destructive"
                           onClick={(e) => handleDeleteRegistration(reg.id, e)}
                         >
-                          删除
+                          删除报名
                         </Button>
                       </>
                     )}
 
-                    {/* 待审核状态 - 无按钮 */}
-                    {reg.status === 'submitted' && null}
+                    {/* 待审核状态 */}
+                    {(reg.status === 'submitted' || reg.status === 'pending') && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => handleEditRegistration(reg.event_id, reg.id, e)}
+                        >
+                          查看报名
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={(e) => handleCancelRegistration(reg.id, e)}
+                        >
+                          取消报名
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
 

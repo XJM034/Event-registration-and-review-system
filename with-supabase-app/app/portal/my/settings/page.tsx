@@ -8,8 +8,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Switch } from '@/components/ui/switch'
-import { Separator } from '@/components/ui/separator'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import {
@@ -19,7 +17,6 @@ import {
   Building,
   Lock,
   Shield,
-  Bell,
   Eye,
   EyeOff,
   LogOut,
@@ -51,14 +48,6 @@ export default function AccountSettingsPage() {
   })
   const [showPassword, setShowPassword] = useState(false)
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false)
-
-  // 通知设置
-  const [notificationSettings, setNotificationSettings] = useState({
-    emailNotifications: true,
-    registrationUpdates: true,
-    eventUpdates: true,
-    systemNotices: true
-  })
 
   // 账号注销
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -286,70 +275,6 @@ export default function AccountSettingsPage() {
               </div>
             </div>
             <Badge variant="secondary">已验证</Badge>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 通知设置 */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Bell className="h-5 w-5" />
-            通知设置
-          </CardTitle>
-          <CardDescription>选择您想要接收的通知类型</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>邮件通知</Label>
-              <p className="text-sm text-muted-foreground">通过邮件接收重要通知</p>
-            </div>
-            <Switch
-              checked={notificationSettings.emailNotifications}
-              onCheckedChange={(checked) =>
-                setNotificationSettings(prev => ({ ...prev, emailNotifications: checked }))
-              }
-            />
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>报名状态更新</Label>
-              <p className="text-sm text-muted-foreground">报名审核结果通知</p>
-            </div>
-            <Switch
-              checked={notificationSettings.registrationUpdates}
-              onCheckedChange={(checked) =>
-                setNotificationSettings(prev => ({ ...prev, registrationUpdates: checked }))
-              }
-            />
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>赛事信息更新</Label>
-              <p className="text-sm text-muted-foreground">赛事时间、地点变更通知</p>
-            </div>
-            <Switch
-              checked={notificationSettings.eventUpdates}
-              onCheckedChange={(checked) =>
-                setNotificationSettings(prev => ({ ...prev, eventUpdates: checked }))
-              }
-            />
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>系统公告</Label>
-              <p className="text-sm text-muted-foreground">系统维护和更新通知</p>
-            </div>
-            <Switch
-              checked={notificationSettings.systemNotices}
-              onCheckedChange={(checked) =>
-                setNotificationSettings(prev => ({ ...prev, systemNotices: checked }))
-              }
-            />
           </div>
         </CardContent>
       </Card>

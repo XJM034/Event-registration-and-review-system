@@ -26,7 +26,8 @@ import {
   AlertCircle,
   Share2,
   Copy,
-  Check
+  Check,
+  Clock
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import Image from 'next/image'
@@ -551,9 +552,14 @@ export default function RegisterPage() {
       return
     }
 
-    // 检查是否是已通过状态
+    // 检查是否是已通过或待审核状态
     if (registration?.status === 'approved') {
       alert('已报名成功，无法保存草稿。请取消报名后再进行相应的操作。')
+      return
+    }
+
+    if (registration?.status === 'pending' || registration?.status === 'submitted') {
+      alert('报名正在审核中，无法保存草稿。请取消报名后再进行相应的操作。')
       return
     }
 
@@ -620,9 +626,14 @@ export default function RegisterPage() {
       return
     }
 
-    // 检查是否是已通过状态
+    // 检查是否是已通过或待审核状态
     if (registration?.status === 'approved') {
       alert('已报名成功，无法重复提交报名。请取消报名后再进行相应的操作。')
+      return
+    }
+
+    if (registration?.status === 'pending' || registration?.status === 'submitted') {
+      alert('报名正在审核中，无法重复提交。请取消报名后再进行相应的操作。')
       return
     }
 
@@ -812,6 +823,19 @@ export default function RegisterPage() {
             <div>
               <h3 className="font-semibold text-green-800">报名已通过审核</h3>
               <p className="text-green-600 mt-1">当前为查看模式，无法修改或重新提交</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 待审核提示 */}
+      {(registration?.status === 'pending' || registration?.status === 'submitted') && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-start gap-2">
+            <Clock className="h-5 w-5 text-blue-600 mt-0.5" />
+            <div>
+              <h3 className="font-semibold text-blue-800">报名正在审核中</h3>
+              <p className="text-blue-600 mt-1">当前为查看模式，无法修改或重新提交</p>
             </div>
           </div>
         </div>
