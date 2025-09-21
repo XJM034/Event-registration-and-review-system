@@ -16,12 +16,19 @@ export interface Event {
   type: string;
   start_date: string;
   end_date: string;
+  registration_start_date?: string;
+  registration_end_date?: string;
+  review_end_date?: string;
   address?: string;
   details?: string;
   phone?: string;
   is_visible: boolean;
   created_at: string;
   updated_at: string;
+  registration_settings?: {
+    team_requirements?: any;
+    player_requirements?: any;
+  };
 }
 
 export interface RegistrationSettings {

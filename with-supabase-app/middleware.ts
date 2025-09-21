@@ -153,6 +153,7 @@ export async function middleware(request: NextRequest) {
       if (!coachSession) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
+      console.log('Coach authenticated for API access')
     }
     // 其他 API 路径根据需要检查
     return response

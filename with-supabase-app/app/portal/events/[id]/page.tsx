@@ -26,6 +26,7 @@ interface Event {
     team_requirements?: {
       registrationStartDate?: string
       registrationEndDate?: string
+      reviewEndDate?: string  // 新增：审核结束时间
       commonFields?: any[]
       customFields?: any[]
     }
@@ -68,10 +69,39 @@ export default function EventDetailPage() {
 
   useEffect(() => {
     if (eventId) {
-      fetchEventDetails()
-      checkRegistration()
+      // 添加小延迟以确保认证状态已建立
+      const timer = setTimeout(() => {
+        fetchEventDetails()
+        checkRegistration()
+      }, 100)
+
+      return () => clearTimeout(timer)
     }
   }, [eventId])
+
+  // 处理滚动到"我的报名"部分
+  useEffect(() => {
+    const scrollTo = searchParams.get('scrollTo')
+    if (scrollTo === 'my-registration' && !isLoading && event) {
+      // 等待页面渲染完成后再滚动
+      const scrollTimer = setTimeout(() => {
+        const element = document.getElementById('my-registration-section')
+        console.log('Scrolling to my-registration-section:', element)
+        if (element) {
+          // 获取元素位置并滚动
+          const elementPosition = element.getBoundingClientRect().top + window.pageYOffset
+          window.scrollTo({
+            top: elementPosition - 100, // 留出顶部导航栏的空间
+            behavior: 'smooth'
+          })
+        } else {
+          console.error('Element with id "my-registration-section" not found')
+        }
+      }, 800) // 增加延迟确保页面完全渲染
+
+      return () => clearTimeout(scrollTimer)
+    }
+  }, [searchParams, isLoading, event])
 
   // 监听页面获得焦点，重新检查报名状态（用于从报名页面返回时更新状态）
   useEffect(() => {
@@ -92,21 +122,98 @@ export default function EventDetailPage() {
     return () => clearInterval(interval)
   }, [eventId])
 
-  const fetchEventDetails = async () => {
+  const fetchEventDetails = async (retryCount = 0) => {
     try {
-      // 获取赛事详情
-      const response = await fetch(`/api/portal/events`)
-      const result = await response.json()
-      
-      if (result.success) {
-        const eventData = result.data.find((e: Event) => e.id === eventId)
-        if (eventData) {
-          setEvent(eventData)
+      // 首先检查用户session
+      const supabase = createClient()
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+
+      // 如果获取session出错，重试一次
+      if (sessionError && retryCount < 1) {
+        console.log('Session error, retrying in 500ms...')
+        setTimeout(() => fetchEventDetails(retryCount + 1), 500)
+        return
+      }
+
+      if (!session) {
+        // 没有session时也尝试重试一次，可能是初始化延迟
+        if (retryCount < 1) {
+          console.log('No session yet, retrying in 500ms...')
+          setTimeout(() => fetchEventDetails(retryCount + 1), 500)
+          return
         }
+        console.error('No session found after retry, redirecting to login')
+        router.push('/auth/login')
+        return
+      }
+
+      // 直接获取单个赛事详情，而不是获取所有赛事
+      const response = await fetch(`/api/portal/events/${eventId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include' // 确保包含cookies
+      })
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          console.error('Unauthorized, redirecting to login')
+          router.push('/auth/login')
+          return
+        }
+        if (response.status === 404) {
+          // 404错误时也尝试重试一次，可能是认证状态问题
+          if (retryCount < 1) {
+            console.log('Event not found, retrying in 1 second...')
+            setTimeout(() => fetchEventDetails(retryCount + 1), 1000)
+            return
+          }
+          console.error('Event not found or not visible after retry')
+          setEvent(null)
+          setIsLoading(false)
+          return
+        }
+        if (response.status === 503) {
+          console.error('Service temporarily unavailable')
+          if (retryCount < 2) {
+            console.log(`Service unavailable, retrying in ${(retryCount + 1) * 2} seconds...`)
+            setTimeout(() => fetchEventDetails(retryCount + 1), (retryCount + 1) * 2000)
+            return
+          }
+        }
+        console.error(`HTTP error! status: ${response.status}`)
+        setEvent(null)
+        setIsLoading(false)
+        return
+      }
+
+      const result = await response.json()
+
+      if (result.success && result.data) {
+        console.log('Event data loaded successfully:', {
+          id: result.data.id,
+          name: result.data.name,
+          hasRegistrationSettings: !!result.data.registration_settings,
+          registrationSettings: result.data.registration_settings
+        })
+
+        setEvent(result.data)
+      } else {
+        console.error('API returned error:', result.error || '赛事未找到')
+        setEvent(null)
       }
     } catch (error) {
       console.error('获取赛事详情失败:', error)
+
+      // 网络错误时重试
+      if (retryCount < 2) {
+        console.log('Network error, retrying in 3 seconds...')
+        setTimeout(() => fetchEventDetails(retryCount + 1), 3000)
+        return
+      }
     } finally {
+      // 确保加载状态结束
       setIsLoading(false)
     }
   }
@@ -177,27 +284,27 @@ export default function EventDetailPage() {
 
   const getEventStatus = () => {
     if (!event) return null
-    
+
     const now = new Date()
     const start = new Date(event.start_date)
     const end = new Date(event.end_date)
 
     if (now < start) {
-      return { text: '未开始', variant: 'secondary' as const }
+      return { text: '比赛未开始', variant: 'secondary' as const }
     } else if (now <= end) {
-      return { text: '进行中', variant: 'default' as const }
+      return { text: '比赛进行中', variant: 'default' as const }
     } else {
-      return { text: '已结束', variant: 'destructive' as const }
+      return { text: '比赛已结束', variant: 'destructive' as const }
     }
   }
 
-  // 右上角按钮逻辑：只判断是否可以新建报名，不考虑现有报名状态
-  const getNewRegistrationStatus = () => {
-    if (!event) return null
+  // 判断赛事是否已结束
+  const isEventEnded = () => {
+    if (!event) return false
+    const now = new Date()
 
+    // 获取报名相关时间
     let teamReq = event.registration_settings?.team_requirements
-
-    // 如果 team_requirements 是字符串（JSON格式），需要解析
     if (typeof teamReq === 'string') {
       try {
         teamReq = JSON.parse(teamReq)
@@ -206,23 +313,132 @@ export default function EventDetailPage() {
       }
     }
 
-    const regStartDate = teamReq?.registrationStartDate
     const regEndDate = teamReq?.registrationEndDate
+    const reviewEndDate = teamReq?.reviewEndDate
 
+    // 检查是否报名截止（超过审核结束时间或报名结束时间）
+    if (regEndDate) {
+      const regEnd = new Date(regEndDate)
+      if (reviewEndDate) {
+        const reviewEnd = new Date(reviewEndDate)
+        return now > reviewEnd  // 超过审核结束时间
+      }
+      return now > regEnd  // 没有审核结束时间但超过报名结束时间
+    }
+
+    // 如果没有设置报名时间，直接返回true（报名截止）
+    return true
+  }
+
+  // 右上角按钮逻辑：只判断是否可以新建报名，不考虑现有报名状态
+  const getNewRegistrationStatus = () => {
+    // 如果事件数据还未加载完成，返回加载状态而不是错误状态
+    if (!event) {
+      return { canRegister: false, text: '加载中...', variant: 'secondary' as const, inReviewPeriod: false }
+    }
+
+    // 检查是否存在 registration_settings
+    if (!event.registration_settings) {
+      console.warn('Registration settings not found for event:', event.id)
+      return { canRegister: false, text: '未设置报名时间', variant: 'secondary' as const, inReviewPeriod: false }
+    }
+
+    let teamReq = event.registration_settings.team_requirements
+
+    // 调试：打印原始数据
+    console.log('Team Requirements Raw Data:', {
+      type: typeof teamReq,
+      value: teamReq
+    })
+
+    // 处理各种可能的数据格式
+    if (typeof teamReq === 'string') {
+      // 处理空字符串情况
+      if (!teamReq.trim()) {
+        console.warn('Empty team_requirements string for event:', event.id)
+        return { canRegister: false, text: '未设置报名时间', variant: 'secondary' as const, inReviewPeriod: false }
+      }
+
+      try {
+        teamReq = JSON.parse(teamReq)
+        console.log('Team Requirements After Parse:', teamReq)
+      } catch (e) {
+        console.error('解析 team_requirements 失败:', e, 'Raw data:', teamReq)
+        return { canRegister: false, text: '报名设置格式错误', variant: 'secondary' as const, inReviewPeriod: false }
+      }
+    }
+
+    // 确保 teamReq 是对象类型
+    if (!teamReq || typeof teamReq !== 'object') {
+      console.warn('Invalid team_requirements format for event:', event.id, 'Data:', teamReq)
+      return { canRegister: false, text: '未设置报名时间', variant: 'secondary' as const, inReviewPeriod: false }
+    }
+
+    const regStartDate = teamReq.registrationStartDate
+    const regEndDate = teamReq.registrationEndDate
+    const reviewEndDate = teamReq.reviewEndDate  // 新增：审核结束时间
+
+    console.log('Registration Dates:', {
+      regStartDate,
+      regEndDate,
+      reviewEndDate
+    })
+
+    // 检查日期字段是否存在且有效
     if (!regStartDate || !regEndDate) {
-      return { canRegister: false, text: '未设置报名时间', variant: 'secondary' as const }
+      console.warn('Missing registration dates for event:', event.id, {
+        startDate: regStartDate,
+        endDate: regEndDate,
+        teamReq
+      })
+      return { canRegister: false, text: '未设置报名时间', variant: 'secondary' as const, inReviewPeriod: false }
+    }
+
+    // 验证日期格式
+    const regStart = new Date(regStartDate)
+    const regEnd = new Date(regEndDate)
+    const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
+
+    if (isNaN(regStart.getTime()) || isNaN(regEnd.getTime())) {
+      console.error('Invalid date format for event:', event.id, {
+        startDate: regStartDate,
+        endDate: regEndDate
+      })
+      return { canRegister: false, text: '报名时间格式错误', variant: 'secondary' as const, inReviewPeriod: false }
+    }
+
+    // 检查日期逻辑是否合理
+    if (regStart >= regEnd) {
+      console.error('Invalid date range for event:', event.id, {
+        startDate: regStartDate,
+        endDate: regEndDate
+      })
+      return { canRegister: false, text: '报名时间设置错误', variant: 'secondary' as const, inReviewPeriod: false }
     }
 
     const now = new Date()
-    const regStart = new Date(regStartDate)
-    const regEnd = new Date(regEndDate)
+
+    console.log('Date Comparison:', {
+      now: now.toISOString(),
+      regStart: regStart.toISOString(),
+      regEnd: regEnd.toISOString(),
+      reviewEnd: reviewEnd?.toISOString(),
+      isBeforeRegStart: now < regStart,
+      isDuringReg: now <= regEnd,
+      isAfterRegEnd: now > regEnd,
+      isDuringReview: reviewEnd && now > regEnd && now <= reviewEnd
+    })
 
     if (now < regStart) {
-      return { canRegister: false, text: '报名未开始', variant: 'secondary' as const }
+      return { canRegister: false, text: '报名未开始', variant: 'secondary' as const, inReviewPeriod: false }
     } else if (now <= regEnd) {
-      return { canRegister: true, text: '新建报名', variant: 'default' as const }
+      return { canRegister: true, text: '新建报名', variant: 'default' as const, inReviewPeriod: false }
+    } else if (reviewEnd && now <= reviewEnd) {
+      // 报名已结束，但在审核期内，不允许新建报名
+      console.log('>>> IN REVIEW PERIOD <<<')
+      return { canRegister: false, text: '报名已结束', variant: 'destructive' as const, inReviewPeriod: true }
     } else {
-      return { canRegister: false, text: '报名已结束', variant: 'destructive' as const }
+      return { canRegister: false, text: '报名已结束', variant: 'destructive' as const, inReviewPeriod: false }
     }
   }
 
@@ -250,50 +466,70 @@ export default function EventDetailPage() {
   // 我的报名标签页的状态逻辑：基于现有报名状态显示不同操作
   const getMyRegistrationStatus = () => {
     if (!event || !registration) return null
-    
-    const regEndDate = event.registration_settings?.team_requirements?.registrationEndDate
+
+    let teamReq = event.registration_settings?.team_requirements
+    if (typeof teamReq === 'string') {
+      try {
+        teamReq = JSON.parse(teamReq)
+      } catch (e) {
+        console.error('解析 team_requirements 失败:', e)
+      }
+    }
+
+    const regEndDate = teamReq?.registrationEndDate
+    const reviewEndDate = teamReq?.reviewEndDate  // 新增：审核结束时间
     const now = new Date()
     const regEnd = regEndDate ? new Date(regEndDate) : null
+    const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
+
+    // 判断是否在报名期内、审核期内或已结束
     const isRegistrationOpen = regEnd ? now <= regEnd : false
-    
+    const inReviewPeriod = regEnd && reviewEnd && now > regEnd && now <= reviewEnd
+
     // 检查registration_type字段（草稿/已提交）
     if (registration.status === 'draft') {
-      return { 
-        canContinue: isRegistrationOpen, 
-        text: '继续报名', 
+      return {
+        canContinue: isRegistrationOpen,
+        text: '继续报名',
         variant: 'default' as const,
-        showDelete: true
+        showDelete: true,
+        inReviewPeriod
       }
     } else if (registration.status === 'pending') {
       // 再检查审核状态
       switch (registration.status) {
         case 'pending':
-          return { 
-            canContinue: false, 
-            text: '待审核', 
+          return {
+            canContinue: false,
+            text: '待审核',
             variant: 'default' as const,
-            showDelete: false
+            showDelete: false,
+            inReviewPeriod
           }
         case 'approved':
-          return { 
-            canContinue: false, 
-            text: '已通过', 
+          return {
+            canContinue: false,
+            text: '已通过',
             variant: 'success' as const,
-            showDelete: false
+            showDelete: false,
+            inReviewPeriod
           }
         case 'rejected':
-          return { 
-            canContinue: isRegistrationOpen, 
-            text: '重新报名', 
+          // 被驳回的报名：在报名期内或审核期内都可以重新提交
+          return {
+            canContinue: isRegistrationOpen || inReviewPeriod,
+            text: '重新报名',
             variant: 'destructive' as const,
-            showDelete: false
+            showDelete: false,
+            inReviewPeriod
           }
         default:
-          return { 
-            canContinue: false, 
-            text: '待审核', 
+          return {
+            canContinue: false,
+            text: '待审核',
             variant: 'default' as const,
-            showDelete: false
+            showDelete: false,
+            inReviewPeriod
           }
       }
     }
@@ -385,6 +621,15 @@ export default function EventDetailPage() {
   const eventStatus = getEventStatus()
   const newRegStatus = getNewRegistrationStatus()
 
+  // 调试日志
+  console.log('Event Details Page - Review Period Check:', {
+    eventId: event?.id,
+    eventName: event?.name,
+    newRegStatus,
+    inReviewPeriod: newRegStatus?.inReviewPeriod,
+    registrations: allRegistrations.map(r => ({ id: r.id, status: r.status }))
+  })
+
   return (
     <div className="space-y-6">
       {/* 头部导航 */}
@@ -421,16 +666,43 @@ export default function EventDetailPage() {
               <div className="space-y-4">
                 <div>
                   <h1 className="text-2xl font-bold">{event.name}</h1>
-                  {event.short_name && (
-                    <p className="text-gray-600">{event.short_name}</p>
-                  )}
                 </div>
 
                 <div className="flex gap-2">
-                  <Badge>{event.type}</Badge>
                   {eventStatus && (
                     <Badge variant={eventStatus.variant}>{eventStatus.text}</Badge>
                   )}
+                  {(() => {
+                    // 获取报名阶段
+                    const now = new Date()
+                    let teamReq = event.registration_settings?.team_requirements
+                    if (typeof teamReq === 'string') {
+                      try {
+                        teamReq = JSON.parse(teamReq)
+                      } catch (e) {
+                        return null
+                      }
+                    }
+
+                    const regStartDate = teamReq?.registrationStartDate
+                    const regEndDate = teamReq?.registrationEndDate
+                    const reviewEndDate = teamReq?.reviewEndDate
+
+                    if (regStartDate && regEndDate) {
+                      const regStart = new Date(regStartDate)
+                      const regEnd = new Date(regEndDate)
+                      const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
+
+                      if (now >= regStart && now <= regEnd) {
+                        return <Badge variant="outline">报名中</Badge>
+                      } else if (reviewEnd && now > regEnd && now <= reviewEnd) {
+                        return <Badge variant="outline">审核中</Badge>
+                      } else {
+                        return <Badge variant="outline">已截止报名</Badge>
+                      }
+                    }
+                    return <Badge variant="outline">已截止报名</Badge>
+                  })()}
                 </div>
 
                 {/* 使用两列布局 */}
@@ -457,15 +729,28 @@ export default function EventDetailPage() {
 
                       if (teamReq?.registrationStartDate && teamReq?.registrationEndDate) {
                         return (
-                          <div className="flex items-start gap-2">
-                            <Clock className="h-4 w-4 text-gray-400 mt-0.5" />
-                            <div>
-                              <div>报名时间</div>
-                              <div className="text-gray-600">
-                                {formatDateTime(teamReq.registrationStartDate)} ~ {formatDateTime(teamReq.registrationEndDate)}
+                          <>
+                            <div className="flex items-start gap-2">
+                              <Clock className="h-4 w-4 text-gray-400 mt-0.5" />
+                              <div>
+                                <div>报名时间</div>
+                                <div className="text-gray-600">
+                                  {formatDateTime(teamReq.registrationStartDate)} ~ {formatDateTime(teamReq.registrationEndDate)}
+                                </div>
                               </div>
                             </div>
-                          </div>
+                            {teamReq?.reviewEndDate && (
+                              <div className="flex items-start gap-2">
+                                <Clock className="h-4 w-4 text-gray-400 mt-0.5" />
+                                <div>
+                                  <div>审核结束时间</div>
+                                  <div className="text-gray-600">
+                                    {formatDateTime(teamReq.reviewEndDate)}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </>
                         )
                       }
                       return null
@@ -522,14 +807,15 @@ export default function EventDetailPage() {
       </Card>
 
       {/* 我的报名卡片 */}
-      <Card>
+      <Card id="my-registration-section">
         <CardHeader className="relative pb-3">
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-lg">我的报名{allRegistrations.length > 0 && `（${allRegistrations.length}）`}</CardTitle>
               <CardDescription className="mt-1">查看和管理您的报名信息</CardDescription>
             </div>
-            {newRegStatus && (
+            {/* 根据赛事是否结束显示不同的按钮 */}
+            {!isEventEnded() && newRegStatus && (
               <Button
                 variant={newRegStatus.canRegister ? 'default' : 'outline'}
                 onClick={handleRegister}
@@ -540,6 +826,36 @@ export default function EventDetailPage() {
               </Button>
             )}
           </div>
+
+          {/* 报名截止的提示信息 */}
+          {isEventEnded() && (
+            <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-semibold text-amber-900">该赛事报名已截止</p>
+                  <p className="text-sm text-amber-700">
+                    此赛事报名已截止，您只能查看报名信息，不能再次提交或修改。
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 审核期的提示信息 */}
+          {!isEventEnded() && newRegStatus?.inReviewPeriod && (
+            <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-start gap-3">
+                <Clock className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-semibold text-blue-900">审核期内</p>
+                  <p className="text-sm text-blue-700">
+                    报名已结束，现在处于审核期。审核期内仅允许被驳回的报名重新提交，不接受新的报名申请。
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </CardHeader>
         <CardContent className="pt-3 px-6 pb-6">
               {allRegistrations.length > 0 ? (
@@ -576,103 +892,176 @@ export default function EventDetailPage() {
                         </div>
 
                         <div className="flex gap-2">
-                          {/* 草稿可以继续编辑 */}
-                          {reg.status === 'draft' && (
+                          {/* 赛事已结束时，所有状态都只能查看，不能编辑或操作 */}
+                          {isEventEnded() ? (
                             <>
+                              {/* 已结束赛事：草稿和已取消状态可以删除，其他状态只能查看 */}
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
-                              >
-                                继续编辑
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => handleDeleteRegistration(reg.id)}
-                              >
-                                删除报名
-                              </Button>
-                            </>
-                          )}
-
-                          {/* 被驳回的可以重新编辑和删除 */}
-                          {reg.status === 'rejected' && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
-                              >
-                                重新报名
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => handleDeleteRegistration(reg.id)}
-                              >
-                                删除报名
-                              </Button>
-                            </>
-                          )}
-
-                          {/* 已通过的可以查看和取消报名 */}
-                          {reg.status === 'approved' && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
+                                onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}&ended=true`)}
                               >
                                 查看报名
                               </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => handleCancelRegistration(reg.id)}
-                              >
-                                取消报名
-                              </Button>
+                              {(reg.status === 'draft' || reg.status === 'cancelled' || reg.status === 'rejected') && (
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => handleDeleteRegistration(reg.id)}
+                                >
+                                  删除报名
+                                </Button>
+                              )}
                             </>
-                          )}
-
-                          {/* 已取消的可以重新报名和删除（类似已驳回） */}
-                          {reg.status === 'cancelled' && (
+                          ) : (
                             <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
-                              >
-                                重新报名
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => handleDeleteRegistration(reg.id)}
-                              >
-                                删除报名
-                              </Button>
-                            </>
-                          )}
+                              {/* 赛事未结束时的正常操作逻辑 */}
 
-                          {/* 待审核状态 - 可以查看和取消 */}
-                          {reg.status === 'pending' && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
-                              >
-                                查看报名
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => handleCancelRegistration(reg.id)}
-                              >
-                                取消报名
-                              </Button>
+                              {/* 草稿状态处理：审核期内只能查看和删除，不能编辑 */}
+                              {reg.status === 'draft' && (
+                                <>
+                                  {newRegStatus?.inReviewPeriod ? (
+                                    // 审核期内：草稿只能查看或删除
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}&ended=true`)}
+                                      >
+                                        查看报名
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        onClick={() => handleDeleteRegistration(reg.id)}
+                                      >
+                                        删除报名
+                                      </Button>
+                                    </>
+                                  ) : (
+                                    // 报名期内：草稿可以继续编辑
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
+                                      >
+                                        继续编辑
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        onClick={() => handleDeleteRegistration(reg.id)}
+                                      >
+                                        删除报名
+                                      </Button>
+                                    </>
+                                  )}
+                                </>
+                              )}
+
+                              {/* 被驳回的可以重新编辑和删除（审核期内仍然可以） */}
+                              {reg.status === 'rejected' && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
+                                  >
+                                    重新报名
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    onClick={() => handleDeleteRegistration(reg.id)}
+                                  >
+                                    删除报名
+                                  </Button>
+                                </>
+                              )}
+
+                              {/* 已通过的可以查看和取消报名 */}
+                              {reg.status === 'approved' && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
+                                  >
+                                    查看报名
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    onClick={() => handleCancelRegistration(reg.id)}
+                                  >
+                                    取消报名
+                                  </Button>
+                                </>
+                              )}
+
+                              {/* 已取消状态处理：审核期内只能查看和删除，不能重新报名 */}
+                              {reg.status === 'cancelled' && (
+                                <>
+                                  {newRegStatus?.inReviewPeriod ? (
+                                    // 审核期内：已取消只能查看或删除
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}&ended=true`)}
+                                      >
+                                        查看报名
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        onClick={() => handleDeleteRegistration(reg.id)}
+                                      >
+                                        删除报名
+                                      </Button>
+                                    </>
+                                  ) : (
+                                    // 报名期内：可以重新报名
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
+                                      >
+                                        重新报名
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        onClick={() => handleDeleteRegistration(reg.id)}
+                                      >
+                                        删除报名
+                                      </Button>
+                                    </>
+                                  )}
+                                </>
+                              )}
+
+                              {/* 待审核状态 - 可以查看和取消 */}
+                              {reg.status === 'pending' && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
+                                  >
+                                    查看报名
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    onClick={() => handleCancelRegistration(reg.id)}
+                                  >
+                                    取消报名
+                                  </Button>
+                                </>
+                              )}
                             </>
                           )}
                         </div>
@@ -749,7 +1138,7 @@ export default function EventDetailPage() {
                 <div className="text-center py-8">
                   <Users className="h-12 w-12 text-gray-300 mx-auto mb-4" />
                   <p className="text-gray-500">您还未报名此赛事</p>
-                  {newRegStatus?.canRegister && (
+                  {!isEventEnded() && newRegStatus?.canRegister && (
                     <Button className="mt-4" onClick={handleRegister}>
                       立即报名
                     </Button>
@@ -757,7 +1146,7 @@ export default function EventDetailPage() {
                 </div>
               )}
         </CardContent>
-      </Card>
+        </Card>
     </div>
   )
 }

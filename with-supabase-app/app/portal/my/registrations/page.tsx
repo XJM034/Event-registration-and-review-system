@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -45,7 +45,7 @@ interface Registration {
   }
 }
 
-export default function MyRegistrationsPage() {
+function MyRegistrationsContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [registrations, setRegistrations] = useState<Registration[]>([])
@@ -119,7 +119,7 @@ export default function MyRegistrationsPage() {
             )
           `)
           .eq('coach_id', coach.id)
-          .order('created_at', { ascending: false })
+          .order('updated_at', { ascending: false })
 
         if (regs) {
           // 获取每个赛事的报名设置
@@ -205,6 +205,41 @@ export default function MyRegistrationsPage() {
     )
   }
 
+  const getEventStatusBadge = (event: { start_date: string, end_date: string }) => {
+    const now = new Date()
+    const start = new Date(event.start_date)
+    const end = new Date(event.end_date)
+
+    if (now < start) {
+      return (
+        <Badge variant="secondary" className="flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          未开始
+        </Badge>
+      )
+    } else if (now <= end) {
+      return (
+        <Badge variant="default" className="flex items-center gap-1">
+          <Calendar className="h-3 w-3" />
+          进行中
+        </Badge>
+      )
+    } else {
+      return (
+        <Badge variant="destructive" className="flex items-center gap-1">
+          <XCircle className="h-3 w-3" />
+          已结束
+        </Badge>
+      )
+    }
+  }
+
+  const isEventEnded = (event: { end_date: string }) => {
+    const now = new Date()
+    const end = new Date(event.end_date)
+    return now > end
+  }
+
   const handleDeleteRegistration = async (registrationId: string, e: React.MouseEvent) => {
     e.stopPropagation() // 阻止事件冒泡，避免触发卡片点击
 
@@ -266,9 +301,21 @@ export default function MyRegistrationsPage() {
     }
   }
 
-  const handleEditRegistration = (eventId: string, registrationId: string, e: React.MouseEvent) => {
+  const handleEditRegistration = (eventId: string, registrationId: string, event: any, e: React.MouseEvent) => {
     e.stopPropagation() // 阻止事件冒泡
-    router.push(`/portal/events/${eventId}/register?edit=${registrationId}`)
+
+    // 检查赛事是否已结束
+    const now = new Date()
+    const end = new Date(event.end_date)
+    const isEventEnded = now > end
+
+    if (isEventEnded) {
+      // 已结束的赛事，添加ended=true参数
+      router.push(`/portal/events/${eventId}/register?edit=${registrationId}&ended=true`)
+    } else {
+      // 未结束的赛事，正常跳转
+      router.push(`/portal/events/${eventId}/register?edit=${registrationId}`)
+    }
   }
 
   if (isLoading) {
@@ -356,9 +403,7 @@ export default function MyRegistrationsPage() {
                         {reg.events?.name}
                       </h3>
                       {getStatusBadge(reg.status)}
-                      {reg.events?.type && (
-                        <Badge variant="outline">{reg.events.type}</Badge>
-                      )}
+                      {reg.events && getEventStatusBadge(reg.events)}
                     </div>
 
                     {/* 显示团队信息的前三个字段 */}
@@ -381,103 +426,130 @@ export default function MyRegistrationsPage() {
 
                   {/* 操作按钮 */}
                   <div className="flex gap-2 ml-4">
-                    {/* 草稿状态 */}
-                    {reg.status === 'draft' && (
+                    {/* 赛事已结束时的操作逻辑 */}
+                    {reg.events && isEventEnded(reg.events) ? (
                       <>
+                        {/* 已结束赛事：草稿和已取消状态可以删除，其他状态只能查看 */}
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={(e) => handleEditRegistration(reg.event_id, reg.id, e)}
-                        >
-                          继续编辑
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={(e) => handleDeleteRegistration(reg.id, e)}
-                        >
-                          删除报名
-                        </Button>
-                      </>
-                    )}
-
-                    {/* 已驳回状态 */}
-                    {reg.status === 'rejected' && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => handleEditRegistration(reg.event_id, reg.id, e)}
-                        >
-                          重新报名
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={(e) => handleDeleteRegistration(reg.id, e)}
-                        >
-                          删除报名
-                        </Button>
-                      </>
-                    )}
-
-                    {/* 已通过状态 */}
-                    {reg.status === 'approved' && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => handleEditRegistration(reg.event_id, reg.id, e)}
+                          onClick={(e) => handleEditRegistration(reg.event_id, reg.id, reg.events, e)}
                         >
                           查看报名
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={(e) => handleCancelRegistration(reg.id, e)}
-                        >
-                          取消报名
-                        </Button>
+                        {(reg.status === 'draft' || reg.status === 'cancelled') && (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={(e) => handleDeleteRegistration(reg.id, e)}
+                          >
+                            删除报名
+                          </Button>
+                        )}
                       </>
-                    )}
-
-                    {/* 已取消状态 */}
-                    {reg.status === 'cancelled' && (
+                    ) : (
                       <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => handleEditRegistration(reg.event_id, reg.id, e)}
-                        >
-                          重新报名
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={(e) => handleDeleteRegistration(reg.id, e)}
-                        >
-                          删除报名
-                        </Button>
-                      </>
-                    )}
+                        {/* 赛事未结束时的正常操作逻辑 */}
 
-                    {/* 待审核状态 */}
-                    {(reg.status === 'submitted' || reg.status === 'pending') && (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => handleEditRegistration(reg.event_id, reg.id, e)}
-                        >
-                          查看报名
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={(e) => handleCancelRegistration(reg.id, e)}
-                        >
-                          取消报名
-                        </Button>
+                        {/* 草稿状态 */}
+                        {reg.status === 'draft' && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => handleEditRegistration(reg.event_id, reg.id, reg.events, e)}
+                            >
+                              继续编辑
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={(e) => handleDeleteRegistration(reg.id, e)}
+                            >
+                              删除报名
+                            </Button>
+                          </>
+                        )}
+
+                        {/* 已驳回状态 */}
+                        {reg.status === 'rejected' && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => handleEditRegistration(reg.event_id, reg.id, reg.events, e)}
+                            >
+                              重新报名
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={(e) => handleDeleteRegistration(reg.id, e)}
+                            >
+                              删除报名
+                            </Button>
+                          </>
+                        )}
+
+                        {/* 已通过状态 */}
+                        {reg.status === 'approved' && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => handleEditRegistration(reg.event_id, reg.id, reg.events, e)}
+                            >
+                              查看报名
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={(e) => handleCancelRegistration(reg.id, e)}
+                            >
+                              取消报名
+                            </Button>
+                          </>
+                        )}
+
+                        {/* 已取消状态 */}
+                        {reg.status === 'cancelled' && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => handleEditRegistration(reg.event_id, reg.id, reg.events, e)}
+                            >
+                              重新报名
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={(e) => handleDeleteRegistration(reg.id, e)}
+                            >
+                              删除报名
+                            </Button>
+                          </>
+                        )}
+
+                        {/* 待审核状态 */}
+                        {(reg.status === 'submitted' || reg.status === 'pending') && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => handleEditRegistration(reg.event_id, reg.id, reg.events, e)}
+                            >
+                              查看报名
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={(e) => handleCancelRegistration(reg.id, e)}
+                            >
+                              取消报名
+                            </Button>
+                          </>
+                        )}
                       </>
                     )}
                   </div>
@@ -513,5 +585,13 @@ export default function MyRegistrationsPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function MyRegistrationsPage() {
+  return (
+    <Suspense fallback={<div>加载中...</div>}>
+      <MyRegistrationsContent />
+    </Suspense>
   )
 }

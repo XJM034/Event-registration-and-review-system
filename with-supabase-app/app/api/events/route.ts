@@ -16,7 +16,10 @@ export async function GET() {
     
     const { data: events, error } = await supabase
       .from('events')
-      .select('*')
+      .select(`
+        *,
+        registration_settings(*)
+      `)
       .order('created_at', { ascending: false })
 
     if (error) {

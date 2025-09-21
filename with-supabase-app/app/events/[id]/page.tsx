@@ -188,11 +188,14 @@ export default function EventManagePage() {
           )}
           
           {activeTab === 'registration-settings' && (
-            <RegistrationSettingsTab eventId={event.id} />
+            <RegistrationSettingsTab eventId={event.id} eventStartDate={event.start_date} />
           )}
           
           {activeTab === 'review-list' && (
-            <ReviewListTab eventId={event.id} />
+            <ReviewListTab
+              eventId={event.id}
+              onReviewComplete={fetchPendingReviewCount}
+            />
           )}
 
           {activeTab === 'registration-list' && (

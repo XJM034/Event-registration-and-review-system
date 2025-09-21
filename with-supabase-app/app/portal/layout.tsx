@@ -127,14 +127,14 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
       {/* 左侧导航栏 */}
       <aside className={cn(
         "bg-white shadow-lg transition-all duration-300 flex flex-col",
-        isCollapsed ? "w-20" : "w-64"
+        isCollapsed ? "w-16" : "w-52"
       )}>
         {/* Logo区域和折叠按钮 */}
         <div className="border-b">
-          <div className="p-4 flex items-center justify-between">
+          <div className="p-3 flex items-center justify-between">
             <h1 className={cn(
-              "font-bold text-lg text-gray-800 transition-all whitespace-nowrap overflow-hidden",
-              isCollapsed && "text-center text-sm"
+              "font-bold text-gray-800 transition-all whitespace-nowrap overflow-hidden",
+              isCollapsed ? "text-center text-xs" : "text-base"
             )}>
               {isCollapsed ? "报名" : "体育比赛报名系统"}
             </h1>
@@ -147,59 +147,71 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
               title={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
             >
               {isCollapsed ? (
-                <ChevronRight className="h-5 w-5 text-gray-600" />
+                <ChevronRight className="h-4 w-4 text-gray-600" />
               ) : (
-                <ChevronLeft className="h-5 w-5 text-gray-600" />
+                <ChevronLeft className="h-4 w-4 text-gray-600" />
               )}
             </button>
           </div>
         </div>
 
         {/* 菜单区域 */}
-        <nav className="flex-1 p-4">
-          <ul className="space-y-2">
+        <nav className="flex-1 p-3">
+          <ul className="space-y-1">
             {menuItems.map((item) => (
               <li key={item.id}>
                 {item.hasSubmenu ? (
                   <div>
-                    <button
-                      onClick={() => setIsMyMenuOpen(!isMyMenuOpen)}
+                    <div
                       className={cn(
-                        "w-full flex items-center px-3 py-2 rounded-lg transition-colors",
+                        "flex items-center px-2.5 py-1.5 rounded-lg transition-colors",
                         isCollapsed ? "justify-center" : "justify-between",
                         "hover:bg-gray-100",
                         item.active && "bg-blue-50 text-blue-600"
                       )}
-                      title={isCollapsed ? item.label : ""}
                     >
-                      <div className="flex items-center space-x-3">
+                      <Link
+                        href="/portal/my"
+                        className="flex items-center space-x-2 flex-1"
+                        title={isCollapsed ? item.label : ""}
+                      >
                         <item.icon className={cn(
                           "flex-shrink-0",
-                          isCollapsed ? "h-6 w-6 mx-auto" : "h-5 w-5"
+                          isCollapsed ? "h-5 w-5 mx-auto" : "h-4 w-4"
                         )} />
-                        {!isCollapsed && <span>{item.label}</span>}
-                      </div>
+                        {!isCollapsed && <span className="text-sm">{item.label}</span>}
+                      </Link>
                       {!isCollapsed && (
-                        isMyMenuOpen ?
-                          <ChevronUp className="h-4 w-4" /> :
-                          <ChevronDown className="h-4 w-4" />
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setIsMyMenuOpen(!isMyMenuOpen)
+                          }}
+                          className="p-1 hover:bg-gray-200 rounded"
+                        >
+                          {isMyMenuOpen ?
+                            <ChevronUp className="h-4 w-4" /> :
+                            <ChevronDown className="h-4 w-4" />
+                          }
+                        </button>
                       )}
-                    </button>
+                    </div>
 
                     {/* 子菜单 */}
                     {isMyMenuOpen && !isCollapsed && item.submenu && (
-                      <ul className="mt-2 ml-4 space-y-1">
+                      <ul className="mt-1 ml-3 space-y-0.5">
                         {item.submenu.map((subItem) => (
                           <li key={subItem.id}>
                             <Link
                               href={subItem.href}
                               className={cn(
-                                "flex items-center justify-between px-3 py-2 rounded-lg transition-colors",
+                                "flex items-center justify-between px-2.5 py-1.5 rounded-lg transition-colors",
                                 "hover:bg-gray-100",
                                 subItem.active && "bg-blue-50 text-blue-600"
                               )}
                             >
-                              <div className="flex items-center space-x-3">
+                              <div className="flex items-center space-x-2">
                                 <subItem.icon className="h-4 w-4" />
                                 <span className="text-sm">{subItem.label}</span>
                               </div>
@@ -218,8 +230,8 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                   <Link
                     href={item.href}
                     className={cn(
-                      "flex items-center px-3 py-2 rounded-lg transition-colors",
-                      isCollapsed ? "justify-center" : "space-x-3",
+                      "flex items-center px-2.5 py-1.5 rounded-lg transition-colors",
+                      isCollapsed ? "justify-center" : "space-x-2",
                       "hover:bg-gray-100",
                       item.active && "bg-blue-50 text-blue-600"
                     )}
@@ -227,7 +239,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                   >
                     <item.icon className={cn(
                       "flex-shrink-0",
-                      isCollapsed ? "h-6 w-6 mx-auto" : "h-5 w-5"
+                      isCollapsed ? "h-5 w-5 mx-auto" : "h-4 w-4"
                     )} />
                     {!isCollapsed && <span>{item.label}</span>}
                   </Link>

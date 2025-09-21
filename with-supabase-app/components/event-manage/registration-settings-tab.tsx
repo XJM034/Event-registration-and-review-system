@@ -119,6 +119,7 @@ interface TeamRequirements {
   allFields?: FieldConfig[]  // 新增统一的字段数组
   registrationStartDate?: string
   registrationEndDate?: string
+  reviewEndDate?: string  // 审核结束时间
 }
 
 interface RoleConfig {
@@ -144,15 +145,17 @@ interface PlayerRequirements {
 
 interface RegistrationSettingsTabProps {
   eventId: string
+  eventStartDate?: string // 添加赛事开始日期
 }
 
-export default function RegistrationSettingsTab({ eventId }: RegistrationSettingsTabProps) {
+export default function RegistrationSettingsTab({ eventId, eventStartDate }: RegistrationSettingsTabProps) {
   const [initialDataLoaded, setInitialDataLoaded] = useState(false) // 添加初始数据加载状态
   const [teamRequirements, setTeamRequirements] = useState<TeamRequirements>({
     commonFields: [],
     customFields: [],
     registrationStartDate: '',
-    registrationEndDate: ''
+    registrationEndDate: '',
+    reviewEndDate: ''
   })
 
   const [playerRequirements, setPlayerRequirements] = useState<PlayerRequirements>({
@@ -375,6 +378,72 @@ export default function RegistrationSettingsTab({ eventId }: RegistrationSetting
   }
 
   const saveSettings = async () => {
+    // 验证必填的报名时间设置
+    if (!teamRequirements.registrationStartDate || !teamRequirements.registrationEndDate || !teamRequirements.reviewEndDate) {
+      alert('⚠️ 保存失败 - 时间设置不完整\n\n请填写以下必填项：\n• 报名开始时间\n• 报名结束时间\n• 审核结束时间\n\n这些时间设置是必需的，请完整填写后再保存')
+      return
+    }
+
+    // 验证报名时间设置
+    if (teamRequirements.registrationStartDate && teamRequirements.registrationEndDate) {
+      const regStart = new Date(teamRequirements.registrationStartDate)
+      const regEnd = new Date(teamRequirements.registrationEndDate)
+
+      // 验证1：报名开始时间必须早于报名结束时间
+      if (regStart >= regEnd) {
+        alert('⚠️ 保存失败 - 报名时间设置不合理\n\n报名开始时间必须早于报名结束时间\n\n当前设置：\n报名开始时间：' + teamRequirements.registrationStartDate + '\n报名结束时间：' + teamRequirements.registrationEndDate + '\n\n请调整时间范围后再保存')
+        return
+      }
+
+      // 验证2：报名结束时间必须早于比赛开始时间
+      if (eventStartDate) {
+        const eventStart = new Date(eventStartDate)
+        if (regEnd >= eventStart) {
+          alert('⚠️ 保存失败 - 报名时间设置不合理\n\n报名结束时间必须早于比赛开始时间\n\n当前设置：\n报名结束时间：' + teamRequirements.registrationEndDate + '\n比赛开始时间：' + eventStartDate + '\n\n请调整报名结束时间后再保存')
+          return
+        }
+      }
+
+      // 验证3：审核结束时间的合理性
+      if (teamRequirements.reviewEndDate) {
+        const reviewEnd = new Date(teamRequirements.reviewEndDate)
+
+        // 审核结束时间必须在报名结束时间之后
+        if (reviewEnd <= regEnd) {
+          alert('⚠️ 保存失败 - 审核时间设置不合理\n\n审核结束时间必须在报名结束时间之后\n\n当前设置：\n报名结束时间：' + teamRequirements.registrationEndDate + '\n审核结束时间：' + teamRequirements.reviewEndDate + '\n\n请调整审核结束时间后再保存')
+          return
+        }
+
+        // 审核结束时间必须在比赛开始时间之前
+        if (eventStartDate) {
+          const eventStart = new Date(eventStartDate)
+          if (reviewEnd >= eventStart) {
+            alert('⚠️ 保存失败 - 审核时间设置不合理\n\n审核结束时间必须在比赛开始时间之前\n\n当前设置：\n审核结束时间：' + teamRequirements.reviewEndDate + '\n比赛开始时间：' + eventStartDate + '\n\n请调整审核结束时间后再保存')
+            return
+          }
+        }
+      }
+    }
+
+    // 验证出生日期范围
+    if (playerRequirements.ageRequirementEnabled) {
+      const minAgeDate = playerRequirements.minAgeDate
+      const maxAgeDate = playerRequirements.maxAgeDate
+
+      if (minAgeDate && maxAgeDate) {
+        if (minAgeDate >= maxAgeDate) {
+          alert('⚠️ 保存失败 - 日期设置不合理\n\n最早出生日期应该早于最晚出生日期\n\n当前设置：\n最早出生日期：' + minAgeDate + '\n最晚出生日期：' + maxAgeDate + '\n\n请调整日期范围后再保存')
+          return
+        }
+
+        // 计算年龄范围并提示
+        const currentYear = new Date().getFullYear()
+        const minAge = currentYear - new Date(maxAgeDate).getFullYear()
+        const maxAge = currentYear - new Date(minAgeDate).getFullYear()
+        console.log(`年龄要求设置：${minAge}-${maxAge}岁（出生日期：${minAgeDate} 至 ${maxAgeDate}）`)
+      }
+    }
+
     setIsLoading(true)
     try {
       // 确保allFields是最新的
@@ -385,7 +454,7 @@ export default function RegistrationSettingsTab({ eventId }: RegistrationSetting
           ...teamRequirements.customFields.map(f => ({ ...f, isCommon: false }))
         ]
       }
-      
+
       // 确保每个角色的allFields是最新的
       const playerReqToSave = {
         ...playerRequirements,
@@ -772,7 +841,9 @@ export default function RegistrationSettingsTab({ eventId }: RegistrationSetting
             {/* 报名时间设置 - 移除标题，直接显示 */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="reg-start" className="text-sm font-semibold">报名开始时间</Label>
+                <Label htmlFor="reg-start" className="text-sm font-semibold">
+                  报名开始时间 <span className="text-red-500">*</span>
+                </Label>
                 <Input
                   id="reg-start"
                   type="datetime-local"
@@ -782,10 +853,13 @@ export default function RegistrationSettingsTab({ eventId }: RegistrationSetting
                     registrationStartDate: e.target.value
                   }))}
                   className="mt-1"
+                  required
                 />
               </div>
               <div>
-                <Label htmlFor="reg-end" className="text-sm font-semibold">报名结束时间</Label>
+                <Label htmlFor="reg-end" className="text-sm font-semibold">
+                  报名结束时间 <span className="text-red-500">*</span>
+                </Label>
                 <Input
                   id="reg-end"
                   type="datetime-local"
@@ -795,8 +869,30 @@ export default function RegistrationSettingsTab({ eventId }: RegistrationSetting
                     registrationEndDate: e.target.value
                   }))}
                   className="mt-1"
+                  required
                 />
               </div>
+            </div>
+
+            {/* 审核结束时间 */}
+            <div>
+              <Label htmlFor="review-end" className="text-sm font-semibold">
+                审核结束时间 <span className="text-red-500">*</span>
+              </Label>
+              <p className="text-xs text-gray-500 mt-1 mb-2">
+                报名截止后的审核缓冲期，期间用户仅能重新提交被驳回的报名，不能新建报名
+              </p>
+              <Input
+                id="review-end"
+                type="datetime-local"
+                value={teamRequirements.reviewEndDate || ''}
+                onChange={(e) => setTeamRequirements(prev => ({
+                  ...prev,
+                  reviewEndDate: e.target.value
+                }))}
+                className="max-w-md"
+                required
+              />
             </div>
 
             <div>
@@ -920,24 +1016,52 @@ export default function RegistrationSettingsTab({ eventId }: RegistrationSetting
                         <Input
                           type="date"
                           value={playerRequirements.maxAgeDate || ''}
-                          onChange={(e) => setPlayerRequirements(prev => ({
-                            ...prev,
-                            maxAgeDate: e.target.value
-                          }))}
+                          onChange={(e) => {
+                            const newMaxAgeDate = e.target.value
+                            const minAgeDate = playerRequirements.minAgeDate
+
+                            // 验证日期范围合理性
+                            if (newMaxAgeDate && minAgeDate && newMaxAgeDate <= minAgeDate) {
+                              alert('⚠️ 日期设置不合理\n\n最晚出生日期应该晚于最早出生日期\n\n请调整日期范围')
+                              return
+                            }
+
+                            setPlayerRequirements(prev => ({
+                              ...prev,
+                              maxAgeDate: newMaxAgeDate
+                            }))
+                          }}
                           className="mt-1"
                         />
+                        <p className="text-xs text-gray-500 mt-1">
+                          设置队员可接受的最晚出生日期，越晚表示年龄越小
+                        </p>
                       </div>
                       <div>
                         <Label>最早出生日期（年龄上限）</Label>
                         <Input
                           type="date"
                           value={playerRequirements.minAgeDate || ''}
-                          onChange={(e) => setPlayerRequirements(prev => ({
-                            ...prev,
-                            minAgeDate: e.target.value
-                          }))}
+                          onChange={(e) => {
+                            const newMinAgeDate = e.target.value
+                            const maxAgeDate = playerRequirements.maxAgeDate
+
+                            // 验证日期范围合理性
+                            if (newMinAgeDate && maxAgeDate && newMinAgeDate >= maxAgeDate) {
+                              alert('⚠️ 日期设置不合理\n\n最早出生日期应该早于最晚出生日期\n\n请调整日期范围')
+                              return
+                            }
+
+                            setPlayerRequirements(prev => ({
+                              ...prev,
+                              minAgeDate: newMinAgeDate
+                            }))
+                          }}
                           className="mt-1"
                         />
+                        <p className="text-xs text-gray-500 mt-1">
+                          设置队员可接受的最早出生日期，越早表示年龄越大
+                        </p>
                       </div>
                     </div>
                   )}

@@ -40,6 +40,7 @@ interface Event {
     team_requirements?: {
       registrationStartDate?: string
       registrationEndDate?: string
+      reviewEndDate?: string  // 新增：审核结束时间
       commonFields?: any[]
       customFields?: any[]
     }
@@ -98,6 +99,7 @@ export default function RegisterPage() {
   const eventId = params.id as string
   const isNewRegistration = searchParams.get('new') === 'true'
   const editRegistrationId = searchParams.get('edit')  // 获取要编辑的报名ID
+  const isEventEndedView = searchParams.get('ended') === 'true'  // 检查是否是已结束赛事的查看模式
   
   const [event, setEvent] = useState<Event | null>(null)
   const [registration, setRegistration] = useState<Registration | null>(null)
@@ -112,6 +114,49 @@ export default function RegisterPage() {
   const [shareTokens, setShareTokens] = useState<Map<string, string>>(new Map())
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
   const [copiedPlayerId, setCopiedPlayerId] = useState<string | null>(null)
+
+  // 判断是否在审核期内
+  const isInReviewPeriod = () => {
+    const now = new Date()
+    let teamReq = event?.registration_settings?.team_requirements
+    if (typeof teamReq === 'string') {
+      try {
+        teamReq = JSON.parse(teamReq)
+      } catch (e) {
+        return false
+      }
+    }
+
+    const regEndDate = teamReq?.registrationEndDate
+    const reviewEndDate = teamReq?.reviewEndDate
+    const regEnd = regEndDate ? new Date(regEndDate) : null
+    const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
+
+    return regEnd && reviewEnd && now > regEnd && now <= reviewEnd
+  }
+
+  // 判断是否显示保存和提交按钮
+  const shouldShowActionButtons = () => {
+    // 赛事结束时不显示
+    if (isEventEndedView) return false
+
+    // 已通过状态不显示按钮
+    if (registration?.status === 'approved') return false
+
+    // 审核期内的草稿不显示
+    if (isInReviewPeriod() && registration?.status === 'draft') return false
+
+    // 审核期内的新建报名不显示
+    if (isInReviewPeriod() && isNewRegistration) return false
+
+    // 待审核状态和被驳回状态在审核期内都显示按钮
+    if (isInReviewPeriod() && (registration?.status === 'submitted' || registration?.status === 'rejected')) return true
+
+    // 报名期内，除了已通过状态外都显示
+    if (!isInReviewPeriod() && registration?.status !== 'approved') return true
+
+    return true
+  }
 
   // 获取字段配置 - 使用管理端设置的字段顺序
   const teamRequirements = event?.registration_settings?.team_requirements
@@ -494,45 +539,230 @@ export default function RegisterPage() {
 
   const updatePlayer = (playerId: string, field: string, value: any) => {
     console.log('Updating player:', playerId, 'field:', field, 'value:', value)
-    setPlayers(players.map(p =>
+
+    // 更新队员信息
+    const updatedPlayers = players.map(p =>
       p.id === playerId ? { ...p, [field]: value } : p
-    ))
+    )
+    setPlayers(updatedPlayers)
+
+    // 实时验证性别和年龄要求
+    const playerRequirements = event?.registration_settings?.player_requirements
+    const updatedPlayer = updatedPlayers.find(p => p.id === playerId)
+    const playerIndex = players.findIndex(p => p.id === playerId)
+
+    if (updatedPlayer && playerRequirements) {
+      // 验证性别要求
+      if (field === 'gender' || field === 'sex') {
+        const genderRequirement = playerRequirements.genderRequirement
+        if (genderRequirement && genderRequirement !== 'none') {
+          const requiredGender = genderRequirement === 'male' ? '男' : '女'
+          if (value && value !== requiredGender) {
+            setTimeout(() => {
+              alert(`注意：此赛事要求所有队员必须为${requiredGender}性，请确认队员 ${playerIndex + 1} 的性别信息`)
+            }, 100)
+          }
+        }
+      }
+
+      // 验证年龄要求 - 支持更多字段名
+      if ((field === 'age' || field === 'birthdate' || field === 'birthday') && playerRequirements?.ageRequirementEnabled) {
+        // 获取出生日期范围
+        const minAgeDate = playerRequirements.minAgeDate  // 最早出生日期
+        const maxAgeDate = playerRequirements.maxAgeDate  // 最晚出生日期
+
+        // 获取年龄范围（向后兼容）
+        const minAge = playerRequirements.minAge
+        const maxAge = playerRequirements.maxAge
+
+        let playerAge = value
+        let playerBirthDate = null
+
+        // 如果是出生日期字段
+        if ((field === 'birthdate' || field === 'birthday') && value) {
+          playerBirthDate = new Date(value)
+          const today = new Date()
+          playerAge = today.getFullYear() - playerBirthDate.getFullYear()
+          const monthDiff = today.getMonth() - playerBirthDate.getMonth()
+          if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < playerBirthDate.getDate())) {
+            playerAge--
+          }
+        } else if (field === 'age') {
+          playerAge = parseInt(value) || 0
+        }
+
+        // 验证逻辑
+        if (field === 'birthdate' || field === 'birthday') {
+          // 出生日期字段：直接比较日期范围
+          if (playerBirthDate && (minAgeDate || maxAgeDate)) {
+            const birthDateStr = playerBirthDate.toISOString().split('T')[0]
+            let dateWarning = ''
+
+            if (minAgeDate && birthDateStr < minAgeDate) {
+              const minYear = new Date(minAgeDate).getFullYear()
+              dateWarning = `此赛事要求队员出生日期不早于 ${minAgeDate}（不超过 ${new Date().getFullYear() - minYear} 岁）`
+            } else if (maxAgeDate && birthDateStr > maxAgeDate) {
+              const maxYear = new Date(maxAgeDate).getFullYear()
+              dateWarning = `此赛事要求队员出生日期不晚于 ${maxAgeDate}（不小于 ${new Date().getFullYear() - maxYear} 岁）`
+            }
+
+            if (dateWarning) {
+              setTimeout(() => {
+                alert(`⚠️ 出生日期不符合要求\n\n队员 ${playerIndex + 1}：${dateWarning}\n\n当前选择：${birthDateStr}\n请重新选择出生日期`)
+              }, 300)
+            }
+          }
+        } else if (field === 'age' && (minAge || maxAge)) {
+          // 年龄字段：比较年龄范围
+          if (playerAge && playerAge > 0) {
+            let ageWarning = ''
+            if (minAge && playerAge < minAge) {
+              ageWarning = `此赛事要求队员年龄不小于 ${minAge} 岁，当前为 ${playerAge} 岁`
+            } else if (maxAge && playerAge > maxAge) {
+              ageWarning = `此赛事要求队员年龄不大于 ${maxAge} 岁，当前为 ${playerAge} 岁`
+            }
+
+            if (ageWarning) {
+              setTimeout(() => {
+                alert(`⚠️ 年龄不符合要求\n\n队员 ${playerIndex + 1}：${ageWarning}\n\n请检查并修改年龄信息`)
+              }, 300)
+            }
+          }
+        }
+      }
+    }
   }
 
   const validatePlayers = () => {
-    // 只在启用人数要求时才验证人数限制
-    const countRequirementEnabled = event?.registration_settings?.player_requirements?.countRequirementEnabled
-    
+    const playerRequirements = event?.registration_settings?.player_requirements
+
+    // 1. 验证人数要求
+    const countRequirementEnabled = playerRequirements?.countRequirementEnabled
     if (countRequirementEnabled) {
-      const minCount = event?.registration_settings?.player_requirements?.minCount || 1
-      const maxCount = event?.registration_settings?.player_requirements?.maxCount || 20
-      
+      const minCount = playerRequirements?.minCount || 1
+      const maxCount = playerRequirements?.maxCount || 20
+
       if (players.length < minCount) {
         alert(`队员人数不能少于 ${minCount} 人`)
         return false
       }
-      
+
       if (players.length > maxCount) {
         alert(`队员人数不能超过 ${maxCount} 人`)
         return false
       }
     }
-    
-    // 验证必填字段
+
+    // 2. 验证性别要求
+    const genderRequirement = playerRequirements?.genderRequirement
+    if (genderRequirement && genderRequirement !== 'none') {
+      const requiredGender = genderRequirement === 'male' ? '男' : '女'
+
+      for (let i = 0; i < players.length; i++) {
+        const player = players[i]
+
+        // 查找性别字段 - 可能是 'gender' 或 'sex'
+        const playerGender = player.gender || player.sex
+
+        if (!playerGender) {
+          alert(`队员 ${i + 1} 必须填写性别信息`)
+          return false
+        }
+
+        // 检查性别是否符合要求
+        if (playerGender !== requiredGender) {
+          alert(`此赛事要求所有队员必须为${requiredGender}性，但队员 ${i + 1} 的性别为${playerGender}`)
+          return false
+        }
+      }
+    }
+
+    // 3. 验证年龄要求
+    if (playerRequirements?.ageRequirementEnabled) {
+      const minAgeDate = playerRequirements.minAgeDate
+      const maxAgeDate = playerRequirements.maxAgeDate
+      const minAge = playerRequirements.minAge
+      const maxAge = playerRequirements.maxAge
+
+      for (let i = 0; i < players.length; i++) {
+        const player = players[i]
+        const today = new Date()
+
+        // 优先使用出生日期范围验证
+        if ((minAgeDate || maxAgeDate) && player.birthdate) {
+          const birthDate = new Date(player.birthdate)
+          const birthDateStr = birthDate.toISOString().split('T')[0]
+
+          if (minAgeDate && birthDateStr < minAgeDate) {
+            const minYear = new Date(minAgeDate).getFullYear()
+            const maxAgeFromDate = today.getFullYear() - minYear
+            alert(`此赛事要求队员出生日期不早于 ${minAgeDate}（不超过 ${maxAgeFromDate} 岁），但队员 ${i + 1} 的出生日期为 ${birthDateStr}`)
+            return false
+          }
+
+          if (maxAgeDate && birthDateStr > maxAgeDate) {
+            const maxYear = new Date(maxAgeDate).getFullYear()
+            const minAgeFromDate = today.getFullYear() - maxYear
+            alert(`此赛事要求队员出生日期不晚于 ${maxAgeDate}（不小于 ${minAgeFromDate} 岁），但队员 ${i + 1} 的出生日期为 ${birthDateStr}`)
+            return false
+          }
+        }
+        // 兼容旧的年龄范围验证
+        else if (minAge || maxAge) {
+          // 查找年龄字段 - 可能是 'age' 或通过 'birthdate' 计算
+          let playerAge = player.age
+
+          // 如果没有直接的年龄，尝试从出生日期计算
+          if (!playerAge && player.birthdate) {
+            const birthDate = new Date(player.birthdate)
+            playerAge = today.getFullYear() - birthDate.getFullYear()
+
+            // 考虑月份和日期的影响
+            const monthDiff = today.getMonth() - birthDate.getMonth()
+            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+              playerAge--
+            }
+          }
+
+          if (!playerAge) {
+            alert(`队员 ${i + 1} 必须填写年龄或出生日期信息`)
+            return false
+          }
+
+          // 检查年龄范围
+          if (minAge && playerAge < minAge) {
+            alert(`此赛事要求队员年龄不小于 ${minAge} 岁，但队员 ${i + 1} 年龄为 ${playerAge} 岁`)
+            return false
+          }
+
+          if (maxAge && playerAge > maxAge) {
+            alert(`此赛事要求队员年龄不大于 ${maxAge} 岁，但队员 ${i + 1} 年龄为 ${playerAge} 岁`)
+            return false
+          }
+        }
+        // 如果启用了年龄要求但没有设置具体的范围，至少要求填写出生日期或年龄
+        else if (!player.birthdate && !player.age) {
+          alert(`队员 ${i + 1} 必须填写出生日期或年龄信息`)
+          return false
+        }
+      }
+    }
+
+    // 4. 验证必填字段
     for (let i = 0; i < players.length; i++) {
       const player = players[i]
       const selectedRoleId = player.role || 'player'
-      const selectedRole = event?.registration_settings?.player_requirements?.roles?.find(
+      const selectedRole = playerRequirements?.roles?.find(
         (r: any) => r.id === selectedRoleId
-      ) || event?.registration_settings?.player_requirements?.roles?.[0]
-      
+      ) || playerRequirements?.roles?.[0]
+
       if (selectedRole) {
         // 使用管理端设置的字段顺序
         const roleFields = selectedRole.allFields || [
           ...(selectedRole.commonFields || []),
           ...(selectedRole.customFields || [])
         ]
-        
+
         // 检查所有必填字段
         for (const field of roleFields) {
           if (field.required && !player[field.id]) {
@@ -542,7 +772,7 @@ export default function RegisterPage() {
         }
       }
     }
-    
+
     return true
   }
 
@@ -559,8 +789,49 @@ export default function RegisterPage() {
     }
 
     if (registration?.status === 'pending' || registration?.status === 'submitted') {
-      alert('报名正在审核中，无法保存草稿。请取消报名后再进行相应的操作。')
+      // 根据是否在审核期显示不同提醒
+      if (isInReviewPeriod()) {
+        alert('报名正在审核中，无法保存草稿。')
+      } else {
+        alert('报名正在审核中，无法保存草稿。请取消报名后再进行相应的操作。')
+      }
       return
+    }
+
+    // 检查是否在审核期内（报名已结束但审核未结束）
+    const now = new Date()
+    let teamReq = event?.registration_settings?.team_requirements
+    if (typeof teamReq === 'string') {
+      try {
+        teamReq = JSON.parse(teamReq)
+      } catch (e) {
+        console.error('解析 team_requirements 失败:', e)
+      }
+    }
+
+    const regEndDate = teamReq?.registrationEndDate
+    const reviewEndDate = teamReq?.reviewEndDate
+    const regEnd = regEndDate ? new Date(regEndDate) : null
+    const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
+
+    const inReviewPeriod = regEnd && reviewEnd && now > regEnd && now <= reviewEnd
+
+    // 审核期内的限制
+    if (inReviewPeriod) {
+      if (isNewRegistration) {
+        alert('报名已结束，现在处于审核期。审核期内不能新建报名，只能重新提交被驳回的报名。')
+        return
+      }
+      // 草稿在审核期内不能编辑
+      if (registration?.status === 'draft') {
+        alert('报名已结束，现在处于审核期。审核期内草稿不能继续编辑，只能查看或删除。')
+        return
+      }
+      // 只有被驳回的才能在审核期内重新编辑
+      if (!registration || registration.status !== 'rejected') {
+        alert('报名已结束，现在处于审核期。审核期内只能重新提交被驳回的报名。')
+        return
+      }
     }
 
     setIsSaving(true)
@@ -633,15 +904,72 @@ export default function RegisterPage() {
     }
 
     if (registration?.status === 'pending' || registration?.status === 'submitted') {
-      alert('报名正在审核中，无法重复提交。请取消报名后再进行相应的操作。')
+      // 根据是否在审核期显示不同提醒
+      if (isInReviewPeriod()) {
+        alert('报名正在审核中，无法重复提交。')
+      } else {
+        alert('报名正在审核中，无法重复提交。请取消报名后再进行相应的操作。')
+      }
       return
+    }
+
+    // 检查是否在审核期内（报名已结束但审核未结束）
+    const now = new Date()
+    let teamReq = event?.registration_settings?.team_requirements
+    if (typeof teamReq === 'string') {
+      try {
+        teamReq = JSON.parse(teamReq)
+      } catch (e) {
+        console.error('解析 team_requirements 失败:', e)
+      }
+    }
+
+    const regEndDate = teamReq?.registrationEndDate
+    const reviewEndDate = teamReq?.reviewEndDate
+    const regEnd = regEndDate ? new Date(regEndDate) : null
+    const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
+
+    const inReviewPeriod = regEnd && reviewEnd && now > regEnd && now <= reviewEnd
+
+    // 审核期内的限制
+    if (inReviewPeriod) {
+      if (isNewRegistration) {
+        alert('报名已结束，现在处于审核期。审核期内不能新建报名，只能重新提交被驳回的报名。')
+        return
+      }
+      // 草稿在审核期内不能提交
+      if (registration?.status === 'draft') {
+        alert('报名已结束，现在处于审核期。审核期内草稿不能提交，只能查看或删除。')
+        return
+      }
+      // 只有被驳回的才能在审核期内重新提交
+      if (!registration || registration.status !== 'rejected') {
+        alert('报名已结束，现在处于审核期。审核期内只能重新提交被驳回的报名。')
+        return
+      }
     }
 
     if (!validatePlayers()) {
       setActiveTab('players')
       return
     }
-    
+
+    // 添加确认提交弹窗
+    let confirmMessage = '确认提交报名？\n\n'
+    if (registration?.status === 'draft') {
+      confirmMessage += '当前为草稿状态，提交后将进入审核流程。'
+    } else if (registration?.status === 'rejected') {
+      confirmMessage += '当前报名已被驳回，确认要重新提交吗？\n驳回原因：' + (registration.rejection_reason || '未说明')
+    } else if (registration?.status === 'cancelled') {
+      confirmMessage += '当前报名已取消，确认要重新提交吗？'
+    } else {
+      confirmMessage += '提交后将进入审核流程，请确保信息填写正确。'
+    }
+
+    if (!window.confirm(confirmMessage)) {
+      return
+    }
+
     setIsSubmitting(true)
     
     try {
@@ -749,6 +1077,54 @@ export default function RegisterPage() {
     )
   }
 
+  // 检查赛事是否已结束
+  const isEventEnded = () => {
+    if (!event) return false
+    const now = new Date()
+
+    // 获取报名相关时间
+    let teamReq = event.registration_settings?.team_requirements
+    if (typeof teamReq === 'string') {
+      try {
+        teamReq = JSON.parse(teamReq)
+      } catch (e) {
+        console.error('解析 team_requirements 失败:', e)
+      }
+    }
+
+    const regEndDate = teamReq?.registrationEndDate
+    const reviewEndDate = teamReq?.reviewEndDate
+
+    // 检查是否报名截止（超过审核结束时间或报名结束时间）
+    if (regEndDate) {
+      const regEnd = new Date(regEndDate)
+      if (reviewEndDate) {
+        const reviewEnd = new Date(reviewEndDate)
+        return now > reviewEnd  // 超过审核结束时间
+      }
+      return now > regEnd  // 没有审核结束时间但超过报名结束时间
+    }
+
+    // 如果没有设置报名时间，直接返回true（报名截止）
+    return true
+  }
+
+  // 如果赛事已结束且不是查看模式，不允许报名
+  if (isEventEnded() && !isEventEndedView) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 text-red-400 mx-auto mb-4" />
+          <p className="text-lg text-gray-600">报名已截止</p>
+          <p className="text-sm text-gray-500 mt-2">该赛事报名已截止，不能再进行报名</p>
+          <Button className="mt-4" onClick={() => router.push('/portal')}>
+            返回赛事列表
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   // 检查是否已提交（使用registration_type字段）- 新建报名时跳过此检查，被驳回的也跳过
   // 如果不是新建模式，且不是通过edit参数编辑特定报名，且状态不是可编辑的状态（被驳回、已取消、草稿）
   if (!isNewRegistration && !editRegistrationId &&
@@ -787,6 +1163,19 @@ export default function RegisterPage() {
 
   return (
     <div className="space-y-6">
+      {/* 赛事已结束提示 */}
+      {isEventEndedView && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
+            <div>
+              <h3 className="font-semibold text-red-800">该赛事报名已截止</h3>
+              <p className="text-red-600 mt-1">此赛事报名已截止，您只能查看报名信息，不能再次提交或修改。</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 被驳回提示 */}
       {registration?.status === 'rejected' && registration?.rejection_reason && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -801,8 +1190,8 @@ export default function RegisterPage() {
         </div>
       )}
 
-      {/* 已取消提示 */}
-      {registration?.status === 'cancelled' && (
+      {/* 已取消提示 - 仅在报名期内显示 */}
+      {registration?.status === 'cancelled' && !isInReviewPeriod() && !isEventEndedView && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <div className="flex items-start gap-2">
             <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
@@ -822,7 +1211,7 @@ export default function RegisterPage() {
             <Check className="h-5 w-5 text-green-600 mt-0.5" />
             <div>
               <h3 className="font-semibold text-green-800">报名已通过审核</h3>
-              <p className="text-green-600 mt-1">当前为查看模式，无法修改或重新提交</p>
+              <p className="text-green-600 mt-1">当前为查看模式，无法进行修改；如需修改，可取消此条报名信息，重新提交报名。</p>
             </div>
           </div>
         </div>
@@ -855,42 +1244,60 @@ export default function RegisterPage() {
           <h1 className="text-2xl font-bold">{event.name} - 报名</h1>
         </div>
         
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={handleSubmit(handleSaveDraft)}
-            disabled={isSaving}
-          >
-            {isSaving ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                保存中...
-              </>
-            ) : (
-              <>
-                <Save className="h-4 w-4 mr-2" />
-                保存草稿
-              </>
-            )}
-          </Button>
-          <Button
-            onClick={handleSubmit(handleSubmitRegistration)}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                提交中...
-              </>
-            ) : (
-              <>
-                <Send className="h-4 w-4 mr-2" />
-                提交报名
-              </>
-            )}
-          </Button>
-        </div>
+        {/* 根据状态判断是否显示保存和提交按钮 */}
+        {shouldShowActionButtons() && (
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={handleSubmit(handleSaveDraft)}
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  保存中...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  保存草稿
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={handleSubmit(handleSubmitRegistration)}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  提交中...
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4 mr-2" />
+                  提交报名
+                </>
+              )}
+            </Button>
+          </div>
+        )}
       </div>
+
+      {/* 审核期内新建报名的提示 */}
+      {isInReviewPeriod() && isNewRegistration && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-semibold text-red-900">不能新建报名</p>
+              <p className="text-sm text-red-700">
+                报名已结束，现在处于审核期。审核期内不接受新的报名申请，只能重新提交被驳回的报名。
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 报名表单 */}
       <Card>
@@ -971,6 +1378,8 @@ export default function RegisterPage() {
                           {...register(field.id)}
                           placeholder={field.placeholder || `请输入${field.label}`}
                           className="mt-1"
+                          disabled={isEventEndedView}
+                          readOnly={isEventEndedView}
                         />
                         {errors[field.id] && (
                           <p className="text-red-600 text-sm mt-1">
@@ -993,6 +1402,8 @@ export default function RegisterPage() {
                           type="date"
                           {...register(field.id)}
                           className="mt-1"
+                          disabled={isEventEndedView}
+                          readOnly={isEventEndedView}
                         />
                         {errors[field.id] && (
                           <p className="text-red-600 text-sm mt-1">
@@ -1044,37 +1455,67 @@ export default function RegisterPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-lg font-semibold">队员列表</h3>
-                    {/* 只在有要求时显示要求信息 */}
-                    {(event.registration_settings?.player_requirements?.countRequirementEnabled || 
-                      (event.registration_settings?.player_requirements?.genderRequirement && 
-                       event.registration_settings.player_requirements.genderRequirement !== 'none')) && (
-                      <p className="text-sm text-gray-600 mt-1">
-                        {/* 人数要求 */}
-                        {event.registration_settings?.player_requirements?.countRequirementEnabled && (
-                          <span>
-                            人数要求：
-                            {event.registration_settings.player_requirements.minCount || 1} - {' '}
-                            {event.registration_settings.player_requirements.maxCount || 20} 人
-                          </span>
-                        )}
-                        
-                        {/* 性别要求 */}
-                        {event.registration_settings?.player_requirements?.genderRequirement && 
-                         event.registration_settings.player_requirements.genderRequirement !== 'none' && (
-                          <span className={event.registration_settings.player_requirements.countRequirementEnabled ? "ml-2" : ""}>
-                            {event.registration_settings.player_requirements.countRequirementEnabled && ' | '}
-                            性别要求：
-                            {event.registration_settings.player_requirements.genderRequirement === 'male' ? '男' : '女'}
-                          </span>
-                        )}
-                      </p>
-                    )}
+                    {/* 显示所有要求信息 */}
+                    {(() => {
+                      const playerReqs = event?.registration_settings?.player_requirements
+                      const hasCountReq = playerReqs?.countRequirementEnabled
+                      const hasGenderReq = playerReqs?.genderRequirement && playerReqs.genderRequirement !== 'none'
+                      const hasAgeReq = playerReqs?.ageRequirementEnabled
+
+                      if (hasCountReq || hasGenderReq || hasAgeReq) {
+                        return (
+                          <div className="text-sm text-gray-600 mt-2 space-y-1">
+                            <p className="font-medium text-gray-700">报名要求：</p>
+
+                            {/* 人数要求 */}
+                            {hasCountReq && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-blue-600">•</span>
+                                <span>
+                                  人数：{playerReqs.minCount || 1} - {playerReqs.maxCount || 20} 人
+                                </span>
+                              </div>
+                            )}
+
+                            {/* 性别要求 */}
+                            {hasGenderReq && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-blue-600">•</span>
+                                <span>
+                                  性别：仅限{playerReqs.genderRequirement === 'male' ? '男性' : '女性'}队员
+                                </span>
+                              </div>
+                            )}
+
+                            {/* 年龄要求 */}
+                            {hasAgeReq && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-blue-600">•</span>
+                                <span>
+                                  年龄：
+                                  {playerReqs.minAge && playerReqs.maxAge ?
+                                    `${playerReqs.minAge} - ${playerReqs.maxAge} 岁` :
+                                    playerReqs.minAge ?
+                                      `不小于 ${playerReqs.minAge} 岁` :
+                                      playerReqs.maxAge ?
+                                        `不大于 ${playerReqs.maxAge} 岁` :
+                                        '有年龄限制'
+                                  }
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
                   </div>
                   <div className="flex gap-2">
                     <Button
                       type="button"
                       onClick={addPlayer}
                       size="sm"
+                      disabled={isEventEndedView}
                     >
                       <Plus className="h-4 w-4 mr-1" />
                       添加队员
@@ -1126,6 +1567,7 @@ export default function RegisterPage() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => removePlayer(player.id)}
+                                disabled={isEventEndedView}
                               >
                                 <Trash2 className="h-4 w-4 text-red-500" />
                               </Button>
@@ -1162,51 +1604,239 @@ export default function RegisterPage() {
                               const selectedRole = event.registration_settings?.player_requirements?.roles?.find(
                                 (r: any) => r.id === selectedRoleId
                               ) || event.registration_settings?.player_requirements?.roles?.[0]
-                              
+
                               if (!selectedRole) return null
-                              
+
+                              // 获取队员要求配置
+                              const playerRequirements = event?.registration_settings?.player_requirements
+
                               // 使用管理端设置的字段顺序
                               const roleFields = selectedRole.allFields || [
                                 ...(selectedRole.commonFields || []),
                                 ...(selectedRole.customFields || [])
                               ]
-                              
+
                               return roleFields.map((field: any) => {
                                 // 根据字段类型渲染不同的输入组件
                                 switch (field.type) {
                                   case 'text':
+                                    // 检查是否是年龄字段并有要求
+                                    const isAgeField = field.id === 'age'
+                                    const ageRequirement = isAgeField && playerRequirements?.ageRequirementEnabled
+                                    const currentAge = parseInt(player[field.id]) || 0
+
+                                    let ageStatus = ''
+                                    let ageMessage = ''
+                                    if (ageRequirement && currentAge > 0) {
+                                      if (playerRequirements.minAge && currentAge < playerRequirements.minAge) {
+                                        ageStatus = 'too_young'
+                                        ageMessage = `年龄不能小于 ${playerRequirements.minAge} 岁，当前为 ${currentAge} 岁`
+                                      } else if (playerRequirements.maxAge && currentAge > playerRequirements.maxAge) {
+                                        ageStatus = 'too_old'
+                                        ageMessage = `年龄不能大于 ${playerRequirements.maxAge} 岁，当前为 ${currentAge} 岁`
+                                      } else if (
+                                        (!playerRequirements.minAge || currentAge >= playerRequirements.minAge) &&
+                                        (!playerRequirements.maxAge || currentAge <= playerRequirements.maxAge)
+                                      ) {
+                                        ageStatus = 'valid'
+                                        ageMessage = `年龄 ${currentAge} 岁，符合要求`
+                                      }
+                                    }
+
                                     return (
                                       <div key={field.id}>
-                                        <Label>{field.label}{field.required && ' *'}</Label>
+                                        <Label className="flex items-center gap-2">
+                                          {field.label}{field.required && ' *'}
+                                          {ageRequirement && (
+                                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                                              {playerRequirements.minAge && playerRequirements.maxAge ?
+                                                `${playerRequirements.minAge}-${playerRequirements.maxAge}岁` :
+                                                playerRequirements.minAge ?
+                                                  `≥${playerRequirements.minAge}岁` :
+                                                  `≤${playerRequirements.maxAge}岁`
+                                              }
+                                            </span>
+                                          )}
+                                        </Label>
                                         <Input
+                                          type={isAgeField ? "number" : "text"}
                                           value={player[field.id] || ''}
                                           onChange={(e) => updatePlayer(player.id, field.id, e.target.value)}
                                           placeholder={`请输入${field.label}`}
-                                          className="mt-1"
+                                          disabled={isEventEndedView}
+                                          readOnly={isEventEndedView}
+                                          className={`mt-1 ${
+                                            ageStatus === 'too_young' || ageStatus === 'too_old'
+                                              ? 'border-red-300 bg-red-50'
+                                              : ageStatus === 'valid'
+                                              ? 'border-green-300 bg-green-50'
+                                              : ''
+                                          }`}
                                         />
+                                        {ageMessage && (
+                                          <p className={`text-xs mt-1 font-medium ${
+                                            ageStatus === 'too_young' || ageStatus === 'too_old'
+                                              ? 'text-red-600 bg-red-50 p-2 rounded border border-red-200'
+                                              : ageStatus === 'valid'
+                                              ? 'text-green-600 bg-green-50 p-2 rounded border border-green-200'
+                                              : ''
+                                          }`}>
+                                            {ageMessage}
+                                          </p>
+                                        )}
                                       </div>
                                     )
                                   case 'date':
+                                    // 检查是否是出生日期字段并有年龄要求
+                                    const isBirthdateField = field.id === 'birthdate' || field.id === 'birthday'
+                                    const birthdateAgeRequirement = isBirthdateField && playerRequirements?.ageRequirementEnabled
+
+                                    let birthdateAgeStatus = ''
+                                    let calculatedAge = 0
+                                    let birthdateAgeMessage = ''
+
+                                    if (birthdateAgeRequirement && player[field.id]) {
+                                      const birthDate = new Date(player[field.id])
+                                      const today = new Date()
+                                      calculatedAge = today.getFullYear() - birthDate.getFullYear()
+                                      const monthDiff = today.getMonth() - birthDate.getMonth()
+                                      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+                                        calculatedAge--
+                                      }
+
+                                      const birthDateStr = birthDate.toISOString().split('T')[0]
+                                      const minAgeDate = playerRequirements.minAgeDate
+                                      const maxAgeDate = playerRequirements.maxAgeDate
+
+                                      // 优先使用出生日期范围验证
+                                      if (minAgeDate || maxAgeDate) {
+                                        if (minAgeDate && birthDateStr < minAgeDate) {
+                                          const minYear = new Date(minAgeDate).getFullYear()
+                                          const maxAgeFromDate = today.getFullYear() - minYear
+                                          birthdateAgeStatus = 'too_old'
+                                          birthdateAgeMessage = `出生日期不能早于 ${minAgeDate}，当前 ${calculatedAge} 岁（超过 ${maxAgeFromDate} 岁限制）`
+                                        } else if (maxAgeDate && birthDateStr > maxAgeDate) {
+                                          const maxYear = new Date(maxAgeDate).getFullYear()
+                                          const minAgeFromDate = today.getFullYear() - maxYear
+                                          birthdateAgeStatus = 'too_young'
+                                          birthdateAgeMessage = `出生日期不能晚于 ${maxAgeDate}，当前 ${calculatedAge} 岁（小于 ${minAgeFromDate} 岁限制）`
+                                        } else {
+                                          birthdateAgeStatus = 'valid'
+                                          birthdateAgeMessage = `年龄 ${calculatedAge} 岁，出生日期符合要求`
+                                        }
+                                      }
+                                      // 兼容旧的年龄范围设置
+                                      else if (calculatedAge > 0) {
+                                        if (playerRequirements.minAge && calculatedAge < playerRequirements.minAge) {
+                                          birthdateAgeStatus = 'too_young'
+                                          birthdateAgeMessage = `根据出生日期计算，年龄为 ${calculatedAge} 岁，不能小于 ${playerRequirements.minAge} 岁`
+                                        } else if (playerRequirements.maxAge && calculatedAge > playerRequirements.maxAge) {
+                                          birthdateAgeStatus = 'too_old'
+                                          birthdateAgeMessage = `根据出生日期计算，年龄为 ${calculatedAge} 岁，不能大于 ${playerRequirements.maxAge} 岁`
+                                        } else if (
+                                          (!playerRequirements.minAge || calculatedAge >= playerRequirements.minAge) &&
+                                          (!playerRequirements.maxAge || calculatedAge <= playerRequirements.maxAge)
+                                        ) {
+                                          birthdateAgeStatus = 'valid'
+                                          birthdateAgeMessage = `年龄 ${calculatedAge} 岁，符合要求`
+                                        }
+                                      }
+                                    }
+
                                     return (
                                       <div key={field.id}>
-                                        <Label>{field.label}{field.required && ' *'}</Label>
+                                        <Label className="flex items-center gap-2">
+                                          {field.label}{field.required && ' *'}
+                                          {birthdateAgeRequirement && (
+                                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                                              {(() => {
+                                                const minAgeDate = playerRequirements.minAgeDate
+                                                const maxAgeDate = playerRequirements.maxAgeDate
+                                                const minAge = playerRequirements.minAge
+                                                const maxAge = playerRequirements.maxAge
+                                                const currentYear = new Date().getFullYear()
+
+                                                // 优先显示出生日期范围
+                                                if (minAgeDate && maxAgeDate) {
+                                                  const minYear = new Date(minAgeDate).getFullYear()
+                                                  const maxYear = new Date(maxAgeDate).getFullYear()
+                                                  const maxAgeFromDate = currentYear - minYear
+                                                  const minAgeFromDate = currentYear - maxYear
+                                                  return `${minAgeDate} 至 ${maxAgeDate}（${minAgeFromDate}-${maxAgeFromDate}岁）`
+                                                } else if (minAgeDate) {
+                                                  const maxAgeFromDate = currentYear - new Date(minAgeDate).getFullYear()
+                                                  return `不早于 ${minAgeDate}（≤${maxAgeFromDate}岁）`
+                                                } else if (maxAgeDate) {
+                                                  const minAgeFromDate = currentYear - new Date(maxAgeDate).getFullYear()
+                                                  return `不晚于 ${maxAgeDate}（≥${minAgeFromDate}岁）`
+                                                }
+                                                // 兼容旧的年龄范围
+                                                else if (minAge && maxAge) {
+                                                  return `需${minAge}-${maxAge}岁`
+                                                } else if (minAge) {
+                                                  return `需≥${minAge}岁`
+                                                } else if (maxAge) {
+                                                  return `需≤${maxAge}岁`
+                                                }
+                                                return '有年龄限制'
+                                              })()}
+                                            </span>
+                                          )}
+                                        </Label>
                                         <Input
                                           type="date"
                                           value={player[field.id] || ''}
                                           onChange={(e) => updatePlayer(player.id, field.id, e.target.value)}
-                                          className="mt-1"
+                                          disabled={isEventEndedView}
+                                          readOnly={isEventEndedView}
+                                          className={`mt-1 ${
+                                            birthdateAgeStatus === 'too_young' || birthdateAgeStatus === 'too_old'
+                                              ? 'border-red-300 bg-red-50'
+                                              : birthdateAgeStatus === 'valid'
+                                              ? 'border-green-300 bg-green-50'
+                                              : ''
+                                          }`}
                                         />
+                                        {birthdateAgeMessage && (
+                                          <p className={`text-xs mt-1 font-medium ${
+                                            birthdateAgeStatus === 'too_young' || birthdateAgeStatus === 'too_old'
+                                              ? 'text-red-600 bg-red-50 p-2 rounded border border-red-200'
+                                              : birthdateAgeStatus === 'valid'
+                                              ? 'text-green-600 bg-green-50 p-2 rounded border border-green-200'
+                                              : ''
+                                          }`}>
+                                            {birthdateAgeMessage}
+                                          </p>
+                                        )}
                                       </div>
                                     )
                                   case 'select':
+                                    // 检查是否是性别字段并有要求
+                                    const isGenderField = field.id === 'gender' || field.id === 'sex'
+                                    const genderRequirement = isGenderField && playerRequirements?.genderRequirement && playerRequirements.genderRequirement !== 'none'
+                                    const currentGender = player[field.id]
+
                                     return (
                                       <div key={field.id}>
-                                        <Label>{field.label}{field.required && ' *'}</Label>
+                                        <Label className="flex items-center gap-2">
+                                          {field.label}{field.required && ' *'}
+                                          {genderRequirement && (
+                                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                                              仅限{playerRequirements.genderRequirement === 'male' ? '男性' : '女性'}
+                                            </span>
+                                          )}
+                                        </Label>
                                         <Select
                                           value={player[field.id] || ''}
                                           onValueChange={(value) => updatePlayer(player.id, field.id, value)}
+                                          disabled={isEventEndedView}
                                         >
-                                          <SelectTrigger className="mt-1">
+                                          <SelectTrigger className={`mt-1 ${
+                                            genderRequirement && currentGender &&
+                                            currentGender !== (playerRequirements.genderRequirement === 'male' ? '男' : '女')
+                                              ? 'border-red-300 bg-red-50'
+                                              : ''
+                                          }`}>
                                             <SelectValue placeholder={`请选择${field.label}`} />
                                           </SelectTrigger>
                                           <SelectContent>
@@ -1217,6 +1847,12 @@ export default function RegisterPage() {
                                             ))}
                                           </SelectContent>
                                         </Select>
+                                        {genderRequirement && currentGender &&
+                                         currentGender !== (playerRequirements.genderRequirement === 'male' ? '男' : '女') && (
+                                          <p className="text-red-600 text-xs mt-1">
+                                            此赛事要求所有队员必须为{playerRequirements.genderRequirement === 'male' ? '男性' : '女性'}
+                                          </p>
+                                        )}
                                       </div>
                                     )
                                   case 'multiselect':

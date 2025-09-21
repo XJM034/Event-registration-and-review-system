@@ -20,9 +20,10 @@ interface Registration {
 
 interface ReviewListTabProps {
   eventId: string
+  onReviewComplete?: () => void  // 新增回调函数，当审核完成时调用
 }
 
-export default function ReviewListTab({ eventId }: ReviewListTabProps) {
+export default function ReviewListTab({ eventId, onReviewComplete }: ReviewListTabProps) {
   const [registrations, setRegistrations] = useState<Registration[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedRegistration, setSelectedRegistration] = useState<Registration | null>(null)
@@ -149,6 +150,10 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
       if (result.success) {
         setRegistrations(prev => prev.filter(r => r.id !== registrationId))
         setSelectedRegistration(null)
+        // 通知父组件更新红点计数
+        if (onReviewComplete) {
+          onReviewComplete()
+        }
       } else {
         alert('审核失败: ' + result.error)
       }
@@ -186,6 +191,10 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
         setSelectedRegistration(null)
         setShowRejectDialog(false)
         setRejectionReason('')
+        // 通知父组件更新红点计数
+        if (onReviewComplete) {
+          onReviewComplete()
+        }
       } else {
         alert('驳回失败: ' + result.error)
       }
@@ -332,7 +341,7 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
                     return (
                       <div key={key}>
                         <Label>{key}</Label>
-                        <p className="mt-1">{value || '-'}</p>
+                        <p className="mt-1">{String(value) || '-'}</p>
                       </div>
                     )
                   })}
@@ -388,7 +397,7 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
                           return (
                             <div key={key}>
                               <Label>{key}</Label>
-                              <p className="mt-1">{value || '-'}</p>
+                              <p className="mt-1">{String(value) || '-'}</p>
                             </div>
                           )
                         })}
