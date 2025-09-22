@@ -437,18 +437,10 @@ export default function RegisterPage() {
   // 为特定队员生成专属分享链接
   const generatePlayerShareLink = async (playerId: string, playerNumber: number) => {
     try {
-      // 如果还没有registration，需要先保存草稿
+      // 如果还没有registration，提醒用户需要先保存草稿
       if (!registration?.id) {
-        alert('正在自动保存草稿，请稍后...')
-
-        // 自动保存草稿
-        const formData = getValues()
-        await handleSaveDraft(formData)
-
-        // 等待一下让registration更新
-        setTimeout(() => {
-          generatePlayerShareLink(playerId, playerNumber)
-        }, 1000)
+        alert('请先填写团队信息并保存草稿后，再生成分享链接')
+        setActiveTab('team') // 切换到团队信息标签
         return
       }
 
@@ -495,14 +487,62 @@ export default function RegisterPage() {
       // 生成完整的分享链接
       const shareUrl = `${window.location.origin}/player-share/${token}`
 
-      // 复制到剪贴板
-      await navigator.clipboard.writeText(shareUrl)
-      setCopiedPlayerId(playerId)
+      // 复制到剪贴板（兼容性处理）
+      let copySuccessful = false
 
-      // 3秒后清除复制状态
-      setTimeout(() => setCopiedPlayerId(null), 3000)
+      // 优先使用降级方案，因为它更稳定
+      try {
+        // 创建临时文本输入框
+        const textArea = document.createElement('textarea')
+        textArea.value = shareUrl
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-999999px'
+        textArea.style.top = '-999999px'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
 
-      alert(`队员${playerNumber}的专属填写链接已复制到剪贴板！\n\n${shareUrl}\n\n请将此链接发送给队员${playerNumber}填写个人信息`)
+        try {
+          const successful = document.execCommand('copy')
+          document.body.removeChild(textArea)
+
+          if (successful) {
+            copySuccessful = true
+            setCopiedPlayerId(playerId)
+            setTimeout(() => setCopiedPlayerId(null), 3000)
+          }
+        } catch (err) {
+          document.body.removeChild(textArea)
+          console.error('execCommand复制失败:', err)
+        }
+      } catch (err) {
+        console.error('降级方案复制失败:', err)
+      }
+
+      // 如果降级方案失败，尝试现代 API
+      if (!copySuccessful) {
+        try {
+          // 确保文档有焦点
+          window.focus()
+
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(shareUrl)
+            copySuccessful = true
+            setCopiedPlayerId(playerId)
+            setTimeout(() => setCopiedPlayerId(null), 3000)
+          }
+        } catch (err) {
+          console.error('Clipboard API复制失败:', err)
+        }
+      }
+
+      // 显示结果消息
+      if (copySuccessful) {
+        alert(`队员${playerNumber}的专属填写链接已复制到剪贴板！\n\n${shareUrl}\n\n请将此链接发送给队员${playerNumber}填写个人信息`)
+      } else {
+        // 如果所有方法都失败，显示链接让用户手动复制
+        alert(`请手动复制队员${playerNumber}的专属填写链接：\n\n${shareUrl}\n\n请将此链接发送给队员${playerNumber}填写个人信息`)
+      }
     } catch (error) {
       console.error('生成分享链接失败:', error)
       alert('生成分享链接失败')
@@ -779,13 +819,31 @@ export default function RegisterPage() {
   const handleSaveDraft = async (data: any) => {
     if (!coach) {
       alert('请先登录')
-      return
+      return null
+    }
+
+    // 验证团队信息必填项
+    const teamFields = event?.registration_settings?.team_requirements?.allFields ||
+                      [...(event?.registration_settings?.team_requirements?.commonFields || []),
+                       ...(event?.registration_settings?.team_requirements?.customFields || [])]
+
+    const missingFields: string[] = []
+    for (const field of teamFields) {
+      if (field.required && !data[field.id]) {
+        missingFields.push(field.label)
+      }
+    }
+
+    if (missingFields.length > 0) {
+      alert(`请填写团队信息必填项：${missingFields.join('、')}`)
+      setActiveTab('team')
+      return null
     }
 
     // 检查是否是已通过或待审核状态
     if (registration?.status === 'approved') {
       alert('已报名成功，无法保存草稿。请取消报名后再进行相应的操作。')
-      return
+      return null
     }
 
     if (registration?.status === 'pending' || registration?.status === 'submitted') {
@@ -795,7 +853,7 @@ export default function RegisterPage() {
       } else {
         alert('报名正在审核中，无法保存草稿。请取消报名后再进行相应的操作。')
       }
-      return
+      return null
     }
 
     // 检查是否在审核期内（报名已结束但审核未结束）
@@ -820,25 +878,25 @@ export default function RegisterPage() {
     if (inReviewPeriod) {
       if (isNewRegistration) {
         alert('报名已结束，现在处于审核期。审核期内不能新建报名，只能重新提交被驳回的报名。')
-        return
+        return null
       }
       // 草稿在审核期内不能编辑
       if (registration?.status === 'draft') {
         alert('报名已结束，现在处于审核期。审核期内草稿不能继续编辑，只能查看或删除。')
-        return
+        return null
       }
       // 只有被驳回的才能在审核期内重新编辑
       if (!registration || registration.status !== 'rejected') {
         alert('报名已结束，现在处于审核期。审核期内只能重新提交被驳回的报名。')
-        return
+        return null
       }
     }
 
     setIsSaving(true)
-    
+
     try {
       const supabase = createClient()
-      
+
       // 上传logo
       let logoUrl = teamLogoPreview
       if (teamLogoFile) {
@@ -847,12 +905,12 @@ export default function RegisterPage() {
           logoUrl = uploadedUrl
         }
       }
-      
+
       const teamData = {
         ...data,
         team_logo: logoUrl
       }
-      
+
       console.log('Saving registration with players data:', players)
       const registrationData = {
         event_id: eventId,
@@ -862,6 +920,8 @@ export default function RegisterPage() {
         status: 'draft'
       }
 
+      let savedRegistration = null
+
       if (registration?.id && !isNewRegistration) {
         // 更新现有报名（包括编辑特定报名和默认模式）
         const { error } = await supabase
@@ -870,6 +930,7 @@ export default function RegisterPage() {
           .eq('id', registration.id)
 
         if (error) throw error
+        savedRegistration = registration
       } else {
         // 创建新报名（新建模式或没有现有报名时）
         const { data: newReg, error } = await supabase
@@ -880,12 +941,15 @@ export default function RegisterPage() {
 
         if (error) throw error
         setRegistration(newReg)
+        savedRegistration = newReg
       }
-      
+
       alert('保存成功')
+      return savedRegistration // 返回registration对象
     } catch (error: any) {
       console.error('保存失败:', error)
       alert(`保存失败：${error.message || '请重试'}`)
+      return null // 返回null表示失败
     } finally {
       setIsSaving(false)
     }
@@ -1181,10 +1245,15 @@ export default function RegisterPage() {
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <div className="flex items-start gap-2">
             <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
-            <div>
+            <div className="flex-1">
               <h3 className="font-semibold text-red-800">您的报名已被驳回</h3>
-              <p className="text-red-600 mt-1">驳回原因：{registration.rejection_reason}</p>
-              <p className="text-sm text-red-500 mt-2">请根据驳回原因修改后重新提交</p>
+              <div className="mt-2">
+                <p className="text-red-600 font-medium mb-2">驳回原因：</p>
+                <div className="text-red-600 whitespace-pre-line pl-4">
+                  {registration.rejection_reason}
+                </div>
+              </div>
+              <p className="text-sm text-red-500 mt-3">请根据以上驳回原因修改后重新提交</p>
             </div>
           </div>
         </div>

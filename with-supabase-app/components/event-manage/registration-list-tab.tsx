@@ -9,7 +9,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Eye, Download, Plus, X, Users, CheckCircle, UserPlus } from 'lucide-react'
+import { Eye, Download, Plus, X, CheckCircle, UserPlus } from 'lucide-react'
+import { ImageViewer } from '@/components/ui/image-viewer'
 
 interface Registration {
   id: string
@@ -30,11 +31,15 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
   const [selectedRegistration, setSelectedRegistration] = useState<Registration | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [showRejectDialog, setShowRejectDialog] = useState(false)
+  const [showViewDialog, setShowViewDialog] = useState(false) // 新增状态控制查看对话框
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [rejectionReason, setRejectionReason] = useState('')
   const [processingId, setProcessingId] = useState<string | null>(null)
-  const [teamFields, setTeamFields] = useState<any[]>([]) // 存储队伍报名要求字段
+  const [teamFields, setTeamFields] = useState<any[]>([]) // 存储队伍报名要求字段（表格显示用）
+  const [allTeamFields, setAllTeamFields] = useState<any[]>([]) // 存储所有队伍字段（详情显示用）
+  const [playerFields, setPlayerFields] = useState<any[]>([]) // 存储队员报名要求字段
   const [lastFetchTime, setLastFetchTime] = useState(0) // 记录上次获取设置的时间
+  const [viewingImage, setViewingImage] = useState<{ src: string; alt: string } | null>(null) // 图片查看器状态
   
   // 新增报名表单数据
   const [newRegistration, setNewRegistration] = useState({
@@ -82,39 +87,39 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
       const response = await fetch(`/api/events/${eventId}/registration-settings`)
       const result = await response.json()
 
-      if (result.success && result.data?.team_requirements) {
-        // 优先使用 allFields，如果没有则合并 commonFields 和 customFields
-        let fields = []
-
-        if (result.data.team_requirements.allFields) {
-          fields = result.data.team_requirements.allFields.slice(0, 4)
-        } else if (result.data.team_requirements.commonFields || result.data.team_requirements.customFields) {
-          // 合并 commonFields 和 customFields
-          const allFields = [
-            ...(result.data.team_requirements.commonFields || []),
-            ...(result.data.team_requirements.customFields || [])
+      if (result.success && result.data) {
+        // 获取队伍字段配置
+        if (result.data.team_requirements) {
+          const teamReq = result.data.team_requirements
+          const fields = teamReq.allFields || [
+            ...(teamReq.commonFields || []),
+            ...(teamReq.customFields || [])
           ]
-          fields = allFields.slice(0, 4)
-        }
-
-        if (fields.length > 0) {
-          setTeamFields(fields)
-        } else {
-          // 如果没有字段，使用默认字段
-          setTeamFields([
+          // 保存所有字段
+          setAllTeamFields(fields)
+          // 用于表格显示的前3个字段
+          setTeamFields(fields.slice(0, 3).length > 0 ? fields.slice(0, 3) : [
             { id: 'name', label: '队伍名称' },
             { id: 'campus', label: '报名校区' },
-            { id: 'contact', label: '联系人' },
-            { id: 'phone', label: '联系方式' }
+            { id: 'contact', label: '联系人' }
           ])
         }
+
+        // 获取队员字段配置
+        if (result.data.player_requirements?.roles?.[0]) {
+          const firstRole = result.data.player_requirements.roles[0]
+          const fields = firstRole.allFields || [
+            ...(firstRole.commonFields || []),
+            ...(firstRole.customFields || [])
+          ]
+          setPlayerFields(fields)
+        }
       } else {
-        // 如果没有配置，使用默认字段
+        // 使用默认字段
         setTeamFields([
           { id: 'name', label: '队伍名称' },
           { id: 'campus', label: '报名校区' },
-          { id: 'contact', label: '联系人' },
-          { id: 'phone', label: '联系方式' }
+          { id: 'contact', label: '联系人' }
         ])
       }
     } catch (error) {
@@ -123,8 +128,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
       setTeamFields([
         { id: 'name', label: '队伍名称' },
         { id: 'campus', label: '报名校区' },
-        { id: 'contact', label: '联系人' },
-        { id: 'phone', label: '联系方式' }
+        { id: 'contact', label: '联系人' }
       ])
     }
   }
@@ -313,9 +317,9 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
         console.error('Error data:', errorData)
         alert(`导出失败: ${errorData.error || '未知错误'}`)
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error downloading registrations:', error)
-      alert(`导出失败: ${error.message || '网络错误'}`)
+      alert(`导出失败: ${error?.message || '网络错误'}`)
     }
   }
 
@@ -397,66 +401,75 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
               暂无已通过的报名
             </div>
           ) : (
-            <Table>
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead>
+                  <TableHead className="w-8 px-1">
                     <Checkbox
                       checked={selectedIds.length === registrations.length && registrations.length > 0}
                       onCheckedChange={toggleSelectAll}
                     />
                   </TableHead>
-                  {/* 动态显示队伍报名要求的前4个字段 */}
+                  {/* 动态显示队伍报名要求的前3个字段 */}
                   {teamFields.map((field) => (
-                    <TableHead key={field.id}>{field.label}</TableHead>
+                    <TableHead key={field.id} className="w-[16%] px-2">{field.label}</TableHead>
                   ))}
-                  <TableHead>队员人数</TableHead>
-                  <TableHead>审核时间</TableHead>
-                  <TableHead>操作</TableHead>
+                  <TableHead className="w-[20%] px-2">审核时间</TableHead>
+                  <TableHead className="w-[24%] px-2">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {registrations.map((registration) => (
                   <TableRow key={registration.id}>
-                    <TableCell>
+                    <TableCell className="px-1 py-2">
                       <Checkbox
                         checked={selectedIds.includes(registration.id)}
                         onCheckedChange={() => toggleSelection(registration.id)}
                       />
                     </TableCell>
-                    {/* 动态显示队伍数据的前4个字段 */}
-                    {teamFields.map((field, index) => (
-                      <TableCell key={field.id} className={index === 0 ? "font-medium" : ""}>
-                        {registration.team_data?.[field.id] || '-'}
-                      </TableCell>
-                    ))}
-                    <TableCell>
-                      <div className="flex items-center">
-                        <Users className="h-4 w-4 mr-1" />
-                        {registration.players_data?.length || 0}
-                      </div>
-                    </TableCell>
-                    <TableCell>{registration.reviewed_at ? formatDate(registration.reviewed_at) : '-'}</TableCell>
-                    <TableCell>
-                      <div className="flex space-x-2">
+                    {/* 动态显示队伍数据的前3个字段 */}
+                    {teamFields.map((field, index) => {
+                      const value = registration.team_data?.[field.id] || '-'
+                      const displayValue = typeof value === 'string' && value.length > 8
+                        ? value.substring(0, 8) + '\n' + value.substring(8)
+                        : value
+
+                      return (
+                        <TableCell
+                          key={field.id}
+                          className={`${index === 0 ? "font-medium" : ""} px-2 py-2`}
+                        >
+                          <div className="whitespace-pre-wrap break-words" style={{maxWidth: '100px', wordBreak: 'break-all'}}>
+                            {displayValue}
+                          </div>
+                        </TableCell>
+                      )
+                    })}
+                    <TableCell className="whitespace-nowrap px-2 py-2 text-sm">{registration.reviewed_at ? formatDate(registration.reviewed_at) : '-'}</TableCell>
+                    <TableCell className="px-2 py-2">
+                      <div className="flex space-x-1">
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => setSelectedRegistration(registration)}
+                          onClick={() => {
+                            setSelectedRegistration(registration)
+                            setShowViewDialog(true)
+                          }}
+                          className="px-2 text-xs"
                         >
-                          <Eye className="h-4 w-4 mr-1" />
+                          <Eye className="h-3 w-3 mr-1" />
                           查看
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="text-red-600 hover:text-red-700"
+                          className="text-red-600 hover:text-red-700 px-2 text-xs"
                           onClick={() => {
                             setSelectedRegistration(registration)
                             setShowRejectDialog(true)
                           }}
                         >
-                          <X className="h-4 w-4 mr-1" />
+                          <X className="h-3 w-3 mr-1" />
                           驳回
                         </Button>
                       </div>
@@ -470,7 +483,12 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
       </Card>
 
       {/* 查看详情对话框 */}
-      <Dialog open={!!selectedRegistration && !showRejectDialog} onOpenChange={(open) => !open && setSelectedRegistration(null)}>
+      <Dialog open={showViewDialog} onOpenChange={(open) => {
+        if (!open) {
+          setShowViewDialog(false)
+          setSelectedRegistration(null)
+        }
+      }}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>报名详情</DialogTitle>
@@ -484,22 +502,38 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
               <div>
                 <h3 className="font-semibold mb-3">队伍信息</h3>
                 <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
-                  {/* 动态显示所有队伍字段 */}
-                  {Object.entries(selectedRegistration.team_data || {}).map(([key, value]) => {
-                    // 跳过系统字段
-                    if (key === 'id' || key === 'team_logo') return null
+                  {/* 根据配置显示队伍字段 */}
+                  {(() => {
+                    // 使用完整的队伍字段配置
+                    const fieldsToShow = allTeamFields.length > 0 ?
+                      allTeamFields :
+                      Object.keys(selectedRegistration.team_data || {}).map(key => ({
+                        id: key,
+                        label: key,
+                        type: 'text'
+                      }))
 
-                    // 如果是图片字段
-                    if (typeof value === 'string' && (value.startsWith('http') || value.startsWith('/'))) {
-                      if (value.match(/\.(jpg|jpeg|png|gif|webp)$/i) || value.includes('supabase') || value.includes('storage')) {
+                    // 根据配置显示字段
+                    return fieldsToShow.map((field) => {
+                      const value = selectedRegistration.team_data?.[field.id]
+                      if (!value) return null
+
+                      // 如果是图片字段
+                      if (field.type === 'image' ||
+                          (typeof value === 'string' &&
+                           (value.startsWith('http') || value.startsWith('/')) &&
+                           (value.match(/\.(jpg|jpeg|png|gif|webp)$/i) ||
+                            value.includes('supabase') ||
+                            value.includes('storage')))) {
                         return (
-                          <div key={key} className="col-span-2">
-                            <Label>{key}</Label>
+                          <div key={field.id} className="col-span-2">
+                            <Label>{field.label}</Label>
                             <div className="mt-1">
                               <img
                                 src={value}
-                                alt={key}
-                                className="w-32 h-32 object-cover rounded border"
+                                alt={field.label}
+                                className="w-32 h-32 object-cover rounded border cursor-pointer hover:opacity-90"
+                                onClick={() => setViewingImage({ src: value, alt: field.label })}
                                 onError={(e) => {
                                   e.currentTarget.style.display = 'none'
                                   e.currentTarget.nextElementSibling?.classList.remove('hidden')
@@ -510,74 +544,124 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                           </div>
                         )
                       }
-                    }
 
-                    return (
-                      <div key={key}>
-                        <Label>{key}</Label>
-                        <p className="mt-1">{value || '-'}</p>
-                      </div>
-                    )
-                  })}
+                      return (
+                        <div key={field.id}>
+                          <Label>{field.label}</Label>
+                          <p className="mt-1">{value || '-'}</p>
+                        </div>
+                      )
+                    })
+                  })()}
                 </div>
               </div>
 
               <div>
                 <h3 className="font-semibold mb-3">队员信息 ({selectedRegistration.players_data?.length || 0}人)</h3>
                 <div className="space-y-2">
-                  {selectedRegistration.players_data?.map((player: any, index: number) => (
-                    <div key={index} className="p-4 border rounded-lg">
-                      <h4 className="font-medium mb-3">队员 {index + 1} {player.role && `(${player.role})`}</h4>
-                      <div className="grid grid-cols-3 gap-4">
-                        {Object.entries(player).map(([key, value]: [string, any]) => {
-                          // 跳过系统字段
-                          if (key === 'id' || key === 'role') return null
+                  {selectedRegistration.players_data?.map((player: any, index: number) => {
+                    const playerName = player['姓名'] || player['name'] || `队员${index + 1}`
 
-                          // 处理图片字段
-                          if (typeof value === 'string' && (value.startsWith('http') || value.startsWith('/'))) {
-                            // 检查是否是图片URL
-                            if (value.match(/\.(jpg|jpeg|png|gif|webp)$/i) || value.includes('supabase') || value.includes('storage')) {
-                              return (
-                                <div key={key} className="col-span-3">
-                                  <Label>{key}</Label>
-                                  <div className="mt-1">
-                                    <img
-                                      src={value}
-                                      alt={key}
-                                      className="w-32 h-32 object-cover rounded border"
-                                      onError={(e) => {
-                                        e.currentTarget.style.display = 'none'
-                                        e.currentTarget.nextElementSibling?.classList.remove('hidden')
-                                      }}
-                                    />
-                                    <p className="hidden text-gray-500">图片加载失败</p>
+                    return (
+                      <div key={index} className="p-4 border rounded-lg">
+                        <h4 className="font-medium mb-3">
+                          {playerName} {player.role && `(${player.role})`}
+                        </h4>
+                        <div className="grid grid-cols-3 gap-4">
+                          {playerFields.length > 0 ? (
+                            // 使用配置的字段
+                            playerFields.map((field) => {
+                              const value = player[field.id]
+                              if (!value) return null
+
+                              // 处理图片字段
+                              if (field.type === 'image' ||
+                                  (typeof value === 'string' &&
+                                   (value.startsWith('http') || value.startsWith('/')) &&
+                                   (value.match(/\.(jpg|jpeg|png|gif|webp)$/i) ||
+                                    value.includes('supabase') ||
+                                    value.includes('storage')))) {
+                                return (
+                                  <div key={field.id} className="col-span-3">
+                                    <Label>{field.label}</Label>
+                                    <div className="mt-1">
+                                      <img
+                                        src={value}
+                                        alt={field.label}
+                                        className="w-32 h-32 object-cover rounded border cursor-pointer hover:opacity-90"
+                                        onClick={() => setViewingImage({ src: value, alt: field.label })}
+                                        onError={(e) => {
+                                          e.currentTarget.style.display = 'none'
+                                          e.currentTarget.nextElementSibling?.classList.remove('hidden')
+                                        }}
+                                      />
+                                      <p className="hidden text-gray-500">图片加载失败</p>
+                                    </div>
                                   </div>
+                                )
+                              }
+
+                              // 处理数组字段
+                              if (Array.isArray(value)) {
+                                return (
+                                  <div key={field.id}>
+                                    <Label>{field.label}</Label>
+                                    <p className="mt-1">{value.join(', ') || '-'}</p>
+                                  </div>
+                                )
+                              }
+
+                              // 处理普通字段
+                              return (
+                                <div key={field.id}>
+                                  <Label>{field.label}</Label>
+                                  <p className="mt-1">{value || '-'}</p>
                                 </div>
                               )
-                            }
-                          }
+                            })
+                          ) : (
+                            // 如果没有配置，显示所有字段
+                            Object.entries(player).map(([key, value]: [string, any]) => {
+                              if (key === 'id' || key === 'role') return null
 
-                          // 处理数组字段
-                          if (Array.isArray(value)) {
-                            return (
-                              <div key={key}>
-                                <Label>{key}</Label>
-                                <p className="mt-1">{value.join(', ') || '-'}</p>
-                              </div>
-                            )
-                          }
+                              // 处理图片
+                              if (typeof value === 'string' &&
+                                  (value.startsWith('http') || value.startsWith('/')) &&
+                                  (value.match(/\.(jpg|jpeg|png|gif|webp)$/i) ||
+                                   value.includes('supabase') ||
+                                   value.includes('storage'))) {
+                                return (
+                                  <div key={key} className="col-span-3">
+                                    <Label>{key}</Label>
+                                    <div className="mt-1">
+                                      <img
+                                        src={value}
+                                        alt={key}
+                                        className="w-32 h-32 object-cover rounded border cursor-pointer hover:opacity-90"
+                                        onClick={() => setViewingImage({ src: value, alt: key })}
+                                        onError={(e) => {
+                                          e.currentTarget.style.display = 'none'
+                                          e.currentTarget.nextElementSibling?.classList.remove('hidden')
+                                        }}
+                                      />
+                                      <p className="hidden text-gray-500">图片加载失败</p>
+                                    </div>
+                                  </div>
+                                )
+                              }
 
-                          // 处理普通字段
-                          return (
-                            <div key={key}>
-                              <Label>{key}</Label>
-                              <p className="mt-1">{value || '-'}</p>
-                            </div>
-                          )
-                        })}
+                              return (
+                                <div key={key}>
+                                  <Label>{key}</Label>
+                                  <p className="mt-1">{value || '-'}</p>
+                                </div>
+                              )
+                            })
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             </div>
@@ -586,7 +670,10 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setSelectedRegistration(null)}
+              onClick={() => {
+                setShowViewDialog(false)
+                setSelectedRegistration(null)
+              }}
             >
               关闭
             </Button>
@@ -595,7 +682,13 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
       </Dialog>
 
       {/* 驳回理由对话框 */}
-      <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+      <Dialog open={showRejectDialog} onOpenChange={(open) => {
+        if (!open) {
+          setShowRejectDialog(false)
+          setRejectionReason('')
+          setSelectedRegistration(null)
+        }
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>驳回报名</DialogTitle>
@@ -792,6 +885,16 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 图片查看器 */}
+      {viewingImage && (
+        <ImageViewer
+          src={viewingImage.src}
+          alt={viewingImage.alt}
+          isOpen={!!viewingImage}
+          onClose={() => setViewingImage(null)}
+        />
+      )}
     </>
   )
 }

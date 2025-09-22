@@ -65,56 +65,38 @@ export async function POST(
       .eq('event_id', id)
       .single()
 
-    // 检查是否有附件字段（image类型）
+    // 获取配置的字段
+    let teamFields: any[] = []
+    let playerRoles: any[] = []
     let hasAttachments = false
     const imageFields = { team: [], player: [] }
 
     if (settings?.team_requirements) {
       const teamReq = settings.team_requirements
-      const allFields = teamReq.allFields || [
+      // 获取队伍字段
+      teamFields = teamReq.allFields || [
         ...(teamReq.commonFields || []),
         ...(teamReq.customFields || [])
       ]
-      imageFields.team = allFields.filter(f => f.type === 'image')
+      // 检查是否有图片字段
+      imageFields.team = teamFields.filter(f => f.type === 'image')
       if (imageFields.team.length > 0) hasAttachments = true
     }
 
     if (settings?.player_requirements?.roles) {
-      settings.player_requirements.roles.forEach(role => {
-        const allFields = role.allFields || [
+      playerRoles = settings.player_requirements.roles
+      // 检查所有角色的图片字段
+      playerRoles.forEach(role => {
+        const roleFields = role.allFields || [
           ...(role.commonFields || []),
           ...(role.customFields || [])
         ]
-        const roleImageFields = allFields.filter(f => f.type === 'image')
+        const roleImageFields = roleFields.filter(f => f.type === 'image')
         if (roleImageFields.length > 0) {
           imageFields.player = [...imageFields.player, ...roleImageFields]
           hasAttachments = true
         }
       })
-    }
-
-    // 准备导出数据
-    const exportData: any[] = []
-
-    // 如果只有一个报名且有附件，使用特定的命名方式
-    let zipFileName = '报名信息导出'
-    if (registrations.length === 1 && hasAttachments) {
-      const reg = registrations[0]
-      const teamData = reg.team_data || {}
-
-      // 获取前四个字段的值来命名压缩包
-      const teamFieldsToUse = settings?.team_requirements?.allFields?.slice(0, 4) ||
-                              [...(settings?.team_requirements?.commonFields || []),
-                               ...(settings?.team_requirements?.customFields || [])].slice(0, 4) ||
-                              [{ id: 'name', label: '队伍名称' },
-                               { id: 'campus', label: '报名校区' },
-                               { id: 'contact', label: '联系人' },
-                               { id: 'phone', label: '联系方式' }]
-
-      const nameParts = teamFieldsToUse.map(field => teamData[field.id] || '未知').filter(v => v && v !== '未知')
-      if (nameParts.length > 0) {
-        zipFileName = nameParts.join('-')
-      }
     }
 
     // 准备Excel数据 - 分为队伍信息和队员信息两个sheet
@@ -135,31 +117,45 @@ export async function POST(
       const teamData = registration.team_data || {}
       const playersData = registration.players_data || []
 
-      // 准备队伍信息数据
-      const teamRow: any = {
-        '序号': index + 1,
-        '报名时间': new Date(registration.submitted_at).toLocaleString('zh-CN'),
-        '审核状态': registration.status === 'approved' ? '已通过' :
-                  registration.status === 'rejected' ? '已驳回' : '待审核',
-        '审核时间': registration.reviewed_at ?
-                  new Date(registration.reviewed_at).toLocaleString('zh-CN') : '-',
+      // 获取队伍名称
+      const teamName = teamData['队伍名称'] || teamData['name'] || teamData['团队名称'] || teamData['队名'] || `队伍${index + 1}`
+
+      // 生成队伍文件夹名称（使用前三个字段的值）
+      let teamFolderName = teamName
+      if (registrations.length > 1) {
+        // 多个队伍时，使用前三个字段命名文件夹
+        const firstThreeFields = teamFields.slice(0, 3)
+        const folderNameParts: string[] = []
+        firstThreeFields.forEach(field => {
+          if (field.type !== 'image') {
+            const value = teamData[field.id]
+            if (value) {
+              folderNameParts.push(String(value).replace(/[/\\?%*:|"<>]/g, '-')) // 移除非法文件名字符
+            }
+          }
+        })
+        if (folderNameParts.length > 0) {
+          teamFolderName = folderNameParts.join('-')
+        }
       }
 
-      // 添加队伍字段
-      for (const [key, value] of Object.entries(teamData)) {
-        // 检查是否是图片字段
-        const isImageField = imageFields.team.some(f => f.id === key)
-        if (isImageField && value && typeof value === 'string' && value.startsWith('http')) {
-          // 如果是图片URL，在Excel中保留URL，并下载图片到zip
-          teamRow[key] = value
+      // 准备队伍信息数据 - 只包含报名设置中的字段
+      const teamRow: any = {
+        '序号': index + 1
+      }
 
-          if (zip && registrations.length === 1) {
-            // 下载图片并添加到zip
-            const fieldLabel = imageFields.team.find(f => f.id === key)?.label || key
+      // 按照报名设置的字段顺序添加数据
+      teamFields.forEach(field => {
+        const value = teamData[field.id]
+
+        // 跳过图片字段（已经下载到文件夹）
+        if (field.type === 'image') {
+          if (value && typeof value === 'string' && value.startsWith('http') && zip) {
+            // 下载图片
+            const fieldLabel = field.label || field.id
             attachmentPromises.push(
               (async () => {
                 try {
-                  console.log(`Downloading team image ${fieldLabel}: ${value}`)
                   const response = await fetch(value, {
                     headers: {
                       'Accept': 'image/*'
@@ -172,7 +168,7 @@ export async function POST(
 
                   const arrayBuffer = await response.arrayBuffer()
 
-                  // 从URL中获取文件扩展名
+                  // 获取文件扩展名
                   let extension = value.match(/\.(jpg|jpeg|png|gif|webp)$/i)?.[1]
                   if (!extension) {
                     const contentType = response.headers.get('content-type')
@@ -183,61 +179,64 @@ export async function POST(
                     else extension = 'jpg'
                   }
 
-                  zip.file(`${fieldLabel}.${extension}`, arrayBuffer)
-                  console.log(`Successfully downloaded team image ${fieldLabel}`)
+                  // 根据报名数量决定文件路径
+                  let filePath = ''
+                  if (registrations.length === 1) {
+                    // 单个队伍：直接放在根目录
+                    filePath = `${fieldLabel}.${extension}`
+                  } else {
+                    // 多个队伍：字段文件夹/队伍文件夹/文件名
+                    filePath = `${fieldLabel}/${teamFolderName}/${fieldLabel}.${extension}`
+                  }
+
+                  zip.file(filePath, arrayBuffer)
+                  console.log(`Downloaded team image: ${filePath}`)
                 } catch (err) {
-                  console.error(`Failed to download team image ${fieldLabel}:`, err)
-                  console.error('Full URL:', value)
-                  // 添加占位文件说明下载失败
-                  zip.file(`${fieldLabel}_下载失败.txt`,
-                    `图片下载失败\n` +
-                    `字段: ${fieldLabel}\n` +
-                    `URL: ${value}\n` +
-                    `错误: ${err.message}\n` +
-                    `时间: ${new Date().toLocaleString('zh-CN')}`
-                  )
+                  console.error(`Failed to download team image:`, err)
                 }
               })()
             )
           }
-        } else if (typeof value === 'object') {
-          teamRow[key] = JSON.stringify(value)
-        } else {
-          teamRow[key] = value
+          return // 不在Excel中显示图片字段
         }
-      }
+
+        // 添加非图片字段到Excel
+        teamRow[field.label] = value || ''
+      })
 
       teamSheetData.push(teamRow)
 
       // 准备队员信息数据
       if (playersData.length > 0) {
+        // 获取第一个角色的字段配置（或使用默认配置）
+        const firstRole = playerRoles?.[0]
+        const playerFields = firstRole?.allFields ||
+                            [...(firstRole?.commonFields || []),
+                             ...(firstRole?.customFields || [])] ||
+                            []
+
         for (let playerIndex = 0; playerIndex < playersData.length; playerIndex++) {
           const player: any = playersData[playerIndex]
+
           const playerRow: any = {
-            '报名序号': index + 1,
-            '队员序号': playerIndex + 1,
-            '队员姓名': player.姓名 || player.name || '-'
+            '序号': `${index + 1}-${playerIndex + 1}`,
+            '所属队伍': teamName
           }
 
-          // 添加队员字段
-          for (const [key, value] of Object.entries(player)) {
-            if (key === 'id') continue // 跳过ID字段
+          // 按照报名设置的字段顺序添加数据
+          playerFields.forEach(field => {
+            const value = player[field.id]
 
-            // 检查是否是图片字段
-            const isImageField = imageFields.player.some(f => f.id === key)
-            if (isImageField && value && typeof value === 'string' && value.startsWith('http')) {
-              // 如果是图片URL
-              playerRow[key] = value
-
-              if (zip && registrations.length === 1) {
-                // 下载图片并添加到zip的子文件夹
-                const fieldLabel = imageFields.player.find(f => f.id === key)?.label || key
-                const playerName = player.姓名 || player.name || `队员${playerIndex + 1}`
+            // 跳过图片字段（已经下载到文件夹）
+            if (field.type === 'image') {
+              if (value && typeof value === 'string' && value.startsWith('http') && zip) {
+                // 下载图片
+                const fieldLabel = field.label || field.id
+                const playerName = player['姓名'] || player['name'] || player['队员姓名'] || `队员${playerIndex + 1}`
 
                 attachmentPromises.push(
                   (async () => {
                     try {
-                      console.log(`Downloading player image for ${playerName}: ${value}`)
                       const response = await fetch(value, {
                         headers: {
                           'Accept': 'image/*'
@@ -250,7 +249,7 @@ export async function POST(
 
                       const arrayBuffer = await response.arrayBuffer()
 
-                      // 从URL中获取文件扩展名，如果没有则从content-type推断
+                      // 获取文件扩展名
                       let extension = value.match(/\.(jpg|jpeg|png|gif|webp)$/i)?.[1]
                       if (!extension) {
                         const contentType = response.headers.get('content-type')
@@ -258,33 +257,33 @@ export async function POST(
                         else if (contentType?.includes('png')) extension = 'png'
                         else if (contentType?.includes('gif')) extension = 'gif'
                         else if (contentType?.includes('webp')) extension = 'webp'
-                        else extension = 'jpg' // 默认
+                        else extension = 'jpg'
                       }
 
-                      zip.file(`${fieldLabel}/${playerName}.${extension}`, arrayBuffer)
-                      console.log(`Successfully downloaded image for ${playerName}`)
+                      // 根据报名数量决定文件路径
+                      let filePath = ''
+                      if (registrations.length === 1) {
+                        // 单个队伍：字段名文件夹/队员名
+                        filePath = `${fieldLabel}/${playerName}.${extension}`
+                      } else {
+                        // 多个队伍：字段名文件夹/队伍文件夹/队员名
+                        filePath = `${fieldLabel}/${teamFolderName}/${playerName}.${extension}`
+                      }
+
+                      zip.file(filePath, arrayBuffer)
+                      console.log(`Downloaded player image: ${filePath}`)
                     } catch (err) {
-                      console.error(`Failed to download player image ${playerName}:`, err)
-                      console.error('Full URL:', value)
-                      console.error('Error details:', err.message)
-                      // 添加占位文件说明下载失败
-                      zip.file(`${fieldLabel}/${playerName}_下载失败.txt`,
-                        `图片下载失败\n` +
-                        `队员姓名: ${playerName}\n` +
-                        `URL: ${value}\n` +
-                        `错误: ${err.message}\n` +
-                        `时间: ${new Date().toLocaleString('zh-CN')}`
-                      )
+                      console.error(`Failed to download player image:`, err)
                     }
                   })()
                 )
               }
-            } else if (typeof value === 'object') {
-              playerRow[key] = JSON.stringify(value)
-            } else {
-              playerRow[key] = value
+              return // 不在Excel中显示图片字段
             }
-          }
+
+            // 添加非图片字段到Excel
+            playerRow[field.label] = value || ''
+          })
 
           playerSheetData.push(playerRow)
         }
@@ -294,13 +293,8 @@ export async function POST(
     // 等待所有附件下载完成
     if (attachmentPromises.length > 0) {
       console.log(`Downloading ${attachmentPromises.length} attachments...`)
-      try {
-        await Promise.allSettled(attachmentPromises)
-        console.log('All attachments processed')
-      } catch (err) {
-        console.error('Error processing attachments:', err)
-        // 继续导出，即使部分附件下载失败
-      }
+      await Promise.allSettled(attachmentPromises)
+      console.log('All attachments processed')
     }
 
     // 创建工作簿
@@ -331,10 +325,18 @@ export async function POST(
     // 生成Excel文件
     const excelBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
 
-    // 如果有附件且创建了zip，将Excel添加到zip并返回zip
-    if (zip && registrations.length === 1) {
+    // 决定文件名
+    let fileName = '报名信息导出'
+    if (registrations.length === 1) {
+      const teamData = registrations[0].team_data || {}
+      const teamName = teamData['队伍名称'] || teamData['name'] || teamData['团队名称'] || teamData['队名'] || '报名信息'
+      fileName = teamName
+    }
+
+    // 如果有附件，返回zip文件
+    if (zip && hasAttachments) {
       // 添加Excel文件到zip
-      zip.file(`${zipFileName}.xlsx`, excelBuffer)
+      zip.file(`${fileName}.xlsx`, excelBuffer)
 
       // 生成zip文件
       const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' })
@@ -344,16 +346,16 @@ export async function POST(
         status: 200,
         headers: {
           'Content-Type': 'application/zip',
-          'Content-Disposition': `attachment; filename="${encodeURIComponent(zipFileName)}.zip"`,
+          'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}.zip"`,
         },
       })
     } else {
-      // 没有附件或多个报名，直接返回Excel
+      // 没有附件，直接返回Excel
       return new NextResponse(excelBuffer, {
         status: 200,
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'Content-Disposition': `attachment; filename="${encodeURIComponent(zipFileName)}_${new Date().toISOString().split('T')[0]}.xlsx"`,
+          'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}.xlsx"`,
         },
       })
     }

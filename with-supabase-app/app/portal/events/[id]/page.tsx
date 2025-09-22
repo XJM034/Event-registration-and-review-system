@@ -1128,7 +1128,10 @@ export default function EventDetailPage() {
 
                       {reg.status === 'rejected' && reg.rejection_reason && (
                         <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
-                          <p className="text-red-600 text-sm">驳回原因：{reg.rejection_reason}</p>
+                          <p className="text-red-600 text-sm font-medium mb-1">驳回原因：</p>
+                          <div className="text-red-600 text-sm whitespace-pre-line pl-2">
+                            {reg.rejection_reason}
+                          </div>
                         </div>
                       )}
                     </div>
