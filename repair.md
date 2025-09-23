@@ -40,7 +40,7 @@
     - 问题：任意人可读取/修改所有分享 token 及填报数据，隐私泄露与破坏数据风险极高。
     - 建议：移除公共 SELECT/UPDATE 策略，改为服务端 API（使用 service_role 或受控 RPC）执行查询和更新；对前端匿名访问仅允许通过专用后端接口以白名单校验参数。
 
-- 服务端使用 anon key 执行管理敏感操作
+  - 服务端使用 anon key 执行管理敏感操作
   - with-supabase-app/lib/auth.ts:12-15
   - with-supabase-app/lib/supabase/server.ts:12-15
   - 问题：服务端使用`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY`（公开 key）访问管理表，需要依赖宽松的 RLS，非常不安全。
@@ -48,7 +48,7 @@
     - 新增“服务端专用 Supabase 客户端”读取`SUPABASE_SERVICE_ROLE_KEY`（服务端私密环境变量），仅在 Route Handlers/Server Actions 中使用；严禁暴露到客户端。
     - 管理端 API（/api/events、/api/registrations…）统一使用 service role 客户端，配合严格 RLS，实现“后端可信 + 前端严格受限”。
 
-- 分享链接 token 生成与校验机制不安全
+  - 分享链接 token 生成与校验机制不安全
   - 前端用`Date.now()+Math.random()`生成 token（可预测）
     - with-supabase-app/app/portal/events/[id]/register/page.tsx:462-474（两处）
     - 问题：token 可被撞库/预测。
@@ -58,7 +58,7 @@
     - 问题：匿名客户端可操作隐私数据，且 RLS 过宽。
     - 建议：改为后端使用 service role 进行读取/更新；严格校验 token 的归属与有效期、仅处理必要字段。
 
-- 导出接口存在 SSRF 风险与资源压力风险
+  - 导出接口存在 SSRF 风险与资源压力风险
   - 远程抓取任意 http(s) 图片拼 zip
     - with-supabase-app/app/api/events/[id]/registrations/export/route.ts:153-201, 232-281
     - 问题：恶意提交的 URL 可触发 SSRF；并发抓取大量大图的内存/CPU/超时风险。
@@ -67,7 +67,7 @@
       - 限制并发 + 限制总数量/总大小；为超时和单个请求大小设定上限；避免一次性 zip 压缩过多大文件（可分页导出或拆分 zip）。
       - 提供仅导出 Excel 的选项，图片以“链接列”替代。
 
-- 上传接口缺少存储桶白名单与权限隔离
+  - 上传接口缺少存储桶白名单与权限隔离
   - 管理端上传：with-supabase-app/app/api/upload/route.ts:16, 53-75
   - 报名端上传：with-supabase-app/app/api/portal/upload/route.ts:8, 44-62（还使用了浏览器客户端）
   - 问题：表单传入 bucket 名称，没有白名单；报名端上传没在路由内显式校验登录与角色（仅靠中间件），且使用浏览器客户端在服务端执行。
@@ -76,23 +76,23 @@
     - 报名端上传改用服务端 Supabase 客户端（绑定用户会话），或下发受限的上传策略。
     - 私有桶优先，返回签名 URL（而非永久公开 URL），个人信息（证件照）不应公开存储。
 
-- 生产构建忽略 ESLint/TS 错误
+  - 生产构建忽略 ESLint/TS 错误
   - with-supabase-app/next.config.ts:13-18
   - 问题：可能将类型/逻辑错误默默带到生产。
   - 建议：上线前必须启用 TS/ESLint 校验并修复错误；构建失败即阻断发布。
 
-- 暴露诊断/测试 API，应在生产禁用
+  - 暴露诊断/测试 API，应在生产禁用
   - with-supabase-app/app/api/test-connection/route.ts:整页
   - with-supabase-app/app/api/test-portal-simulation/route.ts:整页
   - with-supabase-app/app/api/test-optimized-portal/route.ts:整页
   - 建议：删除或仅在开发环境开启（NODE_ENV=development 且仅本地/内网可访问）。
 
-- Cookie 安全属性和 CSRF 风险
+  - Cookie 安全属性和 CSRF 风险
   - with-supabase-app/app/api/auth/login/route.ts:37-45
   - 问题：`sameSite: 'lax'`在某些场景可能被携带；建议更为严格。
   - 建议：改为`sameSite: 'strict'`（如无跨站需要）；确保`secure: true`只在生产开启；并在写操作接口上考虑CSRF防护（如双提交 Cookie 或 CSRF Token）。
 
-- 公开日志包含敏感信息
+  - 公开日志包含敏感信息
   - 密码、Hash、会话、Token / 详细报错栈等
     - 例如 with-supabase-app/lib/auth.ts:52-59, 92-109；多处 API/页面使用大量 console.log/error
     - 建议：使用日志级别与脱敏（不打印密码/hash/token/个人信息）；生产环境仅输出必要结构化日志；非 2xx 错误统一返回笼统信息，详细报错仅记录服务端日志。
@@ -248,4 +248,43 @@
 - 上传：bucket 白名单、大小/类型校验、私有桶签名 URL 有效性
 
 需要我先从哪一项开始修？通常建议先清掉 P0（后门/签名校验/RLS/服务端使用 service_role/测试接口清理），再处理 P1（依赖固定/类型修正/输入校验/上传白名单），最后推进 P2/P3 优化。
+**基于实际 Supabase 导出（P0 风险核实与定位）**
+- 导出文件位置
+  - with-supabase-app/docs/sql/actual-supabase-schema.sql
+  - with-supabase-app/docs/sql/actual-storage-buckets-data.sql
+- admin_users 对所有角色“完全访问”（必须收紧）
+  - 证据：with-supabase-app/docs/sql/actual-supabase-schema.sql:1941
+    - CREATE POLICY "Admin users full access" ON public.admin_users USING (true) WITH CHECK (true)
+  - 风险：未限制角色，等于 anon/auth 均可对管理员表增删改查。
+  - 建议：删除该策略，改为仅对 service_role 开放 FOR ALL；其余角色不允许写。
+- events 与 registration_settings“完全访问/写”未限角色（必须收紧）
+  - 证据：
+    - events：with-supabase-app/docs/sql/actual-supabase-schema.sql:2079（"Events admin full access" USING (true) WITH CHECK (true)）
+    - registration_settings：with-supabase-app/docs/sql/actual-supabase-schema.sql:2127（"Registration settings admin write" USING (true) WITH CHECK (true)）
+  - 风险：任意角色可写入/修改赛事与报名设置。
+  - 建议：删除上述策略，改为 service_role 专属写入；保留公开只读策略仅用于 events.select（is_visible=true）。
+- registrations 存在“永真”访问策略（必须删除）
+  - 证据：with-supabase-app/docs/sql/actual-supabase-schema.sql:2136
+    - "Registrations coach access" 含 OR (EXISTS (SELECT 1 FROM public.admin_users))，使条件对所有用户恒为真。
+  - 风险：导致所有用户可访问 registrations 全表。
+  - 建议：删除该策略，仅保留/补充细粒度策略（教练 INSERT/SELECT/UPDATE/DELETE 仅限自身记录，status=草稿时可删等）。
+- player_share_tokens 公开可读/可改（必须收紧）
+  - 证据：with-supabase-app/docs/sql/actual-supabase-schema.sql:1948, 1955, 1962, 1969, 2158
+    - "Anyone can read share token by token"（SELECT USING true）与 "Anyone can update share token"（UPDATE USING true）允许匿名读写。
+  - 风险：分享 token 与队员数据被任意读取与篡改。
+  - 建议：删除上述“anyone”策略；仅允许 anon 在 token 有效期内 SELECT（按 is_active 与 expires_at 条件）；UPDATE/标记使用等操作改为 service_role 专属。
+- notifications 允许匿名插入（必须收紧）
+  - 证据：with-supabase-app/docs/sql/actual-supabase-schema.sql:2151, 2093
+    - "System insert notifications" 允许 anon/auth INSERT；"Notifications admin write" 未限角色。
+  - 风险：任意人可写垃圾通知。
+  - 建议：删除上述策略，改为仅 service_role 允许 INSERT；coach 仅能 SELECT/UPDATE/DELETE 自己的通知（你库中已存在这些细粒度策略）。
+- storage.objects（player-photos 桶）匿名可读/可传/可删（必须收紧）
+  - 证据：with-supabase-app/docs/sql/actual-supabase-schema.sql:2244, 2251, 2258
+    - "Allow anyone to read/upload/delete l7f019_0" 针对 player-photos 开放 anon 的 SELECT/INSERT/DELETE。
+  - 存储桶为公共（必须改为私有）
+    - 证据：with-supabase-app/docs/sql/actual-storage-buckets-data.sql（player-photos 行 public=t）
+  - 风险：个人隐私图片泄露、被任意覆盖/删除。
+  - 建议：将 player-photos 设为 private（public=false）；删除 anon 相关策略；改为 authenticated 可上传/读取（必要时仅 owner 可删）；event-posters 仅保留公开只读，写操作改 service_role；registration-files 全操作仅 service_role。
+- 结论
+  - 上述条目与本文件“P0 必须修复”一致，但已通过实际导出 SQL 逐项坐实，修复时请以这两份实际导出文件为权威依据。
 
