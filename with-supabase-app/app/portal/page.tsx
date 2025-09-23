@@ -69,7 +69,7 @@ export default function PortalHomePage() {
       )
     }
 
-    // 排序逻辑：报名中 > 审核中 > 已截止（未开始 > 进行中 > 已结束）
+    // 排序逻辑：未开始 > 报名中 > 审核中 > 已截止
     processedEvents.sort((a, b) => {
       const now = new Date()
 
@@ -81,7 +81,7 @@ export default function PortalHomePage() {
           try {
             teamReq = JSON.parse(teamReq)
           } catch (e) {
-            return 3 // 解析失败，归类为已截止
+            return 4 // 解析失败，归类为已截止
           }
         }
 
@@ -94,36 +94,39 @@ export default function PortalHomePage() {
           const regEnd = new Date(regEndDate)
           const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
 
-          // 报名中 - 优先级1
-          if (now >= regStart && now <= regEnd) {
+          // 未开始 - 优先级1（报名还未开始）
+          if (now < regStart) {
             return 1
           }
-          // 审核中 - 优先级2
-          else if (reviewEnd && now > regEnd && now <= reviewEnd) {
+          // 报名中 - 优先级2
+          else if (now >= regStart && now <= regEnd) {
             return 2
+          }
+          // 审核中 - 优先级3
+          else if (reviewEnd && now > regEnd && now <= reviewEnd) {
+            return 3
+          }
+          // 已截止 - 优先级4
+          else {
+            return 4
           }
         }
 
-        // 已截止 - 优先级3，需要细分
+        // 没有报名时间配置，按赛事时间判断
         const eventStart = new Date(event.start_date)
         const eventEnd = new Date(event.end_date)
 
         if (now < eventStart) {
-          return 3.1 // 未开始
+          return 1 // 未开始
         } else if (now <= eventEnd) {
-          return 3.2 // 进行中
+          return 4 // 进行中，归类为已截止
         } else {
-          return 3.3 // 已结束
+          return 4 // 已结束，归类为已截止
         }
       }
 
       const orderA = getPhaseOrder(a)
       const orderB = getPhaseOrder(b)
-
-      // 如果都在已截止状态，按时间排序（未开始>进行中>已结束）
-      if (orderA >= 3 && orderB >= 3 && orderA !== orderB) {
-        return orderA - orderB
-      }
 
       // 如果在同一阶段，按开始时间排序（最近的在前）
       if (orderA === orderB) {

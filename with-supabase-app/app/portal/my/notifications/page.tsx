@@ -141,7 +141,16 @@ export default function MyNotificationsPage() {
             }
           })
 
-          setNotifications(formattedNotifications)
+          // 排序：未读在前，已读在后，同类按时间倒序
+          const sortedNotifications = formattedNotifications.sort((a, b) => {
+            if (a.is_read !== b.is_read) {
+              return a.is_read ? 1 : -1 // 未读在前
+            }
+            // 同类按时间倒序
+            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          })
+
+          setNotifications(sortedNotifications)
           setHasLoaded(true)
         } else {
           console.log('No notifications found')
@@ -166,9 +175,18 @@ export default function MyNotificationsPage() {
       .eq('id', id)
 
     if (!error) {
-      setNotifications(prev =>
-        prev.map(n => n.id === id ? { ...n, is_read: true } : n)
-      )
+      setNotifications(prev => {
+        // 先更新通知状态
+        const updated = prev.map(n => n.id === id ? { ...n, is_read: true } : n)
+        // 重新排序：未读在前，已读在后，同类按时间倒序
+        return updated.sort((a, b) => {
+          if (a.is_read !== b.is_read) {
+            return a.is_read ? 1 : -1 // 未读在前
+          }
+          // 同类按时间倒序
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        })
+      })
       // 刷新未读数量
       await refreshUnreadCount()
     }
@@ -266,10 +284,14 @@ export default function MyNotificationsPage() {
         console.log('Direct batch update succeeded')
       }
 
-      // 更新本地状态
-      setNotifications(prev =>
-        prev.map(n => ({ ...n, is_read: true }))
-      )
+      // 更新本地状态并重新排序
+      setNotifications(prev => {
+        const updated = prev.map(n => ({ ...n, is_read: true }))
+        // 已读的通知保持时间倒序
+        return updated.sort((a, b) => {
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        })
+      })
 
       // 刷新未读计数
       await refreshUnreadCount()
