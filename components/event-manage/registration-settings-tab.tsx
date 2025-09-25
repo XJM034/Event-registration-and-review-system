@@ -159,7 +159,27 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
   })
 
   const [playerRequirements, setPlayerRequirements] = useState<PlayerRequirements>({
-    roles: [],
+    roles: [
+      {
+        id: 'player',
+        name: '队员',
+        commonFields: [
+          { id: 'name', label: '姓名', type: 'text', required: true },
+          { id: 'gender', label: '性别', type: 'select', required: true, options: ['男', '女'] },
+          { id: 'id_photo', label: '证件照', type: 'image', required: true },
+          { id: 'emergency_contact', label: '紧急联系人', type: 'text', required: true }
+        ],
+        customFields: [],
+        allFields: [
+          { id: 'name', label: '姓名', type: 'text', required: true, isCommon: true },
+          { id: 'gender', label: '性别', type: 'select', required: true, options: ['男', '女'], isCommon: true },
+          { id: 'id_photo', label: '证件照', type: 'image', required: true, isCommon: true },
+          { id: 'emergency_contact', label: '紧急联系人', type: 'text', required: true, isCommon: true }
+        ],
+        minPlayers: 1,
+        maxPlayers: 30
+      }
+    ],
     genderRequirement: 'none',
     ageRequirementEnabled: false,
     minAgeDate: '',
@@ -320,10 +340,37 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           })
         }
 
+        // 确保默认角色存在
+        let rolesWithDefault = loadedPlayerReq.roles || [];
+
+        // 检查是否已有队员角色，如果没有则添加默认队员角色
+        const hasPlayerRole = rolesWithDefault.some((role: any) => role.id === 'player');
+        if (!hasPlayerRole) {
+          rolesWithDefault.unshift({
+            id: 'player',
+            name: '队员',
+            commonFields: [
+              { id: 'name', label: '姓名', type: 'text' as const, required: true },
+              { id: 'gender', label: '性别', type: 'select' as const, required: true, options: ['男', '女'] },
+              { id: 'id_photo', label: '证件照', type: 'image' as const, required: true },
+              { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: true }
+            ],
+            customFields: [],
+            allFields: [
+              { id: 'name', label: '姓名', type: 'text' as const, required: true, isCommon: true },
+              { id: 'gender', label: '性别', type: 'select' as const, required: true, options: ['男', '女'], isCommon: true },
+              { id: 'id_photo', label: '证件照', type: 'image' as const, required: true, isCommon: true },
+              { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: true, isCommon: true }
+            ],
+            minPlayers: 1,
+            maxPlayers: 30
+          });
+        }
+
         setPlayerRequirements({
           ...playerRequirements,
           ...loadedPlayerReq,
-          roles: loadedPlayerReq.roles || playerRequirements.roles
+          roles: rolesWithDefault
         })
       } else {
         // 如果没有保存的数据，使用默认值并标记为已加载
