@@ -104,6 +104,31 @@ export default function RegisterPage() {
   const [event, setEvent] = useState<Event | null>(null)
   const [registration, setRegistration] = useState<Registration | null>(null)
   const [players, setPlayers] = useState<Player[]>([])
+  const [playersByRole, setPlayersByRole] = useState<{[roleId: string]: Player[]}>({})
+
+  // 组织按角色分组的数据
+  const organizePlayersByRole = (playersData: Player[]) => {
+    const grouped: {[roleId: string]: Player[]} = {}
+    playersData.forEach(player => {
+      const roleId = player.role || 'player'
+      if (!grouped[roleId]) {
+        grouped[roleId] = []
+      }
+      grouped[roleId].push(player)
+    })
+    return grouped
+  }
+
+  // 获取有序的角色列表（非队员角色在前，队员角色在后）
+  const getOrderedRoles = () => {
+    const roles = event?.registration_settings?.player_requirements?.roles || []
+    // 返回排序后的角色：非队员角色在前，队员角色在后
+    return roles.sort((a: any, b: any) => {
+      if (a.id === 'player' && b.id !== 'player') return 1
+      if (a.id !== 'player' && b.id === 'player') return -1
+      return 0
+    })
+  }
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -207,6 +232,7 @@ export default function RegisterPage() {
       // 设置队员数据
       if (registration.players_data) {
         setPlayers(registration.players_data)
+        setPlayersByRole(organizePlayersByRole(registration.players_data))
       }
     } else {
       console.log('useEffect: 跳过数据填充', {
@@ -241,7 +267,9 @@ export default function RegisterPage() {
               shareTokenId: token.id,
               ...token.player_data
             }
-            setPlayers(prev => [...prev, newPlayer])
+            const updatedPlayers = [...players, newPlayer]
+            setPlayers(updatedPlayers)
+            setPlayersByRole(organizePlayersByRole(updatedPlayers))
           }
         })
       }
@@ -309,6 +337,7 @@ export default function RegisterPage() {
               console.log('新建报名模式，不加载现有数据')
               setRegistration(null)
               setPlayers([])
+              setPlayersByRole({})
               reset() // 重置表单为空
             } else if (editRegistrationId) {
               // 编辑特定的报名：根据ID加载指定的报名记录
@@ -360,7 +389,9 @@ export default function RegisterPage() {
             if (regToLoad) {
               console.log('加载报名数据:', regToLoad)
               setRegistration(regToLoad)
-              setPlayers(regToLoad.players_data || [])
+              const playersData = regToLoad.players_data || []
+              setPlayers(playersData)
+              setPlayersByRole(organizePlayersByRole(playersData))
 
               // 填充表单数据
               if (regToLoad.team_data) {
@@ -435,7 +466,7 @@ export default function RegisterPage() {
   }
 
   // 为特定队员生成专属分享链接
-  const generatePlayerShareLink = async (playerId: string, playerNumber: number) => {
+  const generatePlayerShareLink = async (playerId: string, playerNumber: number, roleName: string = '队员') => {
     try {
       // 如果还没有registration，提醒用户需要先保存草稿
       if (!registration?.id) {
@@ -538,10 +569,10 @@ export default function RegisterPage() {
 
       // 显示结果消息
       if (copySuccessful) {
-        alert(`队员${playerNumber}的专属填写链接已复制到剪贴板！\n\n${shareUrl}\n\n请将此链接发送给队员${playerNumber}填写个人信息`)
+        alert(`${roleName}${playerNumber}的专属填写链接已复制到剪贴板！\n\n${shareUrl}\n\n请将此链接发送给${roleName}${playerNumber}填写个人信息`)
       } else {
         // 如果所有方法都失败，显示链接让用户手动复制
-        alert(`请手动复制队员${playerNumber}的专属填写链接：\n\n${shareUrl}\n\n请将此链接发送给队员${playerNumber}填写个人信息`)
+        alert(`请手动复制${roleName}${playerNumber}的专属填写链接：\n\n${shareUrl}\n\n请将此链接发送给${roleName}${playerNumber}填写个人信息`)
       }
     } catch (error) {
       console.error('生成分享链接失败:', error)
@@ -550,6 +581,11 @@ export default function RegisterPage() {
   }
 
   const addPlayer = () => {
+    // 向后兼容，默认添加队员角色
+    addPlayerByRole('player')
+  }
+
+  const addPlayerByRole = (roleId: string) => {
     // 只在启用人数要求时才检查人数限制
     const countRequirementEnabled = event?.registration_settings?.player_requirements?.countRequirementEnabled
 
@@ -557,24 +593,26 @@ export default function RegisterPage() {
       const maxCount = event?.registration_settings?.player_requirements?.maxCount || 20
 
       if (players.length >= maxCount) {
-        alert(`队员人数不能超过 ${maxCount} 人`)
+        alert(`人员数量不能超过 ${maxCount} 人`)
         return
       }
     }
-    
-    // 默认使用第一个角色（通常是'player'）
-    const defaultRole = event?.registration_settings?.player_requirements?.roles?.[0]?.id || 'player'
-    
+
     const newPlayer: Player = {
       id: Date.now().toString(),
-      role: defaultRole
+      name: '', // 修复 TypeScript 错误
+      role: roleId
     }
-    
-    setPlayers([...players, newPlayer])
+
+    const updatedPlayers = [...players, newPlayer]
+    setPlayers(updatedPlayers)
+    setPlayersByRole(organizePlayersByRole(updatedPlayers))
   }
 
   const removePlayer = (playerId: string) => {
-    setPlayers(players.filter(p => p.id !== playerId))
+    const updatedPlayers = players.filter(p => p.id !== playerId)
+    setPlayers(updatedPlayers)
+    setPlayersByRole(organizePlayersByRole(updatedPlayers))
   }
 
   const updatePlayer = (playerId: string, field: string, value: any) => {
@@ -585,6 +623,9 @@ export default function RegisterPage() {
       p.id === playerId ? { ...p, [field]: value } : p
     )
     setPlayers(updatedPlayers)
+
+    // 同时更新按角色分组的数据
+    setPlayersByRole(organizePlayersByRole(updatedPlayers))
 
     // 实时验证性别和年龄要求
     const playerRequirements = event?.registration_settings?.player_requirements
@@ -1379,7 +1420,7 @@ export default function RegisterPage() {
               </TabsTrigger>
               <TabsTrigger value="players">
                 <Users className="h-4 w-4 mr-2" />
-                队员信息
+                人员信息
                 {players.length > 0 && (
                   <Badge variant="secondary" className="ml-2">
                     {players.length}
@@ -1523,7 +1564,7 @@ export default function RegisterPage() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-lg font-semibold">队员列表</h3>
+                    <h3 className="text-lg font-semibold">人员列表</h3>
                     {/* 显示所有要求信息 */}
                     {(() => {
                       const playerReqs = event?.registration_settings?.player_requirements
@@ -1579,16 +1620,20 @@ export default function RegisterPage() {
                       return null
                     })()}
                   </div>
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      onClick={addPlayer}
-                      size="sm"
-                      disabled={isEventEndedView}
-                    >
-                      <Plus className="h-4 w-4 mr-1" />
-                      添加队员
-                    </Button>
+                  <div className="flex gap-2 flex-wrap">
+                    {getOrderedRoles().map((role: any) => (
+                      <Button
+                        key={role.id}
+                        type="button"
+                        onClick={() => addPlayerByRole(role.id)}
+                        size="sm"
+                        disabled={isEventEndedView}
+                        variant={role.id === 'player' ? "default" : "outline"}
+                      >
+                        <Plus className="h-4 w-4 mr-1" />
+                        添加{role.name}
+                      </Button>
+                    ))}
                   </div>
                 </div>
                 
@@ -1601,91 +1646,85 @@ export default function RegisterPage() {
                     </CardContent>
                   </Card>
                 ) : (
-                  <div className="space-y-4">
-                    {players.map((player, index) => (
-                      <Card key={player.id}>
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between mb-4">
-                            <h4 className="font-medium">队员 {index + 1}</h4>
-                            <div className="flex gap-2">
-                              <Button
-                                type="button"
-                                variant={copiedPlayerId === player.id ? "default" : "outline"}
-                                size="sm"
-                                onClick={() => generatePlayerShareLink(player.id, index + 1)}
-                                className={`text-xs px-2 py-1 ${
-                                  copiedPlayerId === player.id
-                                    ? "bg-green-600 hover:bg-green-700 text-white"
-                                    : "text-blue-600 hover:text-blue-700"
-                                }`}
-                              >
-                                {copiedPlayerId === player.id ? (
-                                  <>
-                                    <Check className="h-3 w-3 mr-1" />
-                                    已复制
-                                  </>
-                                ) : (
-                                  <>
-                                    <Share2 className="h-3 w-3 mr-1" />
-                                    分享给队员{index + 1}
-                                  </>
-                                )}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removePlayer(player.id)}
-                                disabled={isEventEndedView}
-                              >
-                                <Trash2 className="h-4 w-4 text-red-500" />
-                              </Button>
-                            </div>
+                  <div className="space-y-6">
+                    {getOrderedRoles().map((role: any) => {
+                      const rolePlayers = players.filter(p => (p.role || 'player') === role.id)
+                      if (rolePlayers.length === 0) return null
+
+                      return (
+                        <div key={role.id} className="space-y-4">
+                          <div className="border-b pb-2">
+                            <h4 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                              <span className={`w-3 h-3 rounded-full ${
+                                role.id === 'player' ? 'bg-blue-500' : 'bg-green-500'
+                              }`}></span>
+                              {role.name}
+                              <Badge variant="outline" className="ml-2">
+                                {rolePlayers.length}人
+                              </Badge>
+                            </h4>
                           </div>
+
+                          {rolePlayers.map((player, index) => {
+                            const globalIndex = players.indexOf(player)
+                            return (
+                              <Card key={player.id}>
+                                <CardContent className="p-4">
+                                  <div className="flex items-start justify-between mb-4">
+                                    <h5 className="font-medium">{role.name} {index + 1}</h5>
+                                    <div className="flex gap-2">
+                                      <Button
+                                        type="button"
+                                        variant={copiedPlayerId === player.id ? "default" : "outline"}
+                                        size="sm"
+                                        onClick={() => generatePlayerShareLink(player.id, globalIndex + 1, role.name)}
+                                        className={`text-xs px-2 py-1 ${
+                                          copiedPlayerId === player.id
+                                            ? "bg-green-600 hover:bg-green-700 text-white"
+                                            : "text-blue-600 hover:text-blue-700"
+                                        }`}
+                                      >
+                                        {copiedPlayerId === player.id ? (
+                                          <>
+                                            <Check className="h-3 w-3 mr-1" />
+                                            已复制
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Share2 className="h-3 w-3 mr-1" />
+                                            分享给{role.name}
+                                          </>
+                                        )}
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => removePlayer(player.id)}
+                                        disabled={isEventEndedView}
+                                      >
+                                        <Trash2 className="h-4 w-4 text-red-500" />
+                                      </Button>
+                                    </div>
+                                  </div>
                           
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* 角色选择 - 如果有多个角色 */}
-                            {event.registration_settings?.player_requirements?.roles && 
-                             event.registration_settings.player_requirements.roles.length > 1 && (
-                              <div className="md:col-span-2">
-                                <Label>角色 *</Label>
-                                <Select
-                                  value={player.role || 'player'}
-                                  onValueChange={(value) => updatePlayer(player.id, 'role', value)}
-                                >
-                                  <SelectTrigger className="mt-1">
-                                    <SelectValue placeholder="请选择角色" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {event.registration_settings.player_requirements.roles.map((role: any) => (
-                                      <SelectItem key={role.id} value={role.id}>
-                                        {role.name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            )}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             
-                            {/* 根据选中的角色动态渲染字段 */}
-                            {(() => {
-                              const selectedRoleId = player.role || 'player'
-                              const selectedRole = event.registration_settings?.player_requirements?.roles?.find(
-                                (r: any) => r.id === selectedRoleId
-                              ) || event.registration_settings?.player_requirements?.roles?.[0]
+                                  {/* 根据角色动态渲染字段 */}
+                                  {(() => {
+                                    const selectedRole = role
+                                    if (!selectedRole) return null
 
-                              if (!selectedRole) return null
+                                    // 获取队员要求配置
+                                    const playerRequirements = event?.registration_settings?.player_requirements
 
-                              // 获取队员要求配置
-                              const playerRequirements = event?.registration_settings?.player_requirements
+                                    // 使用管理端设置的字段顺序
+                                    const roleFields = selectedRole.allFields || [
+                                      ...(selectedRole.commonFields || []),
+                                      ...(selectedRole.customFields || [])
+                                    ]
 
-                              // 使用管理端设置的字段顺序
-                              const roleFields = selectedRole.allFields || [
-                                ...(selectedRole.commonFields || []),
-                                ...(selectedRole.customFields || [])
-                              ]
-
-                              return roleFields.map((field: any) => {
+                                    return roleFields.map((field: any) => {
                                 // 根据字段类型渲染不同的输入组件
                                 switch (field.type) {
                                   case 'text':
@@ -2009,12 +2048,16 @@ export default function RegisterPage() {
                                   default:
                                     return null
                                 }
-                              })
-                            })()}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                                    })
+                                  })()}
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            )
+                          })}
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
               </div>
