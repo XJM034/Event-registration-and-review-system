@@ -92,6 +92,15 @@ export default function PlayerSharePage() {
         alert(`请填写${field.label}`)
         return
       }
+
+      // 特殊验证：身份证号码
+      if (field.id === 'id_number' && playerData[field.id]) {
+        const validation = validateIdNumber(playerData[field.id])
+        if (!validation.valid) {
+          alert(`身份证号码格式错误: ${validation.message}`)
+          return
+        }
+      }
     }
 
     setIsSubmitting(true)
@@ -125,6 +134,47 @@ export default function PlayerSharePage() {
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  // 验证身份证号码格式
+  const validateIdNumber = (idNumber: string) => {
+    // 去除空格
+    const trimmedId = idNumber.trim()
+
+    // 检查长度
+    if (trimmedId.length !== 18) {
+      return { valid: false, message: '身份证号码必须为18位' }
+    }
+
+    // 检查前17位是否为数字
+    const first17 = trimmedId.slice(0, 17)
+    if (!/^\d{17}$/.test(first17)) {
+      return { valid: false, message: '身份证号码前17位必须为数字' }
+    }
+
+    // 检查第18位是否为数字或X/x
+    const last = trimmedId.charAt(17)
+    if (!/^[0-9Xx]$/.test(last)) {
+      return { valid: false, message: '身份证号码第18位必须为数字或字母X' }
+    }
+
+    // 验证身份证号码的校验位
+    const weights = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2]
+    const checkCodes = ['1', '0', 'X', '9', '8', '7', '6', '5', '4', '3', '2']
+    let sum = 0
+
+    for (let i = 0; i < 17; i++) {
+      sum += parseInt(trimmedId.charAt(i)) * weights[i]
+    }
+
+    const checkCode = checkCodes[sum % 11]
+    const actualCheckCode = last.toUpperCase()
+
+    if (checkCode !== actualCheckCode) {
+      return { valid: false, message: '身份证号码校验位错误，请检查输入是否正确' }
+    }
+
+    return { valid: true, message: '身份证号码格式正确' }
   }
 
   const updatePlayerData = (field: string, value: any) => {
@@ -294,14 +344,45 @@ export default function PlayerSharePage() {
               {roleFields.map((field: any) => {
                 switch (field.type) {
                   case 'text':
+                    // 检查是否是身份证号码字段
+                    const isIdNumberField = field.id === 'id_number'
+                    let idValidation = { valid: true, message: '' }
+                    if (isIdNumberField && playerData[field.id]) {
+                      idValidation = validateIdNumber(playerData[field.id])
+                    }
+
                     return (
                       <div key={field.id}>
-                        <Label>{field.label}{field.required && ' *'}</Label>
+                        <Label className="flex items-center gap-2">
+                          {field.label}{field.required && ' *'}
+                          {isIdNumberField && (
+                            <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                              18位
+                            </span>
+                          )}
+                        </Label>
                         <Input
                           value={playerData[field.id] || ''}
                           onChange={(e) => updatePlayerData(field.id, e.target.value)}
-                          placeholder={`请输入${field.label}`}
+                          placeholder={isIdNumberField ? '请输入18位身份证号码' : `请输入${field.label}`}
+                          maxLength={isIdNumberField ? 18 : undefined}
+                          className={`${
+                            isIdNumberField && !idValidation.valid
+                              ? 'border-red-300 bg-red-50'
+                              : isIdNumberField && idValidation.valid && playerData[field.id]
+                              ? 'border-green-300 bg-green-50'
+                              : ''
+                          }`}
                         />
+                        {isIdNumberField && playerData[field.id] && (
+                          <p className={`text-xs mt-1 font-medium ${
+                            !idValidation.valid
+                              ? 'text-red-600 bg-red-50 p-2 rounded border border-red-200'
+                              : 'text-green-600 bg-green-50 p-2 rounded border border-green-200'
+                          }`}>
+                            {idValidation.message}
+                          </p>
+                        )}
                       </div>
                     )
                   case 'date':

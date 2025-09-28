@@ -164,17 +164,19 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         id: 'player',
         name: '队员',
         commonFields: [
-          { id: 'name', label: '姓名', type: 'text', required: true },
-          { id: 'gender', label: '性别', type: 'select', required: true, options: ['男', '女'] },
-          { id: 'id_photo', label: '证件照', type: 'image', required: true },
-          { id: 'emergency_contact', label: '紧急联系人', type: 'text', required: true }
+          { id: 'name', label: '姓名', type: 'text', required: false },
+          { id: 'id_number', label: '身份证号码', type: 'text', required: false },
+          { id: 'gender', label: '性别', type: 'select', required: false, options: ['男', '女'] },
+          { id: 'id_photo', label: '证件照', type: 'image', required: false },
+          { id: 'emergency_contact', label: '紧急联系人', type: 'text', required: false }
         ],
         customFields: [],
         allFields: [
-          { id: 'name', label: '姓名', type: 'text', required: true, isCommon: true },
-          { id: 'gender', label: '性别', type: 'select', required: true, options: ['男', '女'], isCommon: true },
-          { id: 'id_photo', label: '证件照', type: 'image', required: true, isCommon: true },
-          { id: 'emergency_contact', label: '紧急联系人', type: 'text', required: true, isCommon: true }
+          { id: 'name', label: '姓名', type: 'text', required: false, isCommon: true },
+          { id: 'id_number', label: '身份证号码', type: 'text', required: false, isCommon: true },
+          { id: 'gender', label: '性别', type: 'select', required: false, options: ['男', '女'], isCommon: true },
+          { id: 'id_photo', label: '证件照', type: 'image', required: false, isCommon: true },
+          { id: 'emergency_contact', label: '紧急联系人', type: 'text', required: false, isCommon: true }
         ],
         minPlayers: 1,
         maxPlayers: 30
@@ -350,17 +352,19 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
             id: 'player',
             name: '队员',
             commonFields: [
-              { id: 'name', label: '姓名', type: 'text' as const, required: true },
-              { id: 'gender', label: '性别', type: 'select' as const, required: true, options: ['男', '女'] },
-              { id: 'id_photo', label: '证件照', type: 'image' as const, required: true },
-              { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: true }
+              { id: 'name', label: '姓名', type: 'text' as const, required: false },
+              { id: 'id_number', label: '身份证号码', type: 'text' as const, required: false },
+              { id: 'gender', label: '性别', type: 'select' as const, required: false, options: ['男', '女'] },
+              { id: 'id_photo', label: '证件照', type: 'image' as const, required: false },
+              { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: false }
             ],
             customFields: [],
             allFields: [
-              { id: 'name', label: '姓名', type: 'text' as const, required: true, isCommon: true },
-              { id: 'gender', label: '性别', type: 'select' as const, required: true, options: ['男', '女'], isCommon: true },
-              { id: 'id_photo', label: '证件照', type: 'image' as const, required: true, isCommon: true },
-              { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: true, isCommon: true }
+              { id: 'name', label: '姓名', type: 'text' as const, required: false, isCommon: true },
+              { id: 'id_number', label: '身份证号码', type: 'text' as const, required: false, isCommon: true },
+              { id: 'gender', label: '性别', type: 'select' as const, required: false, options: ['男', '女'], isCommon: true },
+              { id: 'id_photo', label: '证件照', type: 'image' as const, required: false, isCommon: true },
+              { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: false, isCommon: true }
             ],
             minPlayers: 1,
             maxPlayers: 30
@@ -529,6 +533,8 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
       
       if (result.success) {
         alert('报名设置保存成功')
+        // 重新加载数据以确保状态同步
+        await fetchSettings()
       } else {
         alert('保存失败: ' + result.error)
       }
@@ -659,10 +665,31 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
 
     const updatedField = {
       ...editingField.field,
-      options: tempOptions.filter(opt => opt.trim())
+      options: tempOptions.filter(opt => opt && opt.trim() !== '')
     }
 
-    if (editingField.field.id.startsWith('custom_') && !editingField.isCommon) {
+    console.log('Saving field with options:', {
+      fieldId: editingField.field.id,
+      oldOptions: editingField.field.options,
+      newOptions: updatedField.options,
+      tempOptions: tempOptions
+    })
+
+    // 检查是否是新建字段（字段ID以custom_开头且在现有字段中找不到）
+    const isNewField = editingField.field.id.startsWith('custom_') && !editingField.isCommon &&
+      (editingField.type === 'team'
+        ? !teamRequirements.customFields.find(f => f.id === editingField.field.id)
+        : true) // 对于player类型，暂时简化处理
+
+    console.log('Field editing logic check:', {
+      fieldId: editingField.field.id,
+      isCommon: editingField.isCommon,
+      startsWithCustom: editingField.field.id.startsWith('custom_'),
+      existingCustomFields: teamRequirements.customFields.map(f => f.id),
+      isNewField: isNewField
+    })
+
+    if (isNewField) {
       // 新增的自定义字段
       if (editingField.type === 'team') {
         setTeamRequirements(prev => {
@@ -719,9 +746,17 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
   }
 
   const updateFieldOptions = (type: 'team' | 'player', fieldId: string, isCommon: boolean, options: string[], roleId?: string) => {
+    console.log('updateFieldOptions called:', {
+      type,
+      fieldId,
+      isCommon,
+      options,
+      filteredOptions: options.filter(opt => opt && opt.trim() !== '')
+    })
+
     if (type === 'team') {
       setTeamRequirements(prev => {
-        const filteredOptions = options.filter(opt => opt.trim())
+        const filteredOptions = options.filter(opt => opt && opt.trim() !== '')
         
         // 更新allFields
         const updatedAllFields = prev.allFields
@@ -777,6 +812,13 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
   }
 
   const openOptionsEditor = (type: 'team' | 'player', field: FieldConfig, isCommon: boolean) => {
+    console.log('Opening options editor for field:', {
+      fieldId: field.id,
+      fieldLabel: field.label,
+      fieldOptions: field.options,
+      type: type,
+      isCommon: isCommon
+    })
     setEditingField({ type, field, isCommon })
     setTempOptions(field.options || ['选项1', '选项2'])
     setShowOptionsDialog(true)
@@ -962,12 +1004,14 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                     {(teamRequirements.allFields || [
                       ...teamRequirements.commonFields.map(field => ({ ...field, isCommon: true })),
                       ...teamRequirements.customFields.map(field => ({ ...field, isCommon: false }))
-                    ]).map(field => (
+                    ]).filter((field, index, array) =>
+                      array.findIndex(f => f.id === field.id) === index
+                    ).map(field => (
                       <SortableFieldItem
                         key={field.id}
                         field={field}
-                        onToggleRequired={() => toggleRequired('team', field.id, field.isCommon)}
-                        onRemove={() => removeField('team', field.id, field.isCommon)}
+                        onToggleRequired={() => toggleRequired('team', field.id, field.isCommon || false)}
+                        onRemove={() => removeField('team', field.id, field.isCommon || false)}
                         onEditOptions={
                           !field.isCommon && (field.type === 'select' || field.type === 'multiselect')
                             ? () => openOptionsEditor('team', field, false)
@@ -1309,7 +1353,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                                 onEditOptions={
                                   (field.type === 'select' || field.type === 'multiselect')
                                     ? () => {
-                                        setEditingField({ type: 'player', roleId: role.id, field, isCommon: field.isCommon })
+                                        setEditingField({ type: 'player', roleId: role.id, field, isCommon: field.isCommon || false })
                                         setTempOptions(field.options || ['选项1', '选项2'])
                                         setShowOptionsDialog(true)
                                       }

@@ -52,11 +52,15 @@ export default function EventManagePage() {
     try {
       const response = await fetch(`/api/events/${params.id}`)
       const result = await response.json()
-      
+
       if (result.success) {
         setEvent(result.data)
       } else {
         console.error('Failed to fetch event:', result.error)
+        // 如果是未授权访问，重定向到登录页
+        if (response.status === 401 || result.error === '未授权访问') {
+          router.push('/admin/login')
+        }
       }
     } catch (error) {
       console.error('Error fetching event:', error)
@@ -69,9 +73,14 @@ export default function EventManagePage() {
     try {
       const response = await fetch(`/api/events/${params.id}/registrations?status=pending`)
       const result = await response.json()
-      
+
       if (result.success) {
         setPendingReviewCount(result.data.length)
+      } else {
+        // 如果是未授权访问，重定向到登录页
+        if (response.status === 401 || result.error === '未授权访问') {
+          router.push('/admin/login')
+        }
       }
     } catch (error) {
       console.error('Error fetching pending review count:', error)

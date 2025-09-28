@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -185,14 +185,21 @@ export default function RegisterPage() {
 
   // 获取字段配置 - 使用管理端设置的字段顺序
   const teamRequirements = event?.registration_settings?.team_requirements
-  const allFields = teamRequirements?.allFields || [
+  const rawFields = teamRequirements?.allFields || [
     ...(teamRequirements?.commonFields || []),
     ...(teamRequirements?.customFields || [])
   ]
-  
-  // 创建动态表单
-  const teamSchema = createTeamSchema(allFields)
-  
+
+  // 去重字段，避免重复显示
+  const allFields = rawFields.filter((field: any, index: number, array: any[]) =>
+    array.findIndex((f: any) => f.id === field.id) === index
+  )
+
+
+
+  // 创建动态表单 - 使用 useMemo 确保 schema 正确更新
+  const teamSchema = useMemo(() => createTeamSchema(allFields), [allFields])
+
   const {
     register,
     handleSubmit,
@@ -320,11 +327,11 @@ export default function RegisterPage() {
       }
       
       // 获取赛事信息
-      const response = await fetch(`/api/portal/events`)
+      const response = await fetch(`/api/portal/events/${eventId}`)
       const result = await response.json()
-      
+
       if (result.success) {
-        const eventData = result.data.find((e: Event) => e.id === eventId)
+        const eventData = result.data
         if (eventData) {
           setEvent(eventData)
           
@@ -613,6 +620,47 @@ export default function RegisterPage() {
     const updatedPlayers = players.filter(p => p.id !== playerId)
     setPlayers(updatedPlayers)
     setPlayersByRole(organizePlayersByRole(updatedPlayers))
+  }
+
+  // 验证身份证号码格式
+  const validateIdNumber = (idNumber: string) => {
+    // 去除空格
+    const trimmedId = idNumber.trim()
+
+    // 检查长度
+    if (trimmedId.length !== 18) {
+      return { valid: false, message: '身份证号码必须为18位' }
+    }
+
+    // 检查前17位是否为数字
+    const first17 = trimmedId.slice(0, 17)
+    if (!/^\d{17}$/.test(first17)) {
+      return { valid: false, message: '身份证号码前17位必须为数字' }
+    }
+
+    // 检查第18位是否为数字或X/x
+    const last = trimmedId.charAt(17)
+    if (!/^[0-9Xx]$/.test(last)) {
+      return { valid: false, message: '身份证号码第18位必须为数字或字母X' }
+    }
+
+    // 验证身份证号码的校验位
+    const weights = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2]
+    const checkCodes = ['1', '0', 'X', '9', '8', '7', '6', '5', '4', '3', '2']
+    let sum = 0
+
+    for (let i = 0; i < 17; i++) {
+      sum += parseInt(trimmedId.charAt(i)) * weights[i]
+    }
+
+    const checkCode = checkCodes[sum % 11]
+    const actualCheckCode = last.toUpperCase()
+
+    if (checkCode !== actualCheckCode) {
+      return { valid: false, message: '身份证号码校验位错误，请检查输入是否正确' }
+    }
+
+    return { valid: true, message: '身份证号码格式正确' }
   }
 
   const updatePlayer = (playerId: string, field: string, value: any) => {
@@ -1431,11 +1479,11 @@ export default function RegisterPage() {
             
             <TabsContent value="team" className="mt-6">
               <form className="space-y-6">
-                {allFields.map((field: any) => {
+                {allFields.map((field: any, index: number) => {
                   // Logo字段特殊处理
-                  if (field.type === 'image' && field.id === 'team_logo') {
+                  if (field.type === 'image' && (field.id === 'logo' || field.id === 'team_logo')) {
                     return (
-                      <div key={field.id}>
+                      <div key={`${field.id}-${index}`}>
                         <Label>{field.label}{field.required && ' *'}</Label>
                         <div className="mt-2">
                           {teamLogoPreview ? (
@@ -1479,7 +1527,7 @@ export default function RegisterPage() {
                   // 文本字段
                   if (field.type === 'text') {
                     return (
-                      <div key={field.id}>
+                      <div key={`${field.id}-${index}`}>
                         <Label htmlFor={field.id}>
                           {field.label}{field.required && ' *'}
                         </Label>
@@ -1503,7 +1551,7 @@ export default function RegisterPage() {
                   // 日期字段
                   if (field.type === 'date') {
                     return (
-                      <div key={field.id}>
+                      <div key={`${field.id}-${index}`}>
                         <Label htmlFor={field.id}>
                           {field.label}{field.required && ' *'}
                         </Label>
@@ -1524,28 +1572,34 @@ export default function RegisterPage() {
                     )
                   }
                   
-                  // 下拉选择字段
+                  // 单选字段
                   if (field.type === 'select' && field.options) {
                     return (
-                      <div key={field.id}>
+                      <div key={`${field.id}-${index}`}>
                         <Label htmlFor={field.id}>
-                          {field.label}{field.required && ' *'}
+                          {field.label}
+                          <span className="text-xs text-gray-500 font-normal ml-2">(单选)</span>
+                          {field.required && ' *'}
                         </Label>
-                        <Select 
-                          onValueChange={(value) => setValue(field.id, value)}
-                          value={watch(field.id)}
-                        >
-                          <SelectTrigger className="mt-1">
-                            <SelectValue placeholder={`请选择${field.label}`} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {field.options.map((option: string) => (
-                              <SelectItem key={option} value={option}>
+                        <div className="mt-2 space-y-2">
+                          {field.options.map((option: string) => (
+                            <div key={option} className="flex items-center space-x-2">
+                              <input
+                                type="radio"
+                                id={`${field.id}-${option}`}
+                                name={field.id}
+                                value={option}
+                                checked={watch(field.id) === option}
+                                onChange={(e) => setValue(field.id, e.target.value)}
+                                className="rounded-full border-gray-300"
+                                disabled={isEventEndedView}
+                              />
+                              <label htmlFor={`${field.id}-${option}`} className="text-sm font-normal text-gray-700">
                                 {option}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                              </label>
+                            </div>
+                          ))}
+                        </div>
                         {errors[field.id] && (
                           <p className="text-red-600 text-sm mt-1">
                             {errors[field.id]?.message as string}
@@ -1554,7 +1608,130 @@ export default function RegisterPage() {
                       </div>
                     )
                   }
-                  
+
+                  // 其他图片上传字段（非logo字段）
+                  if (field.type === 'image' && field.id !== 'logo' && field.id !== 'team_logo') {
+                    return (
+                      <div key={`${field.id}-${index}`}>
+                        <Label htmlFor={field.id}>
+                          {field.label}{field.required && ' *'}
+                        </Label>
+                        <div className="mt-2">
+                          {watch(field.id) ? (
+                            <div className="relative w-32 h-32 border rounded-lg overflow-hidden">
+                              <Image
+                                src={watch(field.id) as string}
+                                alt={field.label}
+                                fill
+                                className="object-cover"
+                              />
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="destructive"
+                                className="absolute top-2 right-2"
+                                onClick={() => setValue(field.id, '')}
+                              >
+                                移除
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
+                              <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
+                              <p className="text-sm text-gray-600">点击上传{field.label}</p>
+                              <p className="text-xs text-gray-500">支持 JPG、PNG 格式，大小不超过5MB</p>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0]
+                                  if (file) {
+                                    if (file.size > 5 * 1024 * 1024) {
+                                      alert('图片大小不能超过 5MB')
+                                      return
+                                    }
+                                    try {
+                                      setIsSubmitting(true)
+                                      const formData = new FormData()
+                                      formData.append('file', file)
+                                      formData.append('bucket', 'team-documents')
+                                      const response = await fetch('/api/portal/upload', {
+                                        method: 'POST',
+                                        body: formData,
+                                      })
+                                      const result = await response.json()
+                                      if (result.success) {
+                                        setValue(field.id, result.data.url)
+                                        alert('上传成功！')
+                                      } else {
+                                        alert(result.error || '上传失败')
+                                      }
+                                    } catch (error) {
+                                      console.error('Upload error:', error)
+                                      alert('上传失败，请重试')
+                                    } finally {
+                                      setIsSubmitting(false)
+                                    }
+                                  }
+                                }}
+                                className="absolute inset-0 opacity-0 cursor-pointer"
+                                disabled={isEventEndedView}
+                              />
+                            </div>
+                          )}
+                        </div>
+                        {errors[field.id] && (
+                          <p className="text-red-600 text-sm mt-1">
+                            {errors[field.id]?.message as string}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  }
+
+                  // 多选字段
+                  if (field.type === 'multiselect' && field.options) {
+                    return (
+                      <div key={`${field.id}-${index}`}>
+                        <Label htmlFor={field.id}>
+                          {field.label}
+                          <span className="text-xs text-gray-500 font-normal ml-2">(可多选)</span>
+                          {field.required && ' *'}
+                        </Label>
+                        <div className="mt-2 space-y-2">
+                          {field.options.map((option: any, optionIndex: number) => (
+                            <div key={`${field.id}-${option.value || optionIndex}`} className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                id={`${field.id}-${option.value || option.text || option.name || optionIndex}`}
+                                checked={(watch(field.id) as string[] || []).includes(option.value || option.text || option.name || option)}
+                                onChange={(e) => {
+                                  const optionValue = option.value || option.text || option.name || option
+                                  const currentValues = watch(field.id) as string[] || []
+                                  if (e.target.checked) {
+                                    setValue(field.id, [...currentValues, optionValue])
+                                  } else {
+                                    setValue(field.id, currentValues.filter(v => v !== optionValue))
+                                  }
+                                }}
+                                className="rounded border-gray-300"
+                                disabled={isEventEndedView}
+                              />
+                              <label htmlFor={`${field.id}-${option.value || option.text || option.name || optionIndex}`} className="text-sm font-normal text-gray-700">
+                                {option.label || option.text || option.name || option}
+                              </label>
+                            </div>
+                          ))}
+                        </div>
+                        {errors[field.id] && (
+                          <p className="text-red-600 text-sm mt-1">
+                            {errors[field.id]?.message as string}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  }
+
                   return null
                 })}
               </form>
@@ -1621,19 +1798,28 @@ export default function RegisterPage() {
                     })()}
                   </div>
                   <div className="flex gap-2 flex-wrap">
-                    {getOrderedRoles().map((role: any) => (
-                      <Button
-                        key={role.id}
-                        type="button"
-                        onClick={() => addPlayerByRole(role.id)}
-                        size="sm"
-                        disabled={isEventEndedView}
-                        variant={role.id === 'player' ? "default" : "outline"}
-                      >
-                        <Plus className="h-4 w-4 mr-1" />
-                        添加{role.name}
-                      </Button>
-                    ))}
+                    {getOrderedRoles().map((role: any) => {
+                      const rolePlayerCount = players.filter(p => (p.role || 'player') === role.id).length
+                      return (
+                        <Button
+                          key={role.id}
+                          type="button"
+                          onClick={() => addPlayerByRole(role.id)}
+                          size="sm"
+                          disabled={isEventEndedView}
+                          variant="default"
+                          className="relative"
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          <span>添加{role.name}</span>
+                          {rolePlayerCount > 0 && (
+                            <span className="ml-2 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-xs font-bold bg-blue-500 text-white">
+                              {rolePlayerCount}
+                            </span>
+                          )}
+                        </Button>
+                      )
+                    })}
                   </div>
                 </div>
                 
@@ -1728,6 +1914,13 @@ export default function RegisterPage() {
                                 // 根据字段类型渲染不同的输入组件
                                 switch (field.type) {
                                   case 'text':
+                                    // 检查是否是身份证号码字段
+                                    const isIdNumberField = field.id === 'id_number'
+                                    let idValidation = { valid: true, message: '' }
+                                    if (isIdNumberField && player[field.id]) {
+                                      idValidation = validateIdNumber(player[field.id])
+                                    }
+
                                     // 检查是否是年龄字段并有要求
                                     const isAgeField = field.id === 'age'
                                     const ageRequirement = isAgeField && playerRequirements?.ageRequirementEnabled
@@ -1752,9 +1945,14 @@ export default function RegisterPage() {
                                     }
 
                                     return (
-                                      <div key={field.id}>
+                                      <div key={`${field.id}-${index}`}>
                                         <Label className="flex items-center gap-2">
                                           {field.label}{field.required && ' *'}
+                                          {isIdNumberField && (
+                                            <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                                              18位
+                                            </span>
+                                          )}
                                           {ageRequirement && (
                                             <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
                                               {playerRequirements.minAge && playerRequirements.maxAge ?
@@ -1770,17 +1968,31 @@ export default function RegisterPage() {
                                           type={isAgeField ? "number" : "text"}
                                           value={player[field.id] || ''}
                                           onChange={(e) => updatePlayer(player.id, field.id, e.target.value)}
-                                          placeholder={`请输入${field.label}`}
+                                          placeholder={isIdNumberField ? '请输入18位身份证号码' : `请输入${field.label}`}
+                                          maxLength={isIdNumberField ? 18 : undefined}
                                           disabled={isEventEndedView}
                                           readOnly={isEventEndedView}
                                           className={`mt-1 ${
-                                            ageStatus === 'too_young' || ageStatus === 'too_old'
+                                            isIdNumberField && !idValidation.valid
+                                              ? 'border-red-300 bg-red-50'
+                                              : isIdNumberField && idValidation.valid && player[field.id]
+                                              ? 'border-green-300 bg-green-50'
+                                              : ageStatus === 'too_young' || ageStatus === 'too_old'
                                               ? 'border-red-300 bg-red-50'
                                               : ageStatus === 'valid'
                                               ? 'border-green-300 bg-green-50'
                                               : ''
                                           }`}
                                         />
+                                        {isIdNumberField && player[field.id] && (
+                                          <p className={`text-xs mt-1 font-medium ${
+                                            !idValidation.valid
+                                              ? 'text-red-600 bg-red-50 p-2 rounded border border-red-200'
+                                              : 'text-green-600 bg-green-50 p-2 rounded border border-green-200'
+                                          }`}>
+                                            {idValidation.message}
+                                          </p>
+                                        )}
                                         {ageMessage && (
                                           <p className={`text-xs mt-1 font-medium ${
                                             ageStatus === 'too_young' || ageStatus === 'too_old'
@@ -1852,7 +2064,7 @@ export default function RegisterPage() {
                                     }
 
                                     return (
-                                      <div key={field.id}>
+                                      <div key={`${field.id}-${index}`}>
                                         <Label className="flex items-center gap-2">
                                           {field.label}{field.required && ' *'}
                                           {birthdateAgeRequirement && (
@@ -1925,7 +2137,7 @@ export default function RegisterPage() {
                                     const currentGender = player[field.id]
 
                                     return (
-                                      <div key={field.id}>
+                                      <div key={`${field.id}-${index}`}>
                                         <Label className="flex items-center gap-2">
                                           {field.label}{field.required && ' *'}
                                           {genderRequirement && (
@@ -1968,7 +2180,7 @@ export default function RegisterPage() {
                                     return null
                                   case 'image':
                                     return (
-                                      <div key={field.id}>
+                                      <div key={`${field.id}-${index}`}>
                                         <Label>{field.label}{field.required && ' *'}</Label>
                                         <div className="mt-2">
                                           {player[field.id] ? (

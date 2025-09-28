@@ -73,6 +73,19 @@ export async function GET(
       registration_settings: settingsError ? null : settings
     }
 
+    // 调试信息
+    console.log('Portal API debug - Event with settings:', {
+      eventId,
+      hasSettings: !!settings,
+      settingsType: typeof settings,
+      teamRequirements: settings?.team_requirements,
+      teamReqType: typeof settings?.team_requirements,
+      allFields: settings?.team_requirements?.allFields,
+      commonFields: settings?.team_requirements?.commonFields,
+      customFields: settings?.team_requirements?.customFields,
+      rawSettings: settings
+    })
+
     return NextResponse.json({
       success: true,
       data: eventWithSettings

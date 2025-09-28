@@ -56,7 +56,13 @@ export async function POST(request: NextRequest, context: RouteParams) {
       .from('registrations')
       .update(updateData)
       .eq('id', id)
-      .select()
+      .select(`
+        *,
+        events (
+          name,
+          short_name
+        )
+      `)
       .single()
 
     if (error) {
@@ -65,6 +71,39 @@ export async function POST(request: NextRequest, context: RouteParams) {
         { error: '审核失败', success: false },
         { status: 500 }
       )
+    }
+
+    // 创建通知
+    if (data && data.coach_id) {
+      const eventName = data.events?.short_name || data.events?.name || '赛事'
+
+      let notificationData = {
+        coach_id: data.coach_id,
+        type: status === 'approved' ? 'approval' : 'rejection',
+        title: status === 'approved' ? '报名审核通过' : '报名已驳回',
+        message: status === 'approved'
+          ? `您的${eventName}报名已通过审核，请及时查看。`
+          : `您的${eventName}报名被驳回。${rejection_reason ? `原因：${rejection_reason}` : ''}`,
+        is_read: false,
+        event_id: data.event_id,
+        registration_id: data.id,
+        metadata: {
+          team_name: data.team_data?.team_name,
+          status: status,
+          rejection_reason: rejection_reason
+        }
+      }
+
+      const { error: notifError } = await supabase
+        .from('notifications')
+        .insert(notificationData)
+
+      if (notifError) {
+        console.error('创建通知失败:', notifError)
+        // 不影响审核流程，只是记录错误
+      } else {
+        console.log('通知创建成功')
+      }
     }
 
     return NextResponse.json({
