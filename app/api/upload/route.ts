@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentAdminSession, createSupabaseServer } from '@/lib/auth'
+import { getCurrentAdminSession } from '@/lib/auth'
+import { createClient } from '@supabase/supabase-js'
 
 export async function POST(request: NextRequest) {
   try {
@@ -38,7 +39,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = await createSupabaseServer()
+    // 使用服务密钥创建 Supabase 客户端，绕过 RLS
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    )
     
     // 生成唯一的文件名
     const fileExt = file.name.split('.').pop()
