@@ -131,7 +131,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
       )}>
         {/* Logo区域和折叠按钮 */}
         <div className="border-b">
-          <div className="p-3 flex items-center justify-between">
+          <div className="h-[52px] px-6 flex items-center justify-between">
             <h1 className={cn(
               "font-bold text-gray-800 transition-all whitespace-nowrap overflow-hidden",
               isCollapsed ? "text-center text-xs" : "text-base"
@@ -255,7 +255,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
       <main className="flex-1 flex flex-col">
         {/* 顶部栏 */}
         <header className="bg-white shadow-sm border-b">
-          <div className="px-6 py-4 flex items-center justify-between">
+          <div className="h-[52px] px-6 flex items-center justify-between">
             <div className="flex items-center space-x-4">
               {/* 页面标题会由各个页面提供 */}
             </div>
