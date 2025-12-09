@@ -277,7 +277,7 @@ export default function UnifiedLoginPage() {
 
                 <div className="mt-4 text-center text-sm text-gray-500">
                   <p>测试账号：13800138000</p>
-                  <p>测试密码：admin123</p>
+                  <p>测试密码：password</p>
                 </div>
               </form>
             </TabsContent>

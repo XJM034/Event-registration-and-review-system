@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -49,6 +49,7 @@ export default function CreateEventPage() {
   const [posterFile, setPosterFile] = useState<File | null>(null)
   const [posterPreview, setPosterPreview] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [dateError, setDateError] = useState('')
   const router = useRouter()
 
   const {
@@ -74,6 +75,31 @@ export default function CreateEventPage() {
   })
 
   const watchedType = watch('type')
+  const watchedStartDate = watch('start_date')
+  const watchedEndDate = watch('end_date')
+
+  // 格式化日期显示
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  // 实时验证赛事时间
+  useEffect(() => {
+    if (watchedStartDate && watchedEndDate) {
+      const startDate = new Date(watchedStartDate)
+      const endDate = new Date(watchedEndDate)
+
+      if (endDate < startDate) {
+        setDateError(`⚠️ 结束时间不能早于开始时间（当前开始时间为：${formatDate(watchedStartDate)}）`)
+      } else {
+        setDateError('')
+      }
+    }
+  }, [watchedStartDate, watchedEndDate])
 
   const handlePosterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -313,6 +339,9 @@ export default function CreateEventPage() {
                   />
                   {errors.end_date && (
                     <p className="text-red-600 text-sm mt-1">{errors.end_date.message}</p>
+                  )}
+                  {dateError && (
+                    <p className="text-amber-600 text-sm mt-1">{dateError}</p>
                   )}
                 </div>
               </div>

@@ -201,9 +201,79 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
   const [editingField, setEditingField] = useState<{ type: 'team' | 'player', roleId?: string, field: FieldConfig, isCommon: boolean } | null>(null)
   const [tempOptions, setTempOptions] = useState<string[]>(['选项1', '选项2'])
 
+  // 时间验证错误状态
+  const [regStartError, setRegStartError] = useState('')
+  const [regEndError, setRegEndError] = useState('')
+  const [reviewEndError, setReviewEndError] = useState('')
+
   useEffect(() => {
     fetchSettings()
   }, [eventId])
+
+  // 格式化日期时间显示
+  const formatDateTime = (dateTimeStr: string) => {
+    const date = new Date(dateTimeStr)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    return `${year}-${month}-${day} ${hours}:${minutes}`
+  }
+
+  // 格式化日期显示（用于赛事时间）
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  // 实时验证报名时间
+  useEffect(() => {
+    // 清空所有错误
+    setRegStartError('')
+    setRegEndError('')
+    setReviewEndError('')
+
+    const regStart = teamRequirements.registrationStartDate
+    const regEnd = teamRequirements.registrationEndDate
+    const reviewEnd = teamRequirements.reviewEndDate
+
+    if (!regStart || !regEnd || !reviewEnd) {
+      return // 如果有任何字段为空，不进行验证
+    }
+
+    const regStartDate = new Date(regStart)
+    const regEndDate = new Date(regEnd)
+    const reviewEndDate = new Date(reviewEnd)
+    const eventStart = eventStartDate ? new Date(eventStartDate) : null
+
+    // 验证1: 报名开始时间 < 报名结束时间
+    if (regStartDate >= regEndDate) {
+      setRegEndError(`⚠️ 报名开始时间必须早于报名结束时间（当前报名开始时间为：${formatDateTime(regStart)}）`)
+      return
+    }
+
+    // 验证2: 报名结束时间 < 审核结束时间
+    if (regEndDate >= reviewEndDate) {
+      setReviewEndError(`⚠️ 审核结束时间必须在报名结束时间之后（当前报名结束时间为：${formatDateTime(regEnd)}）`)
+      return
+    }
+
+    // 验证3: 报名结束时间 < 赛事开始时间
+    if (eventStart && regEndDate >= eventStart) {
+      setRegEndError(`⚠️ 报名结束时间必须早于比赛开始时间（当前比赛开始时间为：${formatDate(eventStartDate!)}）`)
+      return
+    }
+
+    // 验证4: 审核结束时间 < 赛事开始时间
+    if (eventStart && reviewEndDate >= eventStart) {
+      setReviewEndError(`⚠️ 审核结束时间必须在比赛开始时间之前（当前比赛开始时间为：${formatDate(eventStartDate!)}）`)
+      return
+    }
+  }, [teamRequirements.registrationStartDate, teamRequirements.registrationEndDate, teamRequirements.reviewEndDate, eventStartDate])
 
   // 拖动传感器配置
   const sensors = useSensors(
@@ -960,6 +1030,9 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                   className="mt-1"
                   required
                 />
+                {regEndError && (
+                  <p className="text-amber-600 text-sm mt-1">{regEndError}</p>
+                )}
               </div>
             </div>
 
@@ -982,6 +1055,9 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                 className="max-w-md"
                 required
               />
+              {reviewEndError && (
+                <p className="text-amber-600 text-sm mt-1">{reviewEndError}</p>
+              )}
             </div>
 
             <div>

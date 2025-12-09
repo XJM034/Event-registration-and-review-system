@@ -91,7 +91,7 @@ export default function TestLoginPage() {
           
           <div className="text-sm text-gray-500">
             <p>测试账号：13800138000</p>
-            <p>测试密码：admin123</p>
+            <p>测试密码：password</p>
           </div>
         </CardContent>
       </Card>
