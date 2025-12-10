@@ -39,39 +39,115 @@ npm run lint        # 运行 ESLint
 
 ```
 app/
-├── auth/                 # 认证相关页面（登录、注册、忘记密码）
-├── events/               # 管理端
-│   ├── create/          # 创建赛事页面
-│   └── [id]/            # 赛事管理（标签页：基本信息、报名设置、提交审核）
-├── portal/              # 用户门户
-│   ├── events/[id]/     # 赛事详情与报名
-│   └── my/              # 用户仪表板、报名记录、通知
-├── player-share/[token] # 队员信息分享页面
+├── auth/                    # 认证相关页面
+│   ├── login/              # 登录页面
+│   ├── register/           # 注册页面
+│   ├── forgot-password/    # 忘记密码
+│   └── update-password/    # 更新密码
+│
+├── events/                  # 管理端
+│   ├── create/             # 创建赛事页面
+│   └── [id]/               # 赛事管理（标签页：基本信息、报名设置、提交审核）
+│
+├── portal/                  # 用户门户（报名端）
+│   ├── page.tsx            # 门户首页（赛事列表）
+│   ├── layout.tsx          # 门户布局
+│   ├── events/[id]/        # 赛事详情
+│   │   ├── page.tsx        # 赛事详情页
+│   │   └── register/       # 报名页面
+│   │       └── page.tsx    # 动态表单报名
+│   └── my/                 # 个人中心
+│       ├── page.tsx        # 个人仪表板
+│       ├── registrations/  # 我的报名
+│       │   └── page.tsx    # 报名列表与状态跟踪
+│       ├── notifications/  # 消息通知
+│       │   └── page.tsx    # 审核通知、状态变更
+│       └── settings/       # 个人设置
+│           └── page.tsx    # 账户设置
+│
+├── player-share/[token]/    # 队员信息分享页面
+│   └── page.tsx            # 基于分享令牌的公开页面
+│
 └── api/
-    ├── events/          # 赛事 CRUD API
-    ├── portal/          # 门户专用 API
-    └── upload/          # 文件上传处理
+    ├── events/             # 管理端赛事 API
+    │   ├── route.ts        # 赛事列表与创建
+    │   └── [id]/           # 单个赛事操作
+    │       ├── route.ts    # 获取、更新、删除
+    │       ├── registration-settings/  # 报名设置
+    │       └── registrations/          # 提交记录
+    │
+    ├── portal/             # 用户门户 API
+    │   ├── events/         # 门户赛事查询
+    │   │   ├── route.ts    # 可见赛事列表
+    │   │   └── [id]/       # 赛事详情与报名
+    │   └── upload/         # 门户文件上传
+    │
+    └── upload/             # 通用文件上传处理
 
 components/
-├── event-manage/        # 管理端组件（basic-info-tab、registration-settings-tab）
-├── portal/              # 门户组件
-└── ui/                  # shadcn/ui 组件
+├── event-manage/           # 管理端组件
+│   ├── basic-info-tab.tsx          # 基本信息编辑
+│   ├── registration-settings-tab.tsx # 报名设置（动态表单配置）
+│   └── submissions-tab.tsx         # 提交审核
+│
+├── portal/                 # 门户组件（待开发）
+│   ├── event-card.tsx      # 赛事卡片
+│   ├── registration-form.tsx # 动态报名表单
+│   └── status-badge.tsx    # 状态徽章
+│
+└── ui/                     # shadcn/ui 组件库
+    ├── button.tsx
+    ├── input.tsx
+    ├── card.tsx
+    └── ...
 
 lib/
-├── auth.ts              # 认证辅助函数
-├── supabase/            # Supabase 客户端工具
-└── types/               # TypeScript 类型定义
+├── auth.ts                 # 认证辅助函数
+├── supabase/               # Supabase 客户端工具
+│   ├── client.ts           # 客户端
+│   ├── server.ts           # 服务端
+│   └── middleware.ts       # 中间件
+└── types/                  # TypeScript 类型定义
+
+docs/
+└── sql/                    # 数据库脚本
+    ├── actual-supabase-schema.sql  # 完整数据库架构（核心参考）
+    ├── storage-policies.sql        # 存储桶策略
+    └── create-buckets-simple.sql   # 存储桶创建
 ```
 
 ### 数据库架构
 
-核心表：
-- `events` - 赛事基本信息（名称、日期、类型、海报、详情）
-- `registration_settings` - 动态表单配置（JSONB 存储）
-  - `team_requirements`: 队伍报名字段 + 时间约束
+**数据库架构文件**：`docs/sql/actual-supabase-schema.sql`
+（完整的数据库结构定义，包含所有表、索引、RLS 策略等）
+
+**核心表**：
+- `events` - 赛事基本信息
+  - 字段：name, short_name, type, start_date, end_date, poster_url, address, details, phone, requirements, is_visible
+  - 用途：存储赛事的基础数据
+
+- `registration_settings` - 动态表单配置
+  - 字段：event_id, team_requirements (JSONB), player_requirements (JSONB)
+  - 用途：存储管理员配置的报名表单结构
+  - `team_requirements`: 队伍报名字段 + 时间约束（报名开始/结束、审核结束）
   - `player_requirements`: 队员信息字段 + 年龄/性别/人数约束
-- `registrations` - 用户提交记录，带状态跟踪
-- `players` - 队员信息，关联到报名记录
+
+- `registrations` - 报名提交记录
+  - 字段：event_id, user_id, team_name, team_data (JSONB), status, share_token, rejection_reason
+  - 状态：draft（草稿）, submitted（已提交）, approved（已通过）, rejected（已驳回）, cancelled（已取消）
+  - 用途：存储用户提交的报名信息及审核状态
+
+- `players` - 队员信息
+  - 字段：registration_id, player_data (JSONB), role
+  - 用途：存储报名关联的队员详细信息
+
+**存储桶**（Supabase Storage）：
+- `event-posters` - 赛事海报图片
+- `registration-files` - 报名相关文件（证件照、资质文件等）
+
+**相关 SQL 脚本**：
+- `docs/sql/storage-policies.sql` - 存储桶访问策略
+- `docs/sql/create-buckets-simple.sql` - 存储桶创建脚本
 
 ## 关键实现模式
 
@@ -183,7 +259,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=你的_匿名密钥
 
 ## 测试账号
 
-- 管理员：`13800138000` / `admin123`
+- 管理员：`13800138000` / `password`
 - 教练：通过 `/auth/register` 注册
 
 ## 常见任务
@@ -206,6 +282,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=你的_匿名密钥
 
 ## 数据库操作最佳实践
 
+### 应用代码中的数据库查询
+
 ```typescript
 // ✅ 正确 - 使用 Supabase 客户端
 const supabase = await createSupabaseServer()
@@ -218,6 +296,69 @@ const { data, error } = await supabase
 // ❌ 错误 - 直接 SQL（绕过 RLS）
 // 不要在应用代码中编写原始 SQL 查询
 ```
+
+### 数据库架构修改指南
+
+**查看当前架构**：
+- 完整架构：`docs/sql/actual-supabase-schema.sql`
+  - 包含所有表定义、索引、RLS 策略、触发器等
+  - 这是从生产环境 Supabase 导出的完整结构
+
+**修改数据库架构的步骤**：
+
+1. **在 Supabase Dashboard 中修改**
+   - 登录你的 Supabase 项目 Dashboard
+   - 方式一：使用 Table Editor（可视化界面）
+   - 方式二：使用 SQL Editor 执行 SQL 语句
+   - 测试修改是否正常工作
+
+2. **更新本地文档**（重要！）
+   - 修改完成后，从 Supabase 导出新的 schema
+   - 更新 `docs/sql/actual-supabase-schema.sql` 文件
+   - 如果是新功能，可创建单独的迁移脚本存放在 `docs/sql/`
+
+3. **同步 TypeScript 类型**
+   - 更新 `lib/types/` 中的类型定义
+   - 确保接口与数据库结构保持一致
+   - 更新相关的 API 响应类型
+
+**常见修改场景**：
+
+- **添加新表**
+  ```sql
+  -- 在 Supabase SQL Editor 中执行
+  CREATE TABLE new_table (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    -- 其他字段
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+
+  -- 添加 RLS 策略
+  ALTER TABLE new_table ENABLE ROW LEVEL SECURITY;
+  ```
+  然后导出更新 `actual-supabase-schema.sql`
+
+- **修改字段**
+  ```sql
+  -- 添加新字段
+  ALTER TABLE events ADD COLUMN new_field VARCHAR(100);
+
+  -- 修改字段类型（注意数据迁移）
+  ALTER TABLE events ALTER COLUMN field_name TYPE new_type;
+  ```
+  注意：可能需要编写数据转换脚本
+
+- **添加 RLS 策略**
+  ```sql
+  -- 确保新表有正确的行级安全策略
+  CREATE POLICY "管理员可以查看所有记录"
+    ON new_table FOR SELECT
+    USING (auth.jwt() ->> 'role' = 'admin');
+  ```
+
+- **修改存储桶策略**
+  - 参考 `docs/sql/storage-policies.sql`
+  - 在 Storage 设置中修改访问策略
 
 ## 门户开发说明
 
