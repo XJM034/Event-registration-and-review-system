@@ -404,7 +404,7 @@ export default function MyNotificationsPage() {
           <Button
             variant="outline"
             onClick={() => {
-              loadNotifications(false)
+              loadNotifications(true)  // 改为 true，显示加载状态
               refreshUnreadCount()
             }}
             disabled={isLoading}

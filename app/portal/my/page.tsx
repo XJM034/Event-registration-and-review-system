@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { useNotification } from '@/contexts/notification-context'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -21,30 +20,19 @@ import {
 
 export default function MyPage() {
   const router = useRouter()
-  const { unreadCount, refreshUnreadCount } = useNotification()
   const [user, setUser] = useState<any>(null)
   const [coach, setCoach] = useState<any>(null)
   const [stats, setStats] = useState({
     totalRegistrations: 0,
     approvedRegistrations: 0,
     pendingRegistrations: 0,
-    unreadNotifications: 0
+    rejectedRegistrations: 0
   })
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     loadUserData()
-    // 刷新未读消息数
-    refreshUnreadCount()
   }, [])
-
-  useEffect(() => {
-    // 当unreadCount变化时，更新统计数据
-    setStats(prev => ({
-      ...prev,
-      unreadNotifications: unreadCount
-    }))
-  }, [unreadCount])
 
   const loadUserData = async () => {
     try {
@@ -80,12 +68,20 @@ export default function MyPage() {
           const approved = registrations.filter(r => r.status === 'approved').length
           // 待审核包括 submitted 和 pending 两种状态
           const pending = registrations.filter(r => r.status === 'submitted' || r.status === 'pending').length
+          const rejected = registrations.filter(r => r.status === 'rejected').length
+          // 总报名数只统计已提交的报名（排除草稿draft和已取消cancelled）
+          const total = registrations.filter(r =>
+            r.status === 'pending' ||
+            r.status === 'submitted' ||
+            r.status === 'approved' ||
+            r.status === 'rejected'
+          ).length
 
           setStats({
-            totalRegistrations: registrations.length,
+            totalRegistrations: total,
             approvedRegistrations: approved,
             pendingRegistrations: pending,
-            unreadNotifications: unreadCount // 使用context中的未读数
+            rejectedRegistrations: rejected
           })
         }
       }
@@ -169,18 +165,6 @@ export default function MyPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">已通过</p>
-                <p className="text-2xl font-bold">{stats.approvedRegistrations}</p>
-              </div>
-              <FileText className="h-8 w-8 text-green-500" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
                 <p className="text-sm text-muted-foreground">待审核</p>
                 <p className="text-2xl font-bold">{stats.pendingRegistrations}</p>
               </div>
@@ -193,10 +177,22 @@ export default function MyPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">未读通知</p>
-                <p className="text-2xl font-bold">{stats.unreadNotifications}</p>
+                <p className="text-sm text-muted-foreground">已驳回</p>
+                <p className="text-2xl font-bold">{stats.rejectedRegistrations}</p>
               </div>
-              <Bell className="h-8 w-8 text-red-500" />
+              <FileText className="h-8 w-8 text-red-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">已通过</p>
+                <p className="text-2xl font-bold">{stats.approvedRegistrations}</p>
+              </div>
+              <FileText className="h-8 w-8 text-green-500" />
             </div>
           </CardContent>
         </Card>
