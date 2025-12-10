@@ -280,15 +280,213 @@ const response = await fetch('/api/upload', {
 const { data: { url } } = await response.json()
 ```
 
-### 5. 报名状态流转
+### 5. 状态显示逻辑
 
+系统中的状态分为两类：**存储型状态**（保存在数据库）和**计算型状态**（根据时间实时计算）。
+
+#### 5.1 报名记录状态（存储型）
+
+**存储位置**: `registrations.status`
+**类型定义**: [lib/types.ts:48](lib/types.ts#L48)
+
+| 状态值 | 中文显示 | Badge 样式 | 图标 | 说明 |
+|--------|----------|-----------|------|------|
+| `draft` | 草稿 | secondary (灰) | FileText | 报名未提交 |
+| `pending` | 待审核 | default (蓝) | Clock | 已提交待审核 |
+| `submitted` | 待审核 | default (蓝) | Clock | 同 pending |
+| `approved` | 已通过 | success (绿) | CheckCircle | 审核通过 |
+| `rejected` | 已驳回 | destructive (红) | XCircle | 审核驳回 |
+| `cancelled` | 已取消 | outline (边框) | AlertCircle | 主动取消 |
+
+**状态流转**:
 ```
-草稿(draft) → 已提交(submitted) → 已通过(approved)/已驳回(rejected)
-                                  ↓
-                            （驳回后可重新提交）
+草稿(draft) → 已提交(pending) → 已通过(approved)/已驳回(rejected)
+                                 ↓
+                           （驳回后可重新提交）
 ```
 
-状态在 `registrations.status` 列中跟踪。
+**实现位置**: [app/portal/my/registrations/page.tsx:187-206](app/portal/my/registrations/page.tsx#L187-L206)
+
+#### 5.2 比赛状态（计算型）
+
+**计算逻辑**: 根据 `events.start_date` 和 `events.end_date` 实时计算
+**实现位置**: [components/event-list.tsx:43-55](components/event-list.tsx#L43-L55)
+
+```typescript
+const getEventStatus = (startDate: string, endDate: string) => {
+  const now = new Date()
+  const start = new Date(startDate)
+  const end = new Date(endDate)
+
+  if (now < start) return { text: '未开始', variant: 'secondary' }
+  else if (now <= end) return { text: '进行中', variant: 'default' }
+  else return { text: '已结束', variant: 'destructive' }
+}
+```
+
+| 判断条件 | 中文显示 | Badge 样式 |
+|----------|----------|-----------|
+| now < 比赛开始时间 | 未开始 | secondary (灰) |
+| 开始 ≤ now ≤ 结束 | 进行中 | default (蓝) |
+| now > 比赛结束时间 | 已结束 | destructive (红) |
+
+#### 5.3 报名阶段（计算型）
+
+**计算逻辑**: 根据 `registration_settings.team_requirements` 中的时间字段实时计算
+**时间字段存储**:
+- `registrationStartDate` - 报名开始时间
+- `registrationEndDate` - 报名结束时间
+- `reviewEndDate` - 审核结束时间
+
+**管理端实现**: [components/event-list.tsx:57-112](components/event-list.tsx#L57-L112)
+
+| 判断条件 | 中文显示 | Badge 样式 |
+|----------|----------|-----------|
+| now < 报名开始时间 | 未开始 | secondary (灰) |
+| 报名开始 ≤ now ≤ 报名结束 | 报名中 | default (蓝) |
+| 报名结束 < now ≤ 审核结束 | 审核中 | secondary (灰) |
+| now > 审核结束时间 | 已截止 | destructive (红) |
+
+**报名端实现**: [app/portal/page.tsx:232-290](app/portal/page.tsx#L232-L290)
+
+```typescript
+const getRegistrationStatus = (event: any) => {
+  const now = new Date()
+  // 首先检查赛事是否已结束
+  if (now > eventEnd) return { canRegister: false, text: '赛事已结束' }
+
+  // 根据报名时间判断
+  if (now < regStart) return { canRegister: false, text: '报名未开始' }
+  else if (now <= regEnd) return { canRegister: true, text: '去报名' }
+  else if (reviewEnd && now <= reviewEnd)
+    return { canRegister: false, text: '去报名', inReviewPeriod: true }
+  else return { canRegister: false, text: '去报名' }
+}
+```
+
+| 判断条件 | canRegister | 显示文本 | 说明 |
+|----------|-------------|----------|------|
+| 赛事已结束 | false | 赛事已结束 | 比赛结束后不可报名 |
+| now < 报名开始 | false | 报名未开始 | 等待报名开放 |
+| 报名中 | **true** | 去报名 | 可以提交报名 |
+| 审核中 | false | 去报名 | 报名截止，审核进行中 |
+| 已截止 | false | 去报名 | 报名审核都已结束 |
+
+**排序优先级** (报名端赛事列表): 未开始 > 报名中 > 审核中 > 已截止
+
+#### 5.4 相关文件总览
+
+| 功能 | 文件路径 |
+|------|---------|
+| 类型定义 | `lib/types.ts` |
+| 管理端赛事列表 | `components/event-list.tsx` |
+| 待审核报名 | `components/event-manage/review-list-tab.tsx` |
+| 已通过报名 | `components/event-manage/registration-list-tab.tsx` |
+| 门户首页 | `app/portal/page.tsx` |
+| 门户赛事详情 | `app/portal/events/[id]/page.tsx` |
+| 我的报名 | `app/portal/my/registrations/page.tsx` |
+
+#### 5.5 取消报名提醒逻辑
+
+用户在门户端点击"取消报名"按钮时，系统根据**报名状态**和**时间阶段**两个维度显示不同的确认提醒。
+
+**判断维度**:
+1. **报名状态**: `draft`, `pending/submitted`, `approved`
+2. **时间阶段**:
+   - 报名中: `now <= registrationEndDate`
+   - 审核中: `registrationEndDate < now <= reviewEndDate`
+
+**提醒逻辑矩阵**:
+
+| 报名状态 | 报名中期间 | 审核中期间 |
+|---------|-----------|-----------|
+| `draft` (草稿) | 本条报名信息可以重新提交 | 本条报名信息可以重新提交 |
+| `pending/submitted` (待审核) | 本条报名信息可以重新提交 | 您的报名信息将无法重新提交 |
+| `approved` (已通过) | 本条报名信息可以重新提交 | 您的报名信息将无法重新提交 |
+
+**提醒消息完整内容**:
+
+**草稿状态 (任何时期)**:
+```
+确认要取消这条报名吗？
+
+取消后：
+• 您的报名状态将变为"已取消"
+• 本条报名信息将不进入报名资料库并失去参赛资格
+• 本条报名信息可以重新提交
+
+确定要继续吗？
+```
+
+**待审核状态 (报名中期间)**:
+```
+确认要取消这条待审核的报名吗？
+
+取消后：
+• 您的报名状态将变为"已取消"
+• 本条报名信息将不进入报名资料库并失去参赛资格
+• 本条报名信息可以重新提交
+
+确定要继续吗？
+```
+
+**待审核状态 (审核中期间)**:
+```
+确认要取消这条待审核的报名吗？
+
+取消后：
+• 您的报名状态将变为"已取消"
+• 您将失去参赛资格
+• 您的报名信息将无法重新提交
+
+确定要继续吗？
+```
+
+**已通过状态 (报名中期间)**:
+```
+确认要取消这条已通过的报名吗？
+
+取消后：
+• 您的报名状态将变为"已取消"
+• 本条报名信息将不进入报名资料库并失去参赛资格
+• 本条报名信息可以重新提交
+
+确定要继续吗？
+```
+
+**已通过状态 (审核中期间)**:
+```
+确认要取消这条已通过的报名吗？
+
+取消后：
+• 您的报名状态将变为"已取消"
+• 您将失去参赛资格
+• 您的报名信息将无法重新提交
+
+确定要继续吗？
+```
+
+**实现位置**:
+- 赛事详情页: [app/portal/events/[id]/page.tsx](app/portal/events/[id]/page.tsx) - `handleCancelRegistration()`
+- 我的报名页: [app/portal/my/registrations/page.tsx](app/portal/my/registrations/page.tsx) - `handleCancelRegistration()`
+
+**技术实现关键点**:
+1. 两个页面的逻辑必须保持一致
+2. "我的报名"页面需要在查询时将 `registration_settings` 合并到 `events` 对象中
+3. 使用 `isInRegistrationPeriod()` 函数判断当前是否在报名中期间:
+```typescript
+const isInRegistrationPeriod = () => {
+  const now = new Date()
+  const teamReq = eventData?.registration_settings?.team_requirements
+  if (!teamReq) return true // 没有设置时间，默认为报名中
+
+  const regEndDate = teamReq.registrationEndDate
+  const regEnd = regEndDate ? new Date(regEndDate) : null
+
+  // 如果当前时间小于等于报名结束时间，则在报名中期间
+  return regEnd ? now <= regEnd : true
+}
+```
 
 ### 6. 队员分享功能
 
@@ -312,9 +510,48 @@ const { data: { url } } = await response.json()
 5. 标记 token 为已使用
 ```
 
+**访问控制**:
+
+队员分享链接的访问受到**报名状态**和**时间阶段**两个维度的限制：
+
+1. **报名状态限制** (只允许草稿和已驳回状态):
+   - ✅ `draft` (草稿) - 允许生成/访问分享链接
+   - ✅ `rejected` (已驳回) - 允许生成/访问分享链接以便修改后重新提交
+   - ❌ `pending/submitted` (待审核) - 禁止生成/访问分享链接
+   - ❌ `approved` (已通过) - 禁止生成/访问分享链接
+
+2. **时间阶段限制**:
+   - ✅ 报名中期间 (`now <= registrationEndDate`) - 允许访问
+   - ✅ 审核中期间 (`registrationEndDate < now <= reviewEndDate`) - 允许访问（但需要状态为 draft 或 rejected）
+   - ❌ 已截止 (`now > reviewEndDate`) - 禁止访问
+
+**检查点**:
+
+1. **生成分享链接时** ([app/portal/events/[id]/register/page.tsx](app/portal/events/[id]/register/page.tsx)):
+   ```typescript
+   // 检查报名状态 - 只有草稿和已驳回状态允许分享链接
+   const allowedStatuses = ['draft', 'rejected']
+   if (registration?.status && !allowedStatuses.includes(registration.status)) {
+     alert('报名已提交待审核，不可修改报名信息')
+     return
+   }
+   ```
+
+2. **访问分享链接时** ([app/player-share/[token]/page.tsx](app/player-share/[token]/page.tsx)):
+   - 检查报名状态是否为 `draft` 或 `rejected`
+   - 检查是否已超过 `reviewEndDate`
+   - 如果不满足条件，显示"报名已截止"提示
+
+3. **提交队员信息时** ([app/api/player-share/[token]/route.ts](app/api/player-share/[token]/route.ts) PUT):
+   - 验证 token 是否有效且未过期
+   - 检查报名是否已截止
+   - 检查报名状态是否允许修改
+   - 只有通过所有检查才允许更新队员信息
+
 **实现位置**:
 - 页面: `app/player-share/[token]/page.tsx`
 - API: `app/api/player-share/[token]/route.ts` (GET 获取信息, PUT 更新)
+- 生成链接: `app/portal/events/[id]/register/page.tsx` - `generatePlayerShareLink()`
 
 ### 7. 导出 Excel 功能
 

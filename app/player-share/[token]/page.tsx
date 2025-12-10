@@ -34,6 +34,7 @@ export default function PlayerSharePage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSubmitted, setIsSubmitted] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isRegistrationClosed, setIsRegistrationClosed] = useState(false)
 
   useEffect(() => {
     if (token) {
@@ -58,6 +59,31 @@ export default function PlayerSharePage() {
       setShareToken(token_info)
       setEvent(event)
       setTeamData(registration.team_data)
+
+      // 检查报名是否已截止或已提交
+      // 1. 检查报名状态 - 只有草稿和已驳回状态允许修改
+      // draft: 草稿，可以修改
+      // rejected: 已驳回，可以修改后重新提交
+      // pending/submitted: 待审核，不允许修改
+      // approved: 已通过，不允许修改
+      const allowedStatuses = ['draft', 'rejected']
+      if (registration.status && !allowedStatuses.includes(registration.status)) {
+        setIsRegistrationClosed(true)
+      } else {
+        // 2. 检查时间维度
+        const teamReq = event?.registration_settings?.team_requirements
+        if (teamReq) {
+          const now = new Date()
+          const regEndDate = teamReq.registrationEndDate
+          const reviewEndDate = teamReq.reviewEndDate
+          const regEnd = regEndDate ? new Date(regEndDate) : null
+          const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
+
+          // 如果有审核结束时间，检查是否超过；否则检查报名结束时间
+          const isClosed = reviewEnd ? now > reviewEnd : (regEnd ? now > regEnd : false)
+          setIsRegistrationClosed(isClosed)
+        }
+      }
 
       // 如果指定了队员索引，加载现有数据
       if (player_index !== null && player_index !== undefined && registration.players_data) {
@@ -207,6 +233,35 @@ export default function PlayerSharePage() {
           </CardHeader>
           <CardContent>
             <p className="text-gray-600">{error}</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (isRegistrationClosed) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Card className="max-w-md w-full">
+          <CardHeader>
+            <div className="flex items-center justify-between mb-2">
+              <Badge variant="outline">{event?.name}</Badge>
+              {teamData?.team_name && (
+                <Badge>{teamData.team_name}</Badge>
+              )}
+            </div>
+            <CardTitle className="flex items-center gap-2 text-amber-600">
+              <AlertCircle className="h-5 w-5" />
+              报名已截止
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-gray-600 mb-4">
+              该比赛报名已截止，不可修改报名信息。
+            </p>
+            <p className="text-sm text-gray-500">
+              如有疑问，请联系赛事组织方。
+            </p>
           </CardContent>
         </Card>
       </div>

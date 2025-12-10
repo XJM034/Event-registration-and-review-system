@@ -331,7 +331,7 @@ export default function PortalHomePage() {
 
     // 报名截止状态
     if (isRegistrationClosed()) {
-      if (window.confirm('该赛事报名已截止\n\n您只能查看赛事详情及报名信息，不能再次提交或修改。\n\n点击确认进入赛事详情页')) {
+      if (window.confirm('该比赛报名已截止\n\n您只能查看赛事详情及报名信息，不能再次提交或修改。\n\n点击确认进入赛事详情页')) {
         router.push(`/portal/events/${event.id}`)
       }
       return
@@ -342,7 +342,7 @@ export default function PortalHomePage() {
 
     if (regStatus.inReviewPeriod && !regStatus.canRegister) {
       // 在审核期且不能报名，显示提醒
-      if (window.confirm('该比赛报名已结束\n\n现在处于审核期，您可以：\n• 重新提交被驳回的报名\n• 查看已有的报名信息')) {
+      if (window.confirm('该比赛报名已结束\n\n现在处于审核期，您可以：\n• 重新提交被驳回的报名\n• 查看已有的报名信息\n\n点击确认进入赛事详情页')) {
         router.push(`/portal/events/${event.id}`)
       }
     } else {
@@ -570,11 +570,11 @@ export default function PortalHomePage() {
                               router.push(`/portal/events/${event.id}?scrollTo=my-registration`)
                             } else if (regStatus.text === '去报名' && !regStatus.canRegister) {
                               if (regStatus.inReviewPeriod) {
-                                if (window.confirm('该比赛报名已结束\n\n现在处于审核期，您可以：\n• 重新提交被驳回的报名\n• 查看已有的报名信息')) {
+                                if (window.confirm('该比赛报名已结束\n\n现在处于审核期，您可以：\n• 重新提交被驳回的报名\n• 查看已有的报名信息\n\n点击确认进入赛事详情页')) {
                                   router.push(`/portal/events/${event.id}`)
                                 }
                               } else {
-                                if (window.confirm('该比赛报名已结束\n\n报名和审核期均已结束，不能再提交新的报名')) {
+                                if (window.confirm('该比赛报名已结束\n\n报名和审核期均已结束，不能再提交新的报名\n\n点击确认进入赛事详情页')) {
                                   router.push(`/portal/events/${event.id}`)
                                 }
                               }

@@ -152,10 +152,44 @@ export async function PUT(request: NextRequest, context: RouteParams) {
       )
     }
 
-    // 获取当前报名数据
+    // 获取报名设置，检查报名是否已截止
+    const { data: settingsData } = await supabase
+      .from('registration_settings')
+      .select('team_requirements')
+      .eq('event_id', tokenData.event_id)
+      .single()
+
+    if (settingsData?.team_requirements) {
+      const now = new Date()
+      let teamReq = settingsData.team_requirements
+      if (typeof teamReq === 'string') {
+        try {
+          teamReq = JSON.parse(teamReq)
+        } catch (e) {
+          // ignore parse error
+        }
+      }
+
+      const regEndDate = teamReq?.registrationEndDate
+      const reviewEndDate = teamReq?.reviewEndDate
+      const regEnd = regEndDate ? new Date(regEndDate) : null
+      const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
+
+      // 检查是否已截止
+      const isClosed = reviewEnd ? now > reviewEnd : (regEnd ? now > regEnd : false)
+
+      if (isClosed) {
+        return NextResponse.json(
+          { error: '报名已截止，不可修改报名信息', success: false },
+          { status: 403 }
+        )
+      }
+    }
+
+    // 获取当前报名数据（包括状态）
     const { data: registration, error: regError } = await supabase
       .from('registrations')
-      .select('players_data')
+      .select('players_data, status')
       .eq('id', tokenData.registration_id)
       .single()
 
@@ -164,6 +198,19 @@ export async function PUT(request: NextRequest, context: RouteParams) {
       return NextResponse.json(
         { error: '获取报名数据失败', success: false },
         { status: 500 }
+      )
+    }
+
+    // 检查报名状态 - 只有草稿和已驳回状态允许通过分享链接修改
+    // draft: 草稿，可以修改
+    // rejected: 已驳回，可以修改后重新提交
+    // pending/submitted: 待审核，不允许修改
+    // approved: 已通过，不允许修改
+    const allowedStatuses = ['draft', 'rejected']
+    if (registration.status && !allowedStatuses.includes(registration.status)) {
+      return NextResponse.json(
+        { error: '报名已提交待审核，不可修改报名信息', success: false },
+        { status: 403 }
       )
     }
 

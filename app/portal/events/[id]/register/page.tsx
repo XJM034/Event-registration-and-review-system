@@ -160,6 +160,34 @@ export default function RegisterPage() {
     return regEnd && reviewEnd && now > regEnd && now <= reviewEnd
   }
 
+  // 判断报名是否已截止（超过审核结束时间）
+  const isRegistrationClosed = () => {
+    const now = new Date()
+    let teamReq = event?.registration_settings?.team_requirements
+    if (typeof teamReq === 'string') {
+      try {
+        teamReq = JSON.parse(teamReq)
+      } catch (e) {
+        return false
+      }
+    }
+
+    const regEndDate = teamReq?.registrationEndDate
+    const reviewEndDate = teamReq?.reviewEndDate
+    const regEnd = regEndDate ? new Date(regEndDate) : null
+    const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
+
+    // 如果有审核结束时间，检查是否超过
+    if (reviewEnd) {
+      return now > reviewEnd
+    }
+    // 如果没有审核结束时间，检查是否超过报名结束时间
+    if (regEnd) {
+      return now > regEnd
+    }
+    return false
+  }
+
   // 判断是否显示保存和提交按钮
   const shouldShowActionButtons = () => {
     // 赛事结束时不显示
@@ -475,6 +503,23 @@ export default function RegisterPage() {
   // 为特定队员生成专属分享链接
   const generatePlayerShareLink = async (playerId: string, playerNumber: number, roleName: string = '队员') => {
     try {
+      // 检查报名是否已截止（时间维度）
+      if (isRegistrationClosed()) {
+        alert('报名已截止，不可修改报名信息')
+        return
+      }
+
+      // 检查报名状态 - 只有草稿和已驳回状态允许分享链接
+      // draft: 草稿，可以分享
+      // rejected: 已驳回，可以修改后重新提交
+      // pending/submitted: 待审核，不允许修改
+      // approved: 已通过，不允许修改
+      const allowedStatuses = ['draft', 'rejected']
+      if (registration?.status && !allowedStatuses.includes(registration.status)) {
+        alert('报名已提交待审核，不可修改报名信息')
+        return
+      }
+
       // 如果还没有registration，提醒用户需要先保存草稿
       if (!registration?.id) {
         alert('请先填写团队信息并保存草稿后，再生成分享链接')
@@ -1269,7 +1314,7 @@ export default function RegisterPage() {
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-red-400 mx-auto mb-4" />
           <p className="text-lg text-gray-600">报名已截止</p>
-          <p className="text-sm text-gray-500 mt-2">该赛事报名已截止，不能再进行报名</p>
+          <p className="text-sm text-gray-500 mt-2">该比赛报名已截止，不能再进行报名</p>
           <Button className="mt-4" onClick={() => router.push('/portal')}>
             返回赛事列表
           </Button>
@@ -1322,7 +1367,7 @@ export default function RegisterPage() {
           <div className="flex items-start gap-2">
             <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
             <div>
-              <h3 className="font-semibold text-red-800">该赛事报名已截止</h3>
+              <h3 className="font-semibold text-red-800">该比赛报名已截止</h3>
               <p className="text-red-600 mt-1">此赛事报名已截止，您只能查看报名信息，不能再次提交或修改。</p>
             </div>
           </div>

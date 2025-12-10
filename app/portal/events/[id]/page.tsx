@@ -562,8 +562,48 @@ export default function EventDetailPage() {
     }
   }
 
-  const handleCancelRegistration = async (registrationId: string) => {
-    if (!confirm('确认要取消这条已通过的报名吗？\n\n取消后：\n• 您的报名状态将变为"已取消"\n• 您将失去参赛资格\n• 报名信息会保留，您可以重新提交\n\n确定要继续吗？')) {
+  const handleCancelRegistration = async (registrationId: string, status: string) => {
+    // 判断当前是否在"报名中"期间（未到审核期）
+    const isInRegistrationPeriod = () => {
+      const now = new Date()
+      const teamReq = event?.registration_settings?.team_requirements
+      if (!teamReq) return true // 没有设置时间，默认为报名中
+
+      const regEndDate = teamReq.registrationEndDate
+      const regEnd = regEndDate ? new Date(regEndDate) : null
+
+      // 如果当前时间小于等于报名结束时间，则在报名中期间
+      return regEnd ? now <= regEnd : true
+    }
+
+    // 根据报名状态和时间阶段显示不同的提示信息
+    let confirmMessage = ''
+    if (status === 'draft') {
+      // 草稿状态
+      confirmMessage = '确认要取消这条报名吗？\n\n取消后：\n• 您的报名状态将变为"已取消"\n• 本条报名信息将不进入报名资料库并失去参赛资格\n• 本条报名信息可以重新提交\n\n确定要继续吗？'
+    } else if (status === 'pending' || status === 'submitted') {
+      // 待审核状态 - 根据时间阶段显示不同信息
+      if (isInRegistrationPeriod()) {
+        // 报名中期间的待审核
+        confirmMessage = '确认要取消这条待审核的报名吗？\n\n取消后：\n• 您的报名状态将变为"已取消"\n• 本条报名信息将不进入报名资料库并失去参赛资格\n• 本条报名信息可以重新提交\n\n确定要继续吗？'
+      } else {
+        // 审核期的待审核
+        confirmMessage = '确认要取消这条待审核的报名吗？\n\n取消后：\n• 您的报名状态将变为"已取消"\n• 您将失去参赛资格\n• 您的报名信息将无法重新提交\n\n确定要继续吗？'
+      }
+    } else if (status === 'approved') {
+      // 已通过状态 - 根据时间阶段显示不同信息
+      if (isInRegistrationPeriod()) {
+        // 报名中期间的已通过
+        confirmMessage = '确认要取消这条已通过的报名吗？\n\n取消后：\n• 您的报名状态将变为"已取消"\n• 本条报名信息将不进入报名资料库并失去参赛资格\n• 本条报名信息可以重新提交\n\n确定要继续吗？'
+      } else {
+        // 审核期的已通过
+        confirmMessage = '确认要取消这条已通过的报名吗？\n\n取消后：\n• 您的报名状态将变为"已取消"\n• 您将失去参赛资格\n• 您的报名信息将无法重新提交\n\n确定要继续吗？'
+      }
+    } else {
+      confirmMessage = '确认要取消这条报名吗？'
+    }
+
+    if (!confirm(confirmMessage)) {
       return
     }
 
@@ -583,7 +623,7 @@ export default function EventDetailPage() {
         console.error('取消报名失败:', error)
         alert(`取消报名失败：${error.message || '请重试'}`)
       } else {
-        alert('报名已取消，您可以在需要时重新提交')
+        alert('报名已取消')
         // 重新加载所有报名数据
         await checkRegistration()
       }
@@ -833,7 +873,7 @@ export default function EventDetailPage() {
               <div className="flex items-start gap-3">
                 <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
                 <div className="space-y-1">
-                  <p className="font-semibold text-amber-900">该赛事报名已截止</p>
+                  <p className="font-semibold text-amber-900">该比赛报名已截止</p>
                   <p className="text-sm text-amber-700">
                     此赛事报名已截止，您只能查看报名信息，不能再次提交或修改。
                   </p>
@@ -993,7 +1033,7 @@ export default function EventDetailPage() {
                                   <Button
                                     size="sm"
                                     variant="destructive"
-                                    onClick={() => handleCancelRegistration(reg.id)}
+                                    onClick={() => handleCancelRegistration(reg.id, reg.status)}
                                   >
                                     取消报名
                                   </Button>
@@ -1056,7 +1096,7 @@ export default function EventDetailPage() {
                                   <Button
                                     size="sm"
                                     variant="destructive"
-                                    onClick={() => handleCancelRegistration(reg.id)}
+                                    onClick={() => handleCancelRegistration(reg.id, reg.status)}
                                   >
                                     取消报名
                                   </Button>
