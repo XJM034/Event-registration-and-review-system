@@ -145,14 +145,14 @@ export default function EventManagePage() {
             <div className="space-y-2">
               <Button
                 variant={activeTab === 'basic-info' ? 'default' : 'ghost'}
-                className="w-full justify-start"
+                className="w-full justify-start text-sm"
                 onClick={() => setActiveTab('basic-info')}
               >
                 <Settings className="h-4 w-4 mr-2" />
                 基本信息
               </Button>
               
-              <div className="pl-2">
+              <div>
                 <p className="text-xs text-gray-500 font-semibold mb-2">报名管理</p>
                 <div className="space-y-1">
                   <Button

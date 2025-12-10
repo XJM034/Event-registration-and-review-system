@@ -710,7 +710,7 @@ export default function EventDetailPage() {
                   {/* 左列：比赛时间和报名时间 */}
                   <div className="space-y-3 text-sm">
                     <div className="flex items-start gap-2">
-                      <Calendar className="h-4 w-4 text-gray-400 mt-0.5" />
+                      <Calendar className="h-4 w-4 flex-shrink-0 text-gray-400 mt-0.5" />
                       <div>
                         <div>比赛时间</div>
                         <div className="text-gray-600">{formatDate(event.start_date)} ~ {formatDate(event.end_date)}</div>
@@ -731,7 +731,7 @@ export default function EventDetailPage() {
                         return (
                           <>
                             <div className="flex items-start gap-2">
-                              <Clock className="h-4 w-4 text-gray-400 mt-0.5" />
+                              <Clock className="h-4 w-4 flex-shrink-0 text-gray-400 mt-0.5" />
                               <div>
                                 <div>报名时间</div>
                                 <div className="text-gray-600">
@@ -741,7 +741,7 @@ export default function EventDetailPage() {
                             </div>
                             {teamReq?.reviewEndDate && (
                               <div className="flex items-start gap-2">
-                                <Clock className="h-4 w-4 text-gray-400 mt-0.5" />
+                                <Clock className="h-4 w-4 flex-shrink-0 text-gray-400 mt-0.5" />
                                 <div>
                                   <div>审核结束时间</div>
                                   <div className="text-gray-600">
@@ -761,7 +761,7 @@ export default function EventDetailPage() {
                   <div className="space-y-3 text-sm">
                     {event.address && (
                       <div className="flex items-start gap-2">
-                        <MapPin className="h-4 w-4 text-gray-400 mt-0.5" />
+                        <MapPin className="h-4 w-4 flex-shrink-0 text-gray-400 mt-0.5" />
                         <div>
                           <div>比赛地点</div>
                           <div className="text-gray-600">{event.address}</div>
@@ -771,7 +771,7 @@ export default function EventDetailPage() {
 
                     {event.phone && (
                       <div className="flex items-start gap-2">
-                        <Phone className="h-4 w-4 text-gray-400 mt-0.5" />
+                        <Phone className="h-4 w-4 flex-shrink-0 text-gray-400 mt-0.5" />
                         <div>
                           <div>咨询方式</div>
                           <div className="text-gray-600">{event.phone}</div>

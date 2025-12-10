@@ -452,9 +452,9 @@ export default function RegisterPage() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('bucket', 'team-logos')
+      formData.append('bucket', 'registration-files')
 
-      const response = await fetch('/api/upload', {
+      const response = await fetch('/api/portal/upload', {
         method: 'POST',
         body: formData,
       })

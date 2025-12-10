@@ -1,8 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 
 export async function POST(request: NextRequest) {
   try {
+    // 验证教练身份
+    const cookieStore = await cookies()
+    const supabaseAuth = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return cookieStore.get(name)?.value
+          },
+          set() {},
+          remove() {},
+        },
+      }
+    )
+
+    const { data: { session } } = await supabaseAuth.auth.getSession()
+    if (!session) {
+      return NextResponse.json(
+        { error: '未授权访问', success: false },
+        { status: 401 }
+      )
+    }
+
     const formData = await request.formData()
     const file = formData.get('file') as File
     const bucket = formData.get('bucket') as string || 'player-photos'
@@ -30,7 +56,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = createClient()
+    // 使用服务密钥创建 Supabase 客户端，绕过 RLS
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    )
 
     // 生成唯一的文件名
     const fileExt = file.name.split('.').pop()

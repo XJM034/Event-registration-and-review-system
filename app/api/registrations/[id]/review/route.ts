@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentAdminSession, createSupabaseServer } from '@/lib/auth'
+import { getCurrentAdminSession } from '@/lib/auth'
+import { createClient } from '@supabase/supabase-js'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -10,7 +11,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
   try {
     const { id } = await context.params
     const session = await getCurrentAdminSession()
-    
+
     if (!session?.user) {
       return NextResponse.json(
         { error: '未授权访问', success: false },
@@ -28,7 +29,17 @@ export async function POST(request: NextRequest, context: RouteParams) {
       )
     }
 
-    const supabase = await createSupabaseServer()
+    // 使用服务密钥创建客户端，��过 RLS（管理端审核需要操作通知表）
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    )
 
     const updateData: {
       status: string
@@ -74,10 +85,18 @@ export async function POST(request: NextRequest, context: RouteParams) {
     }
 
     // 创建通知
+    console.log('审核完成，准备创建通知:', {
+      hasData: !!data,
+      coach_id: data?.coach_id,
+      event_id: data?.event_id,
+      registration_id: data?.id,
+      status
+    })
+
     if (data && data.coach_id) {
       const eventName = data.events?.short_name || data.events?.name || '赛事'
 
-      let notificationData = {
+      const notificationData = {
         coach_id: data.coach_id,
         type: status === 'approved' ? 'approval' : 'rejection',
         title: status === 'approved' ? '报名审核通过' : '报名已驳回',
@@ -86,24 +105,23 @@ export async function POST(request: NextRequest, context: RouteParams) {
           : `您的${eventName}报名被驳回。${rejection_reason ? `原因：${rejection_reason}` : ''}`,
         is_read: false,
         event_id: data.event_id,
-        registration_id: data.id,
-        metadata: {
-          team_name: data.team_data?.team_name,
-          status: status,
-          rejection_reason: rejection_reason
-        }
+        registration_id: data.id
       }
 
-      const { error: notifError } = await supabase
+      console.log('插入通知数据:', notificationData)
+
+      const { data: notifResult, error: notifError } = await supabase
         .from('notifications')
         .insert(notificationData)
+        .select()
 
       if (notifError) {
         console.error('创建通知失败:', notifError)
-        // 不影响审核流程，只是记录错误
       } else {
-        console.log('通知创建成功')
+        console.log('通知创建成功:', notifResult)
       }
+    } else {
+      console.warn('无法创建通知: 缺少 coach_id', { data })
     }
 
     return NextResponse.json({
