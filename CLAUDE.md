@@ -141,9 +141,18 @@ docs/
   - 字段：registration_id, player_data (JSONB), role
   - 用途：存储报名关联的队员详细信息
 
+- `player_share_tokens` - 队员分享令牌
+  - 字段：token, registration_id, event_id, player_index, player_id, expires_at, is_active, used_at
+  - 用途：存储队员信息填写的分享链接令牌
+
+- `admin_users` - 管理员用户
+  - 字段：id, phone, password_hash, created_at
+  - 用途：存储管理员账号信息（独立于 Supabase Auth）
+
 **存储桶**（Supabase Storage）：
 - `event-posters` - 赛事海报图片
 - `registration-files` - 报名相关文件（证件照、资质文件等）
+- `player-photos` - 队员照片（通过分享链接上传）
 
 **相关 SQL 脚本**：
 - `docs/sql/storage-policies.sql` - 存储桶访问策略
@@ -192,7 +201,57 @@ type FieldType = 'text' | 'image' | 'select' | 'multiselect' | 'date'
 
 ### 3. 认证流程
 
-登录后基于角色的路由：
+系统采用**双认证机制**：管理员使用 JWT，教练使用 Supabase Auth。
+
+#### 中间件路由保护 (`middleware.ts`)
+
+```typescript
+// 公开路径 - 无需认证
+const publicPaths = [
+  '/auth/login', '/auth/register', '/auth/forgot-password',
+  '/api/auth/login', '/api/auth/logout', '/api/init-admin',
+  '/api/player-share',  // 队员分享API
+  '/player-share'       // 队员分享页面
+]
+
+// 路由保护逻辑：
+// 1. 公开路径 → 直接放行
+// 2. 根路径 (/) → 需要管理员 JWT
+// 3. /portal/* → 需要 Supabase Auth (教练)
+// 4. /admin/*, /events/* → 需要管理员 JWT
+// 5. /api/portal/* → 需要 Supabase Auth
+```
+
+#### 管理员认证 (`lib/auth.ts`)
+
+```typescript
+// 管理员登录验证
+verifyAdminLogin(phone, password)  // 验证手机号+密码，返回 AdminUser
+
+// 创建 JWT 会话（24小时有效）
+createAdminSession(admin)  // 返回 JWT token，存储在 admin-session cookie
+
+// 验证管理员会话
+verifyAdminSession(token)  // 验证 JWT，返回 AdminSession
+
+// 获取当前管理员会话（在 API 路由中使用）
+getCurrentAdminSession()   // 从 cookie 读取并验证，返回 AdminSession | null
+```
+
+#### 教练认证（Supabase Auth）
+
+```typescript
+// 教练通过 Supabase Auth 登录/注册
+const supabase = createClient()
+await supabase.auth.signInWithPassword({ email, password })
+await supabase.auth.signUp({ email, password })
+
+// 中间件中检查教练会话
+const { data: { session } } = await supabase.auth.getSession()
+```
+
+#### 登录后路由跳转
+
 ```typescript
 const user = await supabase.auth.getUser()
 if (user?.user_metadata?.role === 'admin') {
@@ -231,6 +290,107 @@ const { data: { url } } = await response.json()
 
 状态在 `registrations.status` 列中跟踪。
 
+### 6. 队员分享功能
+
+允许教练生成分享链接，让队员自行填写个人信息。
+
+**数据库表**: `player_share_tokens`
+- `token`: 唯一分享令牌
+- `registration_id`: 关联的报名记录
+- `player_index`: 队员在数组中的索引
+- `player_id`: 队员唯一ID
+- `expires_at`: 过期时间
+- `is_active`: 是否有效
+- `used_at`: 使用时间
+
+**流程**:
+```
+1. 教练在报名表单中添加队员占位 → 生成 share_token
+2. 教练分享链接 /player-share/[token] 给队员
+3. 队员打开链接填写信息（无需登录）
+4. 系统验证 token 有效性，更新 players_data 数组
+5. 标记 token 为已使用
+```
+
+**实现位置**:
+- 页面: `app/player-share/[token]/page.tsx`
+- API: `app/api/player-share/[token]/route.ts` (GET 获取信息, PUT 更新)
+
+### 7. 导出 Excel 功能
+
+管理员可批量导出报名信息，包括 Excel 表格和附件图片。
+
+**功能特点**:
+- 分为"队伍信息"和"队员信息"两个 Sheet
+- 自动下载图片附件并打包到 ZIP
+- 按字段类型组织文件夹结构
+- 支持单个或批量导出
+
+**导出格式**:
+```
+单个队伍（无图片）: 队伍名.xlsx
+单个队伍（有图片）: 队伍名.zip
+  ├── 队伍名.xlsx
+  ├── 字段名1/
+  │   └── 队员名.jpg
+  └── 字段名2/
+      └── 队员名.jpg
+
+多个队伍: 报名信息导出.zip
+  ├── 报名信息导出.xlsx
+  ├── 字段名1/
+  │   ├── 队伍1/
+  │   └── 队伍2/
+  └── 字段名2/
+      └── ...
+```
+
+**依赖库**: `xlsx`, `jszip`, `file-saver`
+
+**实现位置**: `app/api/events/[id]/registrations/export/route.ts`
+
+## 完整 API 端点列表
+
+### 认证 API
+
+| 端点 | 方法 | 说明 | 认证 |
+|------|------|------|------|
+| `/api/auth/login` | POST | 管理员/教练登录 | 无 |
+| `/api/auth/logout` | POST | 登出 | 无 |
+| `/api/init-admin` | POST | 初始化管理员账号 | 无 |
+
+### 管理端 API（需要管理员认证）
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/events` | GET | 获取赛事列表 |
+| `/api/events` | POST | 创建赛事 |
+| `/api/events/[id]` | GET | 获取单个赛事 |
+| `/api/events/[id]` | PUT | 更新赛事 |
+| `/api/events/[id]` | DELETE | 删除赛事 |
+| `/api/events/[id]/registration-settings` | GET | 获取报名设置 |
+| `/api/events/[id]/registration-settings` | PUT | 更新报名设置 |
+| `/api/events/[id]/registrations` | GET | 获取报名列表 |
+| `/api/events/[id]/registrations/export` | POST | 导出报名信息 |
+| `/api/registrations/[id]/review` | POST | 审核报名 |
+| `/api/upload` | POST | 上传文件 |
+
+### 门户 API（需要教练认证）
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/portal/events` | GET | 获取可见赛事列表 |
+| `/api/portal/events/[id]` | GET | 获取赛事详情 |
+| `/api/portal/events/[id]` | POST | 提交报名 |
+| `/api/portal/upload` | POST | 门户文件上传 |
+
+### 公开 API（无需认证）
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/player-share/[token]` | GET | 获取分享令牌信息 |
+| `/api/player-share/[token]` | PUT | 更新队员信息 |
+
 ## 重要约定
 
 ### 日期/时间处理
@@ -251,11 +411,48 @@ const { data: { url } } = await response.json()
 
 ## 环境变量
 
-`.env.local` 中需要配置：
-```
+### 必需配置（`.env.local`）
+
+```bash
+# Supabase 配置
 NEXT_PUBLIC_SUPABASE_URL=你的_supabase_地址
 NEXT_PUBLIC_SUPABASE_ANON_KEY=你的_匿名密钥
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY=你的_匿名密钥  # 别名
+
+# JWT 密钥（管理员认证）
+JWT_SECRET=你的_jwt_密钥  # 至少32位随机字符串
 ```
+
+### 生产环境配置（`.env.production`）
+
+```bash
+# 生产环境 Supabase 配置
+NEXT_PUBLIC_SUPABASE_URL=https://你的项目.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+
+# 生产环境 JWT 密钥
+JWT_SECRET=production_secure_secret_key_至少32位
+```
+
+### 安全注意事项
+
+1. **JWT_SECRET 安全**
+   - 生产环境必须使用强随机密钥
+   - 不要提交到版本控制
+   - 定期轮换密钥
+
+2. **Supabase RLS 策略**
+   - 所有表启用行级安全策略
+   - 参考 `docs/sql/actual-supabase-schema.sql` 中的策略定义
+
+3. **存储桶权限**
+   - `event-posters`: 公开读取，认证用户上传
+   - `registration-files`: 认证用户读写
+   - `player-photos`: 认证用户读写
+
+4. **Cookie 安全**
+   - `admin-session` cookie 存储 JWT
+   - 建议生产环境设置 `httpOnly`, `secure`, `sameSite` 属性
 
 ## 测试账号
 
