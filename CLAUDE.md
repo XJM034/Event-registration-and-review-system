@@ -1,213 +1,213 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+本文件为 Claude Code (claude.ai/code) 在此代码库中工作时提供指导。
 
-## Project Overview
+## 项目概述
 
-An event registration and review system for sports competitions, built with Next.js 15 and Supabase. The system has two main interfaces:
-- **Admin Panel** (`/events`, `/events/[id]`): Event management, registration settings, and review submissions
-- **User Portal** (`/portal`): Event browsing, team registration, and submission tracking
+基于 Next.js 15 和 Supabase 构建的体育赛事报名与审核系统。系统包含两个主要界面：
+- **管理端** (`/events`, `/events/[id]`)：赛事管理、报名设置、审核提交
+- **用户门户** (`/portal`)：赛事浏览、队伍报名、提交跟踪
 
-## Development Commands
+## 开发命令
 
 ```bash
-# Development
-npm run dev          # Start dev server with Turbopack
-pnpm dev            # Alternative using pnpm
+# 开发
+npm run dev          # 启动开发服务器（使用 Turbopack）
+pnpm dev            # 使用 pnpm 的替代方式
 
-# Build & Production
-npm run build       # Build for production
-npm start           # Start production server
+# 构建与生产
+npm run build       # 生产环境构建
+npm start           # 启动生产服务器
 
-# Linting
-npm run lint        # Run ESLint
+# 代码检查
+npm run lint        # 运行 ESLint
 ```
 
-## Architecture
+## 架构说明
 
-### Tech Stack
-- **Framework**: Next.js 15 (App Router)
-- **Database**: Supabase PostgreSQL with Row Level Security (RLS)
-- **Auth**: Supabase Auth with Custom SMTP
-- **Storage**: Supabase Storage for images
-- **UI**: shadcn/ui components with Tailwind CSS
-- **Forms**: React Hook Form + Zod validation
-- **State**: React Hooks + Context API
-- **Drag & Drop**: @dnd-kit for field ordering
+### 技术栈
+- **框架**: Next.js 15 (App Router)
+- **数据库**: Supabase PostgreSQL，带行级安全策略 (RLS)
+- **认证**: Supabase Auth，配置自定义 SMTP
+- **存储**: Supabase Storage 图片存储
+- **UI**: shadcn/ui 组件 + Tailwind CSS
+- **表单**: React Hook Form + Zod 验证
+- **状态管理**: React Hooks + Context API
+- **拖拽**: @dnd-kit 用于字段排序
 
-### Key Directory Structure
+### 核心目录结构
 
 ```
 app/
-├── auth/                 # Authentication pages (login, register, forgot-password)
-├── events/               # Admin panel
-│   ├── create/          # Create event page
-│   └── [id]/            # Event management (tabs: basic info, registration settings, submissions)
-├── portal/              # User portal
-│   ├── events/[id]/     # Event details & registration
-│   └── my/              # User dashboard, registrations, notifications
-├── player-share/[token] # Shared player info pages
+├── auth/                 # 认证相关页面（登录、注册、忘记密码）
+├── events/               # 管理端
+│   ├── create/          # 创建赛事页面
+│   └── [id]/            # 赛事管理（标签页：基本信息、报名设置、提交审核）
+├── portal/              # 用户门户
+│   ├── events/[id]/     # 赛事详情与报名
+│   └── my/              # 用户仪表板、报名记录、通知
+├── player-share/[token] # 队员信息分享页面
 └── api/
-    ├── events/          # Event CRUD APIs
-    ├── portal/          # Portal-specific APIs
-    └── upload/          # File upload handler
+    ├── events/          # 赛事 CRUD API
+    ├── portal/          # 门户专用 API
+    └── upload/          # 文件上传处理
 
 components/
-├── event-manage/        # Admin components (basic-info-tab, registration-settings-tab)
-├── portal/              # Portal components
-└── ui/                  # shadcn/ui components
+├── event-manage/        # 管理端组件（basic-info-tab、registration-settings-tab）
+├── portal/              # 门户组件
+└── ui/                  # shadcn/ui 组件
 
 lib/
-├── auth.ts              # Authentication helpers
-├── supabase/            # Supabase client utilities
-└── types/               # TypeScript type definitions
+├── auth.ts              # 认证辅助函数
+├── supabase/            # Supabase 客户端工具
+└── types/               # TypeScript 类型定义
 ```
 
-### Database Schema
+### 数据库架构
 
-Core tables:
-- `events` - Event basic information (name, dates, type, poster, details)
-- `registration_settings` - Dynamic form configuration stored as JSONB
-  - `team_requirements`: Fields for team registration + time constraints
-  - `player_requirements`: Fields for player info + age/gender/count constraints
-- `registrations` - User submissions with status tracking
-- `players` - Player information linked to registrations
+核心表：
+- `events` - 赛事基本信息（名称、日期、类型、海报、详情）
+- `registration_settings` - 动态表单配置（JSONB 存储）
+  - `team_requirements`: 队伍报名字段 + 时间约束
+  - `player_requirements`: 队员信息字段 + 年龄/性别/人数约束
+- `registrations` - 用户提交记录，带状态跟踪
+- `players` - 队员信息，关联到报名记录
 
-## Critical Implementation Patterns
+## 关键实现模式
 
-### 1. Time Validation Logic
+### 1. 时间验证逻辑
 
-The system enforces strict time constraints with **real-time validation**:
+系统通过**实时验证**强制执行严格的时间约束：
 
 ```
-Timeline: Registration Start → Registration End → Review End → Event Start → Event End
+时间线：报名开始 → 报名结束 → 审核结束 → 赛事开始 → 赛事结束
 ```
 
-**Five validation rules** (enforced in real-time as users type):
-1. Event Start ≤ Event End
-2. Registration Start < Registration End
-3. Registration End < Review End
-4. Registration End < Event Start
-5. Review End < Event Start
+**五条验证规则**（用户输入时实时验证）：
+1. 赛事开始时间 ≤ 赛事结束时间
+2. 报名开始时间 < 报名结束时间
+3. 报名结束时间 < 审核结束时间
+4. 报名结束时间 < 赛事开始时间
+5. 审核结束时间 < 赛事开始时间
 
-**Implementation locations:**
-- `app/events/create/page.tsx:81-102` - Create event validation
-- `components/event-manage/basic-info-tab.tsx:95-116` - Edit event validation
-- `components/event-manage/registration-settings-tab.tsx:213-276` - Registration settings validation
+**实现位置：**
+- `app/events/create/page.tsx:81-102` - 创建赛事验证
+- `components/event-manage/basic-info-tab.tsx:95-116` - 编辑赛事验证
+- `components/event-manage/registration-settings-tab.tsx:213-276` - 报名设置验证
 
-Error messages show **specific time values** to help users understand violations:
+错误提示会**显示具体时间值**，帮助用户理解违反的规则：
 ```
 ⚠️ 报名结束时间必须早于比赛开始时间（当前比赛开始时间为：2025-03-15）
 ```
 
-### 2. Dynamic Form Generation
+### 2. 动态表单生成
 
-Registration forms are dynamically generated based on admin configuration:
+报名表单基于管理员配置动态生成：
 
 ```typescript
-// Field types supported
+// 支持的字段类型
 type FieldType = 'text' | 'image' | 'select' | 'multiselect' | 'date'
 
-// Fields are stored in registration_settings.team_requirements.allFields
-// and rendered based on their type and `required` flag
+// 字段存储在 registration_settings.team_requirements.allFields
+// 根据字段类型和 `required` 标记进行渲染
 ```
 
-**Drag-and-drop ordering** using @dnd-kit allows admins to reorder form fields.
+使用 @dnd-kit 实现**拖拽排序**，允许管理员重新排列表单字段。
 
-### 3. Authentication Flow
+### 3. 认证流程
 
-Role-based routing after login:
+登录后基于角色的路由：
 ```typescript
 const user = await supabase.auth.getUser()
 if (user?.user_metadata?.role === 'admin') {
-  router.push('/')  // Admin panel
+  router.push('/')  // 管理端
 } else {
-  router.push('/portal')  // User portal
+  router.push('/portal')  // 用户门户
 }
 ```
 
-Admin sessions validated via `getCurrentAdminSession()` in API routes.
+API 路由中通过 `getCurrentAdminSession()` 验证管理员会话。
 
-### 4. File Upload Pattern
+### 4. 文件上传模式
 
 ```typescript
-// 1. Upload to Supabase Storage via /api/upload
+// 1. 通过 /api/upload 上传到 Supabase Storage
 const formData = new FormData()
 formData.append('file', file)
-formData.append('bucket', 'event-posters')  // or 'registration-files'
+formData.append('bucket', 'event-posters')  // 或 'registration-files'
 
 const response = await fetch('/api/upload', {
   method: 'POST',
   body: formData
 })
 
-// 2. Store returned URL in database
+// 2. 将返回的 URL 存储到数据库
 const { data: { url } } = await response.json()
 ```
 
-### 5. Registration Status Flow
+### 5. 报名状态流转
 
 ```
-draft → submitted → approved/rejected
-                 ↓
-              (can resubmit if rejected)
+草稿(draft) → 已提交(submitted) → 已通过(approved)/已驳回(rejected)
+                                  ↓
+                            （驳回后可重新提交）
 ```
 
-Status tracked in `registrations.status` column.
+状态在 `registrations.status` 列中跟踪。
 
-## Important Conventions
+## 重要约定
 
-### Date/Time Handling
-- Event dates: `date` type (YYYY-MM-DD)
-- Registration/review times: `datetime-local` type (YYYY-MM-DD HH:mm)
-- Format display using custom `formatDate()` and `formatDateTime()` helpers
+### 日期/时间处理
+- 赛事日期：`date` 类型 (YYYY-MM-DD)
+- 报名/审核时间：`datetime-local` 类型 (YYYY-MM-DD HH:mm)
+- 使用自定义的 `formatDate()` 和 `formatDateTime()` 辅助函数格式化显示
 
-### Error Handling
-- API responses: `{ success: boolean, data?: any, error?: string }`
-- Form errors: React Hook Form + Zod with inline field validation
-- Real-time warnings: Amber text (`text-amber-600`) for non-blocking warnings
-- Blocking errors: Red text (`text-red-600`) with form submission prevention
+### 错误处理
+- API 响应：`{ success: boolean, data?: any, error?: string }`
+- 表单错误：React Hook Form + Zod，带内联字段验证
+- 实时警告：琥珀色文字 (`text-amber-600`)，非阻塞式警告
+- 阻塞错误：红色文字 (`text-red-600`)，阻止表单提交
 
-### Component Patterns
-- Use `'use client'` for interactive components
-- Server components for data fetching when possible
-- Async/await for Supabase queries with proper error handling
+### 组件模式
+- 交互组件使用 `'use client'`
+- 尽可能使用服务端组件进行数据获取
+- Supabase 查询使用 async/await 并正确处理错误
 
-## Environment Variables
+## 环境变量
 
-Required in `.env.local`:
+`.env.local` 中需要配置：
 ```
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+NEXT_PUBLIC_SUPABASE_URL=你的_supabase_地址
+NEXT_PUBLIC_SUPABASE_ANON_KEY=你的_匿名密钥
 ```
 
-## Testing Accounts
+## 测试账号
 
-- Admin: `13800138000` / `admin123`
-- Coaches: Register via `/auth/register`
+- 管理员：`13800138000` / `admin123`
+- 教练：通过 `/auth/register` 注册
 
-## Common Tasks
+## 常见任务
 
-### Adding a New Field Type
-1. Update `FieldConfig` type in registration-settings-tab.tsx
-2. Add rendering logic in form components
-3. Update validation schema if needed
-4. Test drag-and-drop still works
+### 添加新字段类型
+1. 更新 registration-settings-tab.tsx 中的 `FieldConfig` 类型
+2. 在表单组件中添加渲染逻辑
+3. 如需要，更新验证模式
+4. 测试拖拽功能是否正常
 
-### Modifying Time Validation
-- Update validation logic in all three locations (create, edit basic info, registration settings)
-- Ensure error messages include specific time values
-- Test real-time validation triggers correctly
+### 修改时间验证
+- 在所有三个位置更新验证逻辑（创建、编辑基本信息、报名设置）
+- 确保错误消息包含具体时间值
+- 测试实时验证是否正确触发
 
-### Adding New Event Types
-Modify `eventTypes` array in:
+### 添加新的赛事类型
+修改以下文件中的 `eventTypes` 数组：
 - `app/events/create/page.tsx`
 - `components/event-manage/basic-info-tab.tsx`
 
-## Database Operations Best Practices
+## 数据库操作最佳实践
 
 ```typescript
-// ✅ Good - Use Supabase client
+// ✅ 正确 - 使用 Supabase 客户端
 const supabase = await createSupabaseServer()
 const { data, error } = await supabase
   .from('events')
@@ -215,17 +215,17 @@ const { data, error } = await supabase
   .eq('id', eventId)
   .single()
 
-// ❌ Bad - Direct SQL (bypasses RLS)
-// Don't write raw SQL queries in application code
+// ❌ 错误 - 直接 SQL（绕过 RLS）
+// 不要在应用代码中编写原始 SQL 查询
 ```
 
-## Portal Development Notes
+## 门户开发说明
 
-The user portal (`/portal`) allows coaches to:
-1. Browse visible events
-2. Submit team registrations with dynamic forms
-3. Track submission status
-4. Receive notifications when status changes
-5. Share player information via unique tokens
+用户门户 (`/portal`) 允许教练：
+1. 浏览可见的赛事
+2. 使用动态表单提交队伍报名
+3. 跟踪提交状态
+4. 状态变更时接收通知
+5. 通过唯一令牌分享队员信息
 
-Portal APIs are separate from admin APIs (`/api/portal/*` vs `/api/events/*`).
+门户 API 与管理端 API 分离（`/api/portal/*` vs `/api/events/*`）。
