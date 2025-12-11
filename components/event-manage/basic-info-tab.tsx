@@ -11,8 +11,50 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Loader2, Upload, Calendar, MapPin, Phone, FileText } from 'lucide-react'
+import { Loader2, Upload, Calendar, MapPin, Phone, FileText, Link2, ExternalLink } from 'lucide-react'
 import Image from 'next/image'
+
+// 工具函数：提取文本中的所有链接
+function extractLinks(text: string): string[] {
+  if (!text) return []
+  const urlRegex = /(https?:\/\/[^\s]+)/g
+  const matches = text.match(urlRegex)
+  return matches || []
+}
+
+// 链接预览组件
+function LinkPreview({ links }: { links: string[] }) {
+  if (links.length === 0) return null
+
+  return (
+    <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+      <div className="flex items-center gap-2 text-blue-700 text-sm font-medium mb-2">
+        <Link2 className="h-4 w-4" />
+        <span>检测到 {links.length} 个链接</span>
+      </div>
+      <div className="space-y-1">
+        {links.map((link, index) => (
+          <div key={index} className="flex items-center gap-2 text-sm">
+            <ExternalLink className="h-3 w-3 text-blue-600 flex-shrink-0" />
+            <a
+              href={link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-800 underline break-all flex-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {link}
+            </a>
+            <span className="text-green-600 text-xs">✓ 可点击</span>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-blue-600 mt-2">
+        💡 提示：这些链接在报名端会自动转换为可点击的超链接
+      </p>
+    </div>
+  )
+}
 
 const updateEventSchema = z.object({
   name: z.string().min(1, '赛事名称不能为空').max(100, '赛事名称不能超过100个字符'),
@@ -91,6 +133,12 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
   const watchedType = watch('type')
   const watchedStartDate = watch('start_date')
   const watchedEndDate = watch('end_date')
+  const watchedDetails = watch('details')
+  const watchedRequirements = watch('requirements')
+
+  // 提取赛事详情和报名要求中的链接
+  const detailsLinks = extractLinks(watchedDetails || '')
+  const requirementsLinks = extractLinks(watchedRequirements || '')
 
   // 格式化日期显示
   const formatDate = (dateStr: string) => {
@@ -382,12 +430,13 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
             <Textarea
               id="details"
               {...register('details')}
-              placeholder="详细描述赛事规则、奖项设置等信息"
+              placeholder="详细描述赛事规则、奖项设置等信息。支持插入链接，格式：https://..."
               className="mt-1 min-h-32"
             />
             {errors.details && (
               <p className="text-red-600 text-sm mt-1">{errors.details.message}</p>
             )}
+            <LinkPreview links={detailsLinks} />
           </div>
 
           <div>
@@ -398,12 +447,13 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
             <Textarea
               id="requirements"
               {...register('requirements')}
-              placeholder="详细描述参赛要求、资格条件、注意事项等信息"
+              placeholder="详细描述参赛要求、资格条件、注意事项等信息。支持插入链接，格式：https://..."
               className="mt-1 min-h-32"
             />
             {errors.requirements && (
               <p className="text-red-600 text-sm mt-1">{errors.requirements.message}</p>
             )}
+            <LinkPreview links={requirementsLinks} />
           </div>
 
           <div className="flex justify-end">

@@ -9,6 +9,38 @@ import { Badge } from '@/components/ui/badge'
 import { Calendar, MapPin, Phone, Clock, Users, ArrowLeft, FileText, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
+// 工具函数：将文本中的 URL 转换为可点击的链接
+function LinkifyText({ text }: { text: string }) {
+  // URL 正则表达式：匹配 http(s)://... 格式的URL
+  const urlRegex = /(https?:\/\/[^\s]+)/g
+
+  // 将文本按 URL 分割
+  const parts = text.split(urlRegex)
+
+  return (
+    <>
+      {parts.map((part, index) => {
+        // 检查是否是 URL
+        if (part.match(urlRegex)) {
+          return (
+            <a
+              key={index}
+              href={part}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-800 underline break-all"
+            >
+              {part}
+            </a>
+          )
+        }
+        // 普通文本，保留换行
+        return <span key={index}>{part}</span>
+      })}
+    </>
+  )
+}
+
 interface Event {
   id: string
   name: string
@@ -827,7 +859,7 @@ export default function EventDetailPage() {
                 <div className="border-t pt-4 mt-4">
                   <h3 className="font-semibold mb-2">赛事介绍</h3>
                   <div className="text-sm text-gray-600 whitespace-pre-wrap">
-                    {event.details}
+                    <LinkifyText text={event.details} />
                   </div>
                 </div>
               )}
@@ -837,7 +869,7 @@ export default function EventDetailPage() {
                 <div className="border-t pt-4 mt-4">
                   <h3 className="font-semibold mb-2">报名要求</h3>
                   <div className="text-sm text-gray-600 whitespace-pre-wrap">
-                    {event.requirements}
+                    <LinkifyText text={event.requirements} />
                   </div>
                 </div>
               )}
