@@ -15,6 +15,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { 
   Calendar, 
   User, 
@@ -23,9 +28,7 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
-  Settings,
-  ChevronDown,
-  ChevronUp
+  Settings
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -38,7 +41,6 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
   const router = useRouter()
   const pathname = usePathname()
   const [isCollapsed, setIsCollapsed] = useState(false)
-  const [isMyMenuOpen, setIsMyMenuOpen] = useState(true)
   const [user, setUser] = useState<any>(null)
   const { unreadCount, refreshUnreadCount } = useNotification()
   const [showLogoutDialog, setShowLogoutDialog] = useState(false)
@@ -83,42 +85,33 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
       active: pathname === '/portal' || pathname.startsWith('/portal/events')
     },
     {
-      id: 'my',
-      label: '我的',
+      id: 'my-profile',
+      label: '个人信息',
       icon: User,
-      hasSubmenu: true,
-      active: pathname.startsWith('/portal/my'),
-      submenu: [
-        {
-          id: 'my-profile',
-          label: '个人信息',
-          icon: User,
-          href: '/portal/my',
-          active: pathname === '/portal/my'
-        },
-        {
-          id: 'my-registrations',
-          label: '我的报名',
-          icon: ClipboardList,
-          href: '/portal/my/registrations',
-          active: pathname === '/portal/my/registrations'
-        },
-        {
-          id: 'my-notifications',
-          label: '我的通知',
-          icon: Bell,
-          href: '/portal/my/notifications',
-          active: pathname === '/portal/my/notifications',
-          badge: unreadCount > 0 ? unreadCount : null
-        },
-        {
-          id: 'account-settings',
-          label: '账号设置',
-          icon: Settings,
-          href: '/portal/my/settings',
-          active: pathname === '/portal/my/settings'
-        }
-      ]
+      href: '/portal/my',
+      active: pathname === '/portal/my'
+    },
+    {
+      id: 'my-registrations',
+      label: '我的报名',
+      icon: ClipboardList,
+      href: '/portal/my/registrations',
+      active: pathname === '/portal/my/registrations'
+    },
+    {
+      id: 'my-notifications',
+      label: '我的通知',
+      icon: Bell,
+      href: '/portal/my/notifications',
+      active: pathname === '/portal/my/notifications',
+      badge: unreadCount > 0 ? unreadCount : null
+    },
+    {
+      id: 'account-settings',
+      label: '账号设置',
+      icon: Settings,
+      href: '/portal/my/settings',
+      active: pathname === '/portal/my/settings'
     }
   ]
 
@@ -134,24 +127,32 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
           <div className="h-[52px] px-6 flex items-center justify-between">
             <h1 className={cn(
               "font-bold text-gray-800 transition-all whitespace-nowrap overflow-hidden",
-              isCollapsed ? "text-center text-xs" : "text-base"
+              isCollapsed ? "text-center text-sm" : "text-lg"
             )}>
-              {isCollapsed ? "报名" : "体育比赛报名系统"}
+              {isCollapsed ? "报名" : "棍网球报名系统"}
             </h1>
-            <button
-              onClick={() => setIsCollapsed(!isCollapsed)}
-              className={cn(
-                "p-1.5 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0",
-                isCollapsed && "mx-auto"
-              )}
-              title={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
-            >
-              {isCollapsed ? (
-                <ChevronRight className="h-4 w-4 text-gray-600" />
-              ) : (
-                <ChevronLeft className="h-4 w-4 text-gray-600" />
-              )}
-            </button>
+            {isCollapsed ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setIsCollapsed(!isCollapsed)}
+                    className="p-2 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0 mx-auto"
+                  >
+                    <ChevronRight className="h-5 w-5 text-gray-600" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={10}>
+                  <p>展开侧边栏</p>
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <button
+                onClick={() => setIsCollapsed(!isCollapsed)}
+                className="p-2 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0"
+              >
+                <ChevronLeft className="h-5 w-5 text-gray-600" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -160,88 +161,42 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
           <ul className="space-y-1">
             {menuItems.map((item) => (
               <li key={item.id}>
-                {item.hasSubmenu ? (
-                  <div>
-                    <div
-                      className={cn(
-                        "flex items-center px-2.5 py-1.5 rounded-lg transition-colors",
-                        isCollapsed ? "justify-center" : "justify-between",
-                        "hover:bg-gray-100",
-                        item.active && "bg-blue-50 text-blue-600"
-                      )}
-                    >
+                {isCollapsed ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
                       <Link
-                        href="/portal/my"
-                        className="flex items-center space-x-2 flex-1"
-                        title={isCollapsed ? item.label : ""}
+                        href={item.href}
+                        className={cn(
+                          "flex items-center rounded-lg transition-colors justify-center px-3 py-2",
+                          "hover:bg-gray-100",
+                          item.active && "bg-blue-50 text-blue-600"
+                        )}
                       >
-                        <item.icon className={cn(
-                          "flex-shrink-0",
-                          isCollapsed ? "h-5 w-5 mx-auto" : "h-4 w-4"
-                        )} />
-                        {!isCollapsed && <span className="text-sm">{item.label}</span>}
+                        <item.icon className="h-5 w-5 flex-shrink-0" />
                       </Link>
-                      {!isCollapsed && (
-                        <button
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            setIsMyMenuOpen(!isMyMenuOpen)
-                          }}
-                          className="p-1 hover:bg-gray-200 rounded"
-                        >
-                          {isMyMenuOpen ?
-                            <ChevronUp className="h-4 w-4" /> :
-                            <ChevronDown className="h-4 w-4" />
-                          }
-                        </button>
-                      )}
-                    </div>
-
-                    {/* 子菜单 */}
-                    {isMyMenuOpen && !isCollapsed && item.submenu && (
-                      <ul className="mt-1 ml-3 space-y-0.5">
-                        {item.submenu.map((subItem) => (
-                          <li key={subItem.id}>
-                            <Link
-                              href={subItem.href}
-                              className={cn(
-                                "flex items-center justify-between px-2.5 py-1.5 rounded-lg transition-colors",
-                                "hover:bg-gray-100",
-                                subItem.active && "bg-blue-50 text-blue-600"
-                              )}
-                            >
-                              <div className="flex items-center space-x-2">
-                                <subItem.icon className="h-4 w-4" />
-                                <span className="text-sm">{subItem.label}</span>
-                              </div>
-                              {subItem.badge && (
-                                <span className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
-                                  {subItem.badge}
-                                </span>
-                              )}
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" sideOffset={10}>
+                      <p>{item.label}</p>
+                    </TooltipContent>
+                  </Tooltip>
                 ) : (
                   <Link
                     href={item.href}
                     className={cn(
-                      "flex items-center px-2.5 py-1.5 rounded-lg transition-colors",
-                      isCollapsed ? "justify-center" : "space-x-2",
+                      "flex items-center rounded-lg transition-colors justify-between px-3 py-2",
                       "hover:bg-gray-100",
                       item.active && "bg-blue-50 text-blue-600"
                     )}
-                    title={isCollapsed ? item.label : ""}
                   >
-                    <item.icon className={cn(
-                      "flex-shrink-0",
-                      isCollapsed ? "h-5 w-5 mx-auto" : "h-4 w-4"
-                    )} />
-                    {!isCollapsed && <span>{item.label}</span>}
+                    <div className="flex items-center space-x-2">
+                      <item.icon className="h-5 w-5 flex-shrink-0" />
+                      <span className="text-base">{item.label}</span>
+                    </div>
+                    {item.badge && (
+                      <span className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
+                        {item.badge}
+                      </span>
+                    )}
                   </Link>
                 )}
               </li>
