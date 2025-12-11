@@ -41,7 +41,7 @@ export default function ReviewListTab({ eventId, onReviewComplete }: ReviewListT
   const [rejectionReason, setRejectionReason] = useState('')
   const [processingId, setProcessingId] = useState<string | null>(null)
   const [teamFields, setTeamFields] = useState<any[]>([])
-  const [playerFields, setPlayerFields] = useState<any[]>([])
+  const [playerRoles, setPlayerRoles] = useState<any[]>([])
   const [lastFetchTime, setLastFetchTime] = useState(0)
 
   // 审核状态管理
@@ -107,14 +107,9 @@ export default function ReviewListTab({ eventId, onReviewComplete }: ReviewListT
           setTeamFields(fields)
         }
 
-        // 获取队员字段配置
-        if (result.data.player_requirements?.roles?.[0]) {
-          const firstRole = result.data.player_requirements.roles[0]
-          const fields = firstRole.allFields || [
-            ...(firstRole.commonFields || []),
-            ...(firstRole.customFields || [])
-          ]
-          setPlayerFields(fields)
+        // 获取所有角色信息
+        if (result.data.player_requirements?.roles) {
+          setPlayerRoles(result.data.player_requirements.roles)
         }
       }
     } catch (error) {
@@ -353,6 +348,40 @@ export default function ReviewListTab({ eventId, onReviewComplete }: ReviewListT
     return String(value) || '-'
   }
 
+  // 根据角色ID获取角色名称
+  const getRoleName = (roleId: string) => {
+    const role = playerRoles.find(r => r.id === roleId)
+    return role?.name || roleId
+  }
+
+  // 根据角色ID获取角色字段配置
+  const getRoleFields = (roleId: string) => {
+    const role = playerRoles.find(r => r.id === roleId)
+    if (!role) return []
+    return role.allFields || [
+      ...(role.commonFields || []),
+      ...(role.customFields || [])
+    ]
+  }
+
+  // 按角色分组队员数据
+  const groupPlayersByRole = (playersData: any[]) => {
+    const grouped: { [roleId: string]: { roleName: string; players: any[] } } = {}
+
+    playersData.forEach((player: any) => {
+      const roleId = player.role || 'player'
+      if (!grouped[roleId]) {
+        grouped[roleId] = {
+          roleName: getRoleName(roleId),
+          players: []
+        }
+      }
+      grouped[roleId].players.push(player)
+    })
+
+    return grouped
+  }
+
   if (loading) {
     return (
       <Card>
@@ -517,78 +546,99 @@ export default function ReviewListTab({ eventId, onReviewComplete }: ReviewListT
                 </div>
               </div>
 
-              {/* 队员信息 */}
-              <div>
-                <h3 className="font-semibold mb-3">队员信息 ({selectedRegistration.players_data?.length || 0}人)</h3>
-                <div className="space-y-4">
-                  {selectedRegistration.players_data?.map((player: any, index: number) => {
-                    const playerKey = `player_${index}`
-                    const playerName = player['姓名'] || player['name'] || `队员${index + 1}`
+              {/* 人员信息 - 按角色分组显示 */}
+              {selectedRegistration.players_data && selectedRegistration.players_data.length > 0 && (() => {
+                const groupedPlayers = groupPlayersByRole(selectedRegistration.players_data)
 
-                    return (
-                      <div key={index} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-4">
-                          <h4 className="font-medium">
-                            {playerName} {player.role && `(${player.role})`}
-                          </h4>
-                          <div className="flex items-center gap-4">
-                            <RadioGroup
-                              value={reviewStatus[playerKey]?.status || 'unchecked'}
-                              onValueChange={(value) => updateReviewStatus(playerKey, value as any)}
-                              className="flex gap-4"
-                            >
-                              <div className="flex items-center space-x-2">
-                                <RadioGroupItem value="approved" id={`${playerKey}-approved`} />
-                                <Label htmlFor={`${playerKey}-approved`} className="flex items-center cursor-pointer">
-                                  <CheckCircle className="h-4 w-4 mr-1 text-green-600" />
-                                  无误
-                                </Label>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <RadioGroupItem value="needsModification" id={`${playerKey}-needs`} />
-                                <Label htmlFor={`${playerKey}-needs`} className="flex items-center cursor-pointer">
-                                  <XCircle className="h-4 w-4 mr-1 text-red-600" />
-                                  需修改
-                                </Label>
-                              </div>
-                            </RadioGroup>
+                // 对角色进行排序：非队员角色在前，队员角色在后
+                const sortedEntries = Object.entries(groupedPlayers).sort(([roleIdA], [roleIdB]) => {
+                  if (roleIdA === 'player') return 1
+                  if (roleIdB === 'player') return -1
+                  return 0
+                })
+
+                return (
+                  <div className="space-y-6">
+                    {sortedEntries.map(([roleId, { roleName, players }]) => {
+                      const roleFields = getRoleFields(roleId)
+
+                      return (
+                        <div key={roleId}>
+                          <h3 className="font-semibold mb-3">{roleName} ({players.length}人)</h3>
+                          <div className="space-y-4">
+                            {players.map((player: any, playerIndex: number) => {
+                              // 使用全局索引作为key
+                              const globalIndex = selectedRegistration.players_data.findIndex((p: any) => p === player)
+                              const playerKey = `player_${globalIndex}`
+                              const playerName = player['姓名'] || player['name'] || `${roleName}${playerIndex + 1}`
+
+                              return (
+                                <div key={globalIndex} className="border rounded-lg p-4">
+                                  <div className="flex items-center justify-between mb-4">
+                                    <h4 className="font-medium">{playerName}</h4>
+                                    <div className="flex items-center gap-4">
+                                      <RadioGroup
+                                        value={reviewStatus[playerKey]?.status || 'unchecked'}
+                                        onValueChange={(value) => updateReviewStatus(playerKey, value as any)}
+                                        className="flex gap-4"
+                                      >
+                                        <div className="flex items-center space-x-2">
+                                          <RadioGroupItem value="approved" id={`${playerKey}-approved`} />
+                                          <Label htmlFor={`${playerKey}-approved`} className="flex items-center cursor-pointer">
+                                            <CheckCircle className="h-4 w-4 mr-1 text-green-600" />
+                                            无误
+                                          </Label>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                          <RadioGroupItem value="needsModification" id={`${playerKey}-needs`} />
+                                          <Label htmlFor={`${playerKey}-needs`} className="flex items-center cursor-pointer">
+                                            <XCircle className="h-4 w-4 mr-1 text-red-600" />
+                                            需修改
+                                          </Label>
+                                        </div>
+                                      </RadioGroup>
+                                    </div>
+                                  </div>
+
+                                  {reviewStatus[playerKey]?.status === 'needsModification' && (
+                                    <Alert className="mb-4">
+                                      <AlertCircle className="h-4 w-4" />
+                                      <AlertDescription>
+                                        <Textarea
+                                          placeholder="请说明需要修改的内容..."
+                                          value={reviewStatus[playerKey]?.comment || ''}
+                                          onChange={(e) => updateReviewStatus(playerKey, 'needsModification', e.target.value)}
+                                          className="mt-2"
+                                        />
+                                      </AlertDescription>
+                                    </Alert>
+                                  )}
+
+                                  <div className="grid grid-cols-3 gap-4">
+                                    {roleFields.map((field: any) => {
+                                      const value = player[field.id]
+                                      if (!value || field.id === 'role') return null
+
+                                      return (
+                                        <div key={field.id} className={field.type === 'image' ? 'col-span-3' : ''}>
+                                          <Label>{field.label}</Label>
+                                          <div className="mt-1">
+                                            {renderFieldValue(value, field.id, roleFields)}
+                                          </div>
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                </div>
+                              )
+                            })}
                           </div>
                         </div>
-
-                        {reviewStatus[playerKey]?.status === 'needsModification' && (
-                          <Alert className="mb-4">
-                            <AlertCircle className="h-4 w-4" />
-                            <AlertDescription>
-                              <Textarea
-                                placeholder="请说明需要修改的内容..."
-                                value={reviewStatus[playerKey]?.comment || ''}
-                                onChange={(e) => updateReviewStatus(playerKey, 'needsModification', e.target.value)}
-                                className="mt-2"
-                              />
-                            </AlertDescription>
-                          </Alert>
-                        )}
-
-                        <div className="grid grid-cols-3 gap-4">
-                          {playerFields.map((field) => {
-                            const value = player[field.id]
-                            if (!value || field.id === 'role') return null
-
-                            return (
-                              <div key={field.id} className={field.type === 'image' ? 'col-span-3' : ''}>
-                                <Label>{field.label}</Label>
-                                <div className="mt-1">
-                                  {renderFieldValue(value, field.id, playerFields)}
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
             </div>
           )}
 

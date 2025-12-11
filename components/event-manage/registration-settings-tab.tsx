@@ -622,10 +622,21 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
       return
     }
 
+    // 新角色默认包含常用字段（包括身份证号码），用户可选择删除
+    const defaultCommonFields: FieldConfig[] = [
+      { id: 'name', label: '姓名', type: 'text' as const, required: false },
+      { id: 'id_number', label: '身份证号码', type: 'text' as const, required: false },
+      { id: 'gender', label: '性别', type: 'select' as const, required: false, options: ['男', '女'] },
+      { id: 'id_photo', label: '证件照', type: 'image' as const, required: false },
+      { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: false }
+    ]
+
     const newRole: RoleConfig = {
       id: `role_${Date.now()}`,
       name: newRoleName,
-      customFields: [],  // 新角色不包含commonFields
+      commonFields: defaultCommonFields,
+      customFields: [],
+      allFields: defaultCommonFields.map(f => ({ ...f, isCommon: true })),
       minPlayers: 1,
       maxPlayers: 10
     }
