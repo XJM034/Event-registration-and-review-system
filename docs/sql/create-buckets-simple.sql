@@ -50,11 +50,27 @@ ON CONFLICT (id) DO UPDATE SET
   allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/jpg', 'image/webp']::text[];
 
 -- ============================================
+-- 4. 创建 team-documents 存储桶（队伍文档、自定义字段附件）
+-- ============================================
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'team-documents',
+  'team-documents',
+  true,  -- 公开访问（需要在页面显示）
+  10485760,  -- 10MB
+  ARRAY['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf']::text[]
+)
+ON CONFLICT (id) DO UPDATE SET
+  public = true,
+  file_size_limit = 10485760,
+  allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf']::text[];
+
+-- ============================================
 -- 查看所有创建的存储桶
 -- ============================================
 SELECT id, name, public, file_size_limit, allowed_mime_types
 FROM storage.buckets
-WHERE id IN ('event-posters', 'registration-files', 'player-photos');
+WHERE id IN ('event-posters', 'registration-files', 'player-photos', 'team-documents');
 
 -- 完成提示
 SELECT '✅ 存储桶创建完成！使用服务密钥可以直接上传，无需配置 RLS 策略。' as message;

@@ -151,12 +151,16 @@ docs/
 
 **存储桶**（Supabase Storage）：
 - `event-posters` - 赛事海报图片
-- `registration-files` - 报名相关文件（证件照、资质文件等）
+- `registration-files` - 队伍 Logo、报名附件
 - `player-photos` - 队员照片（通过分享链接上传）
+- `team-documents` - 队伍文档、自定义字段附件
+
+**⚠️ 重要**：首次部署时必须配置存储桶，否则会出现"Bucket not found"错误。
 
 **相关 SQL 脚本**：
-- `docs/sql/storage-policies.sql` - 存储桶访问策略
-- `docs/sql/create-buckets-simple.sql` - 存储桶创建脚本
+- `docs/sql/create-buckets-simple.sql` - 存储桶创建脚本（推荐）
+- `docs/sql/storage-policies.sql` - 存储桶访问策略（包含 RLS）
+- `docs/STORAGE_SETUP.md` - **存储桶配置指南**（详细步骤说明）
 
 ## 关键实现模式
 
@@ -713,6 +717,29 @@ JWT_SECRET=production_secure_secret_key_至少32位
 修改以下文件中的 `eventTypes` 数组：
 - `app/events/create/page.tsx`
 - `components/event-manage/basic-info-tab.tsx`
+
+## 故障排查
+
+### 文件上传失败：Bucket not found
+
+**症状**：用户在报名端上传图片时显示"文件上传失败: Bucket not found"错误。
+
+**原因**：Supabase Storage 中缺少必需的存储桶。
+
+**解决方法**：
+1. 查看详细配置指南：`docs/STORAGE_SETUP.md`
+2. 执行 SQL 脚本创建存储桶：
+   - 快速方法：执行 `docs/sql/create-buckets-simple.sql`
+   - 完整方法：执行 `docs/sql/storage-policies.sql`（包含 RLS 策略）
+3. 验证所有 4 个存储桶已创建：
+   - ✅ event-posters
+   - ✅ registration-files
+   - ✅ player-photos
+   - ✅ team-documents
+
+**相关文件**：
+- 配置指南：[docs/STORAGE_SETUP.md](docs/STORAGE_SETUP.md)
+- SQL 脚本：`docs/sql/create-buckets-simple.sql`
 
 ## 数据库操作最佳实践
 
