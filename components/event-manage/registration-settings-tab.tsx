@@ -40,11 +40,11 @@ interface FieldConfig {
 }
 
 // 可排序的字段项组件
-function SortableFieldItem({ field, onToggleRequired, onRemove, onEditOptions, canRemove = true }: {
+function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, canRemove = true }: {
   field: FieldConfig
   onToggleRequired: () => void
   onRemove?: () => void
-  onEditOptions?: () => void
+  onEditField?: () => void
   canRemove?: boolean
 }) {
   const {
@@ -60,6 +60,15 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditOptions, c
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
+  }
+
+  // 字段类型显示名称映射
+  const typeLabels: Record<string, string> = {
+    'text': '文本',
+    'image': '图片',
+    'select': '单选',
+    'multiselect': '多选',
+    'date': '日期'
   }
 
   return (
@@ -78,16 +87,18 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditOptions, c
         </button>
         <span className="text-sm font-medium">{field.label}</span>
         <span className="text-xs text-gray-500">
-          ({field.type})
+          ({typeLabels[field.type] || field.type})
           {field.options && ` - ${field.options.length}个选项`}
         </span>
       </div>
       <div className="flex items-center space-x-2">
-        {(field.type === 'select' || field.type === 'multiselect') && onEditOptions && (
+        {/* 所有字段都显示设置按钮 */}
+        {onEditField && (
           <Button
             size="sm"
             variant="ghost"
-            onClick={onEditOptions}
+            onClick={onEditField}
+            title="编辑字段"
           >
             <Settings className="h-4 w-4" />
           </Button>
@@ -200,6 +211,18 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
   const [selectedRole, setSelectedRole] = useState<string>('player')
   const [editingField, setEditingField] = useState<{ type: 'team' | 'player', roleId?: string, field: FieldConfig, isCommon: boolean } | null>(null)
   const [tempOptions, setTempOptions] = useState<string[]>(['选项1', '选项2'])
+
+  // 字段编辑对话框状态
+  const [showFieldEditDialog, setShowFieldEditDialog] = useState(false)
+  const [editingFieldData, setEditingFieldData] = useState<{
+    type: 'team' | 'player'
+    roleId?: string
+    field: FieldConfig
+    isCommon: boolean
+  } | null>(null)
+  const [tempFieldLabel, setTempFieldLabel] = useState('')
+  const [tempFieldType, setTempFieldType] = useState<'text' | 'image' | 'select' | 'multiselect' | 'date'>('text')
+  const [tempFieldOptions, setTempFieldOptions] = useState<string[]>([])
 
   // 时间验证错误状态
   const [regStartError, setRegStartError] = useState('')
@@ -779,10 +802,10 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
             ...prev.commonFields.map(f => ({ ...f, isCommon: true })),
             ...prev.customFields.map(f => ({ ...f, isCommon: false }))
           ]
-          
+
           const newCustomField = { ...updatedField, isCommon: false }
           const updatedAllFields = [...currentAllFields, newCustomField]
-          
+
           return {
             ...prev,
             customFields: [...prev.customFields, updatedField],
@@ -801,10 +824,10 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                 ...(role.commonFields || []).map(f => ({ ...f, isCommon: true })),
                 ...role.customFields.map(f => ({ ...f, isCommon: false }))
               ]
-              
+
               const newCustomField = { ...updatedField, isCommon: false }
               const updatedAllFields = [...currentAllFields, newCustomField]
-              
+
               return {
                 ...role,
                 customFields: [...role.customFields, updatedField],
@@ -816,9 +839,6 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         }))
       }
       setNewFieldLabel('')
-    } else {
-      // 编辑现有字段的选项
-      updateFieldOptions(editingField.type, editingField.field.id, editingField.isCommon, tempOptions, editingField.roleId)
     }
 
     setShowOptionsDialog(false)
@@ -826,84 +846,6 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
     setTempOptions(['选项1', '选项2'])
   }
 
-  const updateFieldOptions = (type: 'team' | 'player', fieldId: string, isCommon: boolean, options: string[], roleId?: string) => {
-    console.log('updateFieldOptions called:', {
-      type,
-      fieldId,
-      isCommon,
-      options,
-      filteredOptions: options.filter(opt => opt && opt.trim() !== '')
-    })
-
-    if (type === 'team') {
-      setTeamRequirements(prev => {
-        const filteredOptions = options.filter(opt => opt && opt.trim() !== '')
-        
-        // 更新allFields
-        const updatedAllFields = prev.allFields
-          ? prev.allFields.map(f => 
-              f.id === fieldId ? { ...f, options: filteredOptions } : f
-            )
-          : [
-              ...prev.commonFields.map(f => ({ ...f, isCommon: true })),
-              ...prev.customFields.map(f => ({ ...f, isCommon: false }))
-            ].map(f => 
-              f.id === fieldId ? { ...f, options: filteredOptions } : f
-            )
-        
-        // 同时更新commonFields和customFields
-        return {
-          ...prev,
-          commonFields: isCommon 
-            ? prev.commonFields.map(f => f.id === fieldId ? { ...f, options: filteredOptions } : f)
-            : prev.commonFields,
-          customFields: !isCommon 
-            ? prev.customFields.map(f => f.id === fieldId ? { ...f, options: filteredOptions } : f)
-            : prev.customFields,
-          allFields: updatedAllFields
-        }
-      })
-    } else {
-      // For player, update the specific role's fields
-      if (roleId) {
-        setPlayerRequirements(prev => ({
-          ...prev,
-          roles: prev.roles.map(role => 
-            role.id === roleId 
-              ? {
-                  ...role,
-                  // Update commonFields if it's a common field (only for default player role)
-                  ...(isCommon && role.commonFields ? {
-                    commonFields: role.commonFields.map(f => 
-                      f.id === fieldId ? { ...f, options: options.filter(opt => opt.trim()) } : f
-                    )
-                  } : {}),
-                  // Update customFields if it's a custom field
-                  ...(!isCommon ? {
-                    customFields: role.customFields.map(f => 
-                      f.id === fieldId ? { ...f, options: options.filter(opt => opt.trim()) } : f
-                    )
-                  } : {})
-                }
-              : role
-          )
-        }))
-      }
-    }
-  }
-
-  const openOptionsEditor = (type: 'team' | 'player', field: FieldConfig, isCommon: boolean) => {
-    console.log('Opening options editor for field:', {
-      fieldId: field.id,
-      fieldLabel: field.label,
-      fieldOptions: field.options,
-      type: type,
-      isCommon: isCommon
-    })
-    setEditingField({ type, field, isCommon })
-    setTempOptions(field.options || ['选项1', '选项2'])
-    setShowOptionsDialog(true)
-  }
 
   const removeField = (type: 'team' | 'player', fieldId: string, isCommon: boolean) => {
     if (type === 'team') {
@@ -961,6 +903,94 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
     } else {
       // For player, this is handled directly in the UI now
     }
+  }
+
+  // 打开字段编辑对话框
+  const openFieldEditor = (type: 'team' | 'player', field: FieldConfig, isCommon: boolean, roleId?: string) => {
+    setEditingFieldData({ type, field, isCommon, roleId })
+    setTempFieldLabel(field.label)
+    setTempFieldType(field.type)
+    setTempFieldOptions(field.options || ['选项1', '选项2'])
+    setShowFieldEditDialog(true)
+  }
+
+  // 保存字段编辑
+  const saveFieldEdit = () => {
+    if (!editingFieldData) return
+    if (!tempFieldLabel.trim()) {
+      alert('请输入字段名称')
+      return
+    }
+
+    const { type, field, isCommon, roleId } = editingFieldData
+    const needsOptions = tempFieldType === 'select' || tempFieldType === 'multiselect'
+    const filteredOptions = needsOptions ? tempFieldOptions.filter(opt => opt && opt.trim() !== '') : undefined
+
+    if (needsOptions && (!filteredOptions || filteredOptions.length < 2)) {
+      alert('单选/多选字段至少需要2个选项')
+      return
+    }
+
+    const updatedField: FieldConfig = {
+      ...field,
+      label: tempFieldLabel.trim(),
+      type: tempFieldType,
+      options: filteredOptions
+    }
+
+    if (type === 'team') {
+      setTeamRequirements(prev => {
+        // 更新allFields
+        const updatedAllFields = prev.allFields
+          ? prev.allFields.map(f => f.id === field.id ? { ...updatedField, isCommon: f.isCommon } : f)
+          : [
+              ...prev.commonFields.map(f => ({ ...f, isCommon: true })),
+              ...prev.customFields.map(f => ({ ...f, isCommon: false }))
+            ].map(f => f.id === field.id ? { ...updatedField, isCommon: f.isCommon } : f)
+
+        // 同时更新commonFields和customFields
+        return {
+          ...prev,
+          commonFields: isCommon
+            ? prev.commonFields.map(f => f.id === field.id ? updatedField : f)
+            : prev.commonFields,
+          customFields: !isCommon
+            ? prev.customFields.map(f => f.id === field.id ? updatedField : f)
+            : prev.customFields,
+          allFields: updatedAllFields
+        }
+      })
+    } else if (roleId) {
+      setPlayerRequirements(prev => ({
+        ...prev,
+        roles: prev.roles.map(role => {
+          if (role.id === roleId) {
+            // 更新allFields
+            const updatedAllFields = role.allFields
+              ? role.allFields.map(f => f.id === field.id ? { ...updatedField, isCommon: f.isCommon } : f)
+              : [
+                  ...(role.commonFields || []).map(f => ({ ...f, isCommon: true })),
+                  ...role.customFields.map(f => ({ ...f, isCommon: false }))
+                ].map(f => f.id === field.id ? { ...updatedField, isCommon: f.isCommon } : f)
+
+            return {
+              ...role,
+              allFields: updatedAllFields,
+              commonFields: isCommon
+                ? role.commonFields?.map(f => f.id === field.id ? updatedField : f)
+                : role.commonFields,
+              customFields: !isCommon
+                ? role.customFields.map(f => f.id === field.id ? updatedField : f)
+                : role.customFields
+            }
+          }
+          return role
+        })
+      }))
+    }
+
+    setShowFieldEditDialog(false)
+    setEditingFieldData(null)
   }
 
   // 如果初始数据还未加载，显示加载中状态
@@ -1099,11 +1129,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                         field={field}
                         onToggleRequired={() => toggleRequired('team', field.id, field.isCommon || false)}
                         onRemove={() => removeField('team', field.id, field.isCommon || false)}
-                        onEditOptions={
-                          !field.isCommon && (field.type === 'select' || field.type === 'multiselect')
-                            ? () => openOptionsEditor('team', field, false)
-                            : undefined
-                        }
+                        onEditField={() => openFieldEditor('team', field, field.isCommon || false)}
                         canRemove={true}
                       />
                     ))}
@@ -1144,161 +1170,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           </TabsContent>
 
           <TabsContent value="player" className="space-y-4">
-            {/* 使用grid布局，左侧为性别和年龄要求，右侧为人数要求 */}
-            <div className="grid grid-cols-2 gap-6">
-              {/* 左侧：性别和年龄要求 */}
-              <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
-                {/* 性别要求 */}
-                <div>
-                  <Label>队员性别要求</Label>
-                  <Select 
-                    value={playerRequirements.genderRequirement} 
-                    onValueChange={(value: 'none' | 'male' | 'female') => 
-                      setPlayerRequirements(prev => ({ ...prev, genderRequirement: value }))
-                    }
-                  >
-                    <SelectTrigger className="mt-1 w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">无</SelectItem>
-                      <SelectItem value="male">男</SelectItem>
-                      <SelectItem value="female">女</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* 年龄要求 */}
-                <div>
-                  <div className="flex items-center space-x-4 mb-2">
-                    <Label>队员年龄要求</Label>
-                    <Select 
-                      value={playerRequirements.ageRequirementEnabled ? 'enabled' : 'disabled'} 
-                      onValueChange={(value) => 
-                        setPlayerRequirements(prev => ({ ...prev, ageRequirementEnabled: value === 'enabled' }))
-                      }
-                    >
-                      <SelectTrigger className="w-24">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="disabled">无</SelectItem>
-                        <SelectItem value="enabled">有</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {playerRequirements.ageRequirementEnabled && (
-                    <div className="space-y-2 pl-4">
-                      <div>
-                        <Label>最晚出生日期（年龄下限）</Label>
-                        <Input
-                          type="date"
-                          value={playerRequirements.maxAgeDate || ''}
-                          onChange={(e) => {
-                            const newMaxAgeDate = e.target.value
-                            const minAgeDate = playerRequirements.minAgeDate
-
-                            // 验证日期范围合理性
-                            if (newMaxAgeDate && minAgeDate && newMaxAgeDate <= minAgeDate) {
-                              alert('⚠️ 日期设置不合理\n\n最晚出生日期应该晚于最早出生日期\n\n请调整日期范围')
-                              return
-                            }
-
-                            setPlayerRequirements(prev => ({
-                              ...prev,
-                              maxAgeDate: newMaxAgeDate
-                            }))
-                          }}
-                          className="mt-1"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">
-                          设置队员可接受的最晚出生日期，越晚表示年龄越小
-                        </p>
-                      </div>
-                      <div>
-                        <Label>最早出生日期（年龄上限）</Label>
-                        <Input
-                          type="date"
-                          value={playerRequirements.minAgeDate || ''}
-                          onChange={(e) => {
-                            const newMinAgeDate = e.target.value
-                            const maxAgeDate = playerRequirements.maxAgeDate
-
-                            // 验证日期范围合理性
-                            if (newMinAgeDate && maxAgeDate && newMinAgeDate >= maxAgeDate) {
-                              alert('⚠️ 日期设置不合理\n\n最早出生日期应该早于最晚出生日期\n\n请调整日期范围')
-                              return
-                            }
-
-                            setPlayerRequirements(prev => ({
-                              ...prev,
-                              minAgeDate: newMinAgeDate
-                            }))
-                          }}
-                          className="mt-1"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">
-                          设置队员可接受的最早出生日期，越早表示年龄越大
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* 右侧：人数要求 */}
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <div className="flex items-center space-x-4 mb-2">
-                  <Label>队员人数要求</Label>
-                  <Select 
-                    value={playerRequirements.countRequirementEnabled ? 'enabled' : 'disabled'} 
-                    onValueChange={(value) => 
-                      setPlayerRequirements(prev => ({ ...prev, countRequirementEnabled: value === 'enabled' }))
-                    }
-                  >
-                    <SelectTrigger className="w-24">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="disabled">无</SelectItem>
-                      <SelectItem value="enabled">有</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {playerRequirements.countRequirementEnabled && (
-                  <div className="space-y-2 pl-4">
-                    <div>
-                      <Label>人数下限</Label>
-                      <Input
-                        type="number"
-                        value={playerRequirements.minCount || ''}
-                        onChange={(e) => setPlayerRequirements(prev => ({
-                          ...prev,
-                          minCount: parseInt(e.target.value) || undefined
-                        }))}
-                        placeholder="最少人数"
-                        className="mt-1"
-                      />
-                    </div>
-                    <div>
-                      <Label>人数上限</Label>
-                      <Input
-                        type="number"
-                        value={playerRequirements.maxCount || ''}
-                        onChange={(e) => setPlayerRequirements(prev => ({
-                          ...prev,
-                          maxCount: parseInt(e.target.value) || undefined
-                        }))}
-                        placeholder="最多人数"
-                        className="mt-1"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* 角色选择和管理 - 保持原位置 */}
+            {/* 角色选择和管理 */}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold">角色管理</h3>
@@ -1345,7 +1217,159 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                 <div key={role.id}>
                   <div className="bg-gray-50 p-4 rounded-lg space-y-4">
                     <h4 className="font-medium">角色: {role.name}</h4>
-                    
+
+                    {/* 队员角色的特殊要求（性别、年龄、人数） */}
+                    {role.id === 'player' && (
+                      <div className="space-y-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                        <h5 className="text-sm font-semibold text-blue-900">队员要求（仅适用于队员角色）</h5>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          {/* 左侧：性别和年龄要求 */}
+                          <div className="space-y-4">
+                            {/* 性别要求 */}
+                            <div>
+                              <Label>性别要求</Label>
+                              <Select
+                                value={playerRequirements.genderRequirement}
+                                onValueChange={(value: 'none' | 'male' | 'female') =>
+                                  setPlayerRequirements(prev => ({ ...prev, genderRequirement: value }))
+                                }
+                              >
+                                <SelectTrigger className="mt-1 w-full">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">无</SelectItem>
+                                  <SelectItem value="male">男</SelectItem>
+                                  <SelectItem value="female">女</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {/* 年龄要求 */}
+                            <div>
+                              <div className="flex items-center space-x-4 mb-2">
+                                <Label>年龄要求</Label>
+                                <Select
+                                  value={playerRequirements.ageRequirementEnabled ? 'enabled' : 'disabled'}
+                                  onValueChange={(value) =>
+                                    setPlayerRequirements(prev => ({ ...prev, ageRequirementEnabled: value === 'enabled' }))
+                                  }
+                                >
+                                  <SelectTrigger className="w-24">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="disabled">无</SelectItem>
+                                    <SelectItem value="enabled">有</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              {playerRequirements.ageRequirementEnabled && (
+                                <div className="space-y-2 pl-4">
+                                  <div>
+                                    <Label className="text-xs">最晚出生日期（年龄下限）</Label>
+                                    <Input
+                                      type="date"
+                                      value={playerRequirements.maxAgeDate || ''}
+                                      onChange={(e) => {
+                                        const newMaxAgeDate = e.target.value
+                                        const minAgeDate = playerRequirements.minAgeDate
+
+                                        if (newMaxAgeDate && minAgeDate && newMaxAgeDate <= minAgeDate) {
+                                          alert('⚠️ 日期设置不合理\n\n最晚出生日期应该晚于最早出生日期\n\n请调整日期范围')
+                                          return
+                                        }
+
+                                        setPlayerRequirements(prev => ({
+                                          ...prev,
+                                          maxAgeDate: newMaxAgeDate
+                                        }))
+                                      }}
+                                      className="mt-1"
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs">最早出生日期（年龄上限）</Label>
+                                    <Input
+                                      type="date"
+                                      value={playerRequirements.minAgeDate || ''}
+                                      onChange={(e) => {
+                                        const newMinAgeDate = e.target.value
+                                        const maxAgeDate = playerRequirements.maxAgeDate
+
+                                        if (newMinAgeDate && maxAgeDate && newMinAgeDate >= maxAgeDate) {
+                                          alert('⚠️ 日期设置不合理\n\n最早出生日期应该早于最晚出生日期\n\n请调整日期范围')
+                                          return
+                                        }
+
+                                        setPlayerRequirements(prev => ({
+                                          ...prev,
+                                          minAgeDate: newMinAgeDate
+                                        }))
+                                      }}
+                                      className="mt-1"
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* 右侧：人数要求 */}
+                          <div>
+                            <div className="flex items-center space-x-4 mb-2">
+                              <Label>人数要求</Label>
+                              <Select
+                                value={playerRequirements.countRequirementEnabled ? 'enabled' : 'disabled'}
+                                onValueChange={(value) =>
+                                  setPlayerRequirements(prev => ({ ...prev, countRequirementEnabled: value === 'enabled' }))
+                                }
+                              >
+                                <SelectTrigger className="w-24">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="disabled">无</SelectItem>
+                                  <SelectItem value="enabled">有</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            {playerRequirements.countRequirementEnabled && (
+                              <div className="space-y-2 pl-4">
+                                <div>
+                                  <Label className="text-xs">人数下限</Label>
+                                  <Input
+                                    type="number"
+                                    value={playerRequirements.minCount || ''}
+                                    onChange={(e) => setPlayerRequirements(prev => ({
+                                      ...prev,
+                                      minCount: parseInt(e.target.value) || undefined
+                                    }))}
+                                    placeholder="最少人数"
+                                    className="mt-1"
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-xs">人数上限</Label>
+                                  <Input
+                                    type="number"
+                                    value={playerRequirements.maxCount || ''}
+                                    onChange={(e) => setPlayerRequirements(prev => ({
+                                      ...prev,
+                                      maxCount: parseInt(e.target.value) || undefined
+                                    }))}
+                                    placeholder="最多人数"
+                                    className="mt-1"
+                                  />
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* 合并的字段列表 */}
                     <div>
                       <h3 className="text-sm font-semibold mb-3">角色字段</h3>
@@ -1378,27 +1402,27 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                                       if (r.id === role.id) {
                                         // 更新allFields
                                         const updatedAllFields = r.allFields
-                                          ? r.allFields.map(f => 
+                                          ? r.allFields.map(f =>
                                               f.id === field.id ? { ...f, required: !f.required } : f
                                             )
                                           : [
                                               ...(r.commonFields || []).map(f => ({ ...f, isCommon: true })),
                                               ...r.customFields.map(f => ({ ...f, isCommon: false }))
-                                            ].map(f => 
+                                            ].map(f =>
                                               f.id === field.id ? { ...f, required: !f.required } : f
                                             )
-                                        
+
                                         // 同时更新commonFields和customFields
                                         return {
                                           ...r,
                                           allFields: updatedAllFields,
                                           commonFields: field.isCommon
-                                            ? r.commonFields?.map(f => 
+                                            ? r.commonFields?.map(f =>
                                                 f.id === field.id ? { ...f, required: !f.required } : f
                                               )
                                             : r.commonFields,
                                           customFields: !field.isCommon
-                                            ? r.customFields.map(f => 
+                                            ? r.customFields.map(f =>
                                                 f.id === field.id ? { ...f, required: !f.required } : f
                                               )
                                             : r.customFields
@@ -1420,7 +1444,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                                               ...(r.commonFields || []).map(f => ({ ...f, isCommon: true })),
                                               ...r.customFields.map(f => ({ ...f, isCommon: false }))
                                             ].filter(f => f.id !== field.id)
-                                        
+
                                         // 同时更新commonFields和customFields
                                         return {
                                           ...r,
@@ -1437,15 +1461,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                                     })
                                   }))
                                 }}
-                                onEditOptions={
-                                  (field.type === 'select' || field.type === 'multiselect')
-                                    ? () => {
-                                        setEditingField({ type: 'player', roleId: role.id, field, isCommon: field.isCommon || false })
-                                        setTempOptions(field.options || ['选项1', '选项2'])
-                                        setShowOptionsDialog(true)
-                                      }
-                                    : undefined
-                                }
+                                onEditField={() => openFieldEditor('player', field, field.isCommon || false, role.id)}
                               />
                             ))}
                           </div>
@@ -1584,7 +1600,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
             为人员报名添加新的角色类型
           </DialogDescription>
         </DialogHeader>
-        
+
         <div className="space-y-4">
           <div>
             <Label htmlFor="roleName">角色名称</Label>
@@ -1611,6 +1627,103 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           <Button onClick={addRole}>
             <UserPlus className="h-4 w-4 mr-2" />
             添加
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* 字段编辑对话框 */}
+    <Dialog open={showFieldEditDialog} onOpenChange={setShowFieldEditDialog}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>编辑字段</DialogTitle>
+          <DialogDescription>
+            修改字段的名称、类型和选项
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="fieldLabel">字段名称</Label>
+            <Input
+              id="fieldLabel"
+              value={tempFieldLabel}
+              onChange={(e) => setTempFieldLabel(e.target.value)}
+              placeholder="输入字段名称"
+              className="mt-2"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="fieldType">字段类型</Label>
+            <Select value={tempFieldType} onValueChange={(value: any) => setTempFieldType(value)}>
+              <SelectTrigger className="mt-2">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="text">文本</SelectItem>
+                <SelectItem value="date">日期</SelectItem>
+                <SelectItem value="image">图片</SelectItem>
+                <SelectItem value="select">单选</SelectItem>
+                <SelectItem value="multiselect">多选</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {(tempFieldType === 'select' || tempFieldType === 'multiselect') && (
+            <div className="space-y-2">
+              <Label>选项列表</Label>
+              {tempFieldOptions.map((option, index) => (
+                <div key={index} className="flex items-center space-x-2">
+                  <Input
+                    value={option}
+                    onChange={(e) => {
+                      const newOptions = [...tempFieldOptions]
+                      newOptions[index] = e.target.value
+                      setTempFieldOptions(newOptions)
+                    }}
+                    placeholder={`选项 ${index + 1}`}
+                  />
+                  {tempFieldOptions.length > 2 && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setTempFieldOptions(tempFieldOptions.filter((_, i) => i !== index))
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setTempFieldOptions([...tempFieldOptions, `选项${tempFieldOptions.length + 1}`])}
+                className="w-full"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                添加选项
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setShowFieldEditDialog(false)
+              setEditingFieldData(null)
+            }}
+          >
+            取消
+          </Button>
+          <Button onClick={saveFieldEdit}>
+            保存
           </Button>
         </DialogFooter>
       </DialogContent>
