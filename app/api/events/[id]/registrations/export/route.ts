@@ -7,6 +7,34 @@ interface RouteParams {
   params: Promise<{ id: string }>
 }
 
+const INVALID_SHEET_CHARS = /[:\\/?*\[\]]/g
+const INVALID_PATH_CHARS = /[\\\/?%*:|"<>]/g
+
+const sanitizeSheetName = (name: string, fallback: string) => {
+  const cleaned = (name || '').replace(INVALID_SHEET_CHARS, '-').trim()
+  const base = cleaned || fallback
+  return base.length > 31 ? base.slice(0, 31) : base
+}
+
+const ensureUniqueSheetName = (rawName: string, used: Set<string>, fallback: string) => {
+  const sanitized = sanitizeSheetName(rawName, fallback)
+  let name = sanitized
+  let counter = 2
+  while (used.has(name)) {
+    const suffix = `-${counter}`
+    const base = sanitized.length > 31 - suffix.length ? sanitized.slice(0, 31 - suffix.length) : sanitized
+    name = `${base}${suffix}`
+    counter += 1
+  }
+  used.add(name)
+  return name
+}
+
+const sanitizePathSegment = (name: string, fallback: string) => {
+  const cleaned = (name || '').replace(INVALID_PATH_CHARS, '-').trim()
+  return cleaned || fallback
+}
+
 export async function POST(
   request: NextRequest,
   context: RouteParams
@@ -69,7 +97,7 @@ export async function POST(
     let teamFields: any[] = []
     let playerRoles: any[] = []
     let hasAttachments = false
-    const imageFields = { team: [], player: [] }
+    const imageFields: { team: any[], player: any[] } = { team: [], player: [] }
 
     if (settings?.team_requirements) {
       const teamReq = settings.team_requirements
@@ -85,23 +113,54 @@ export async function POST(
 
     if (settings?.player_requirements?.roles) {
       playerRoles = settings.player_requirements.roles
-      // 检查所有角色的图片字段
-      playerRoles.forEach(role => {
-        const roleFields = role.allFields || [
-          ...(role.commonFields || []),
-          ...(role.customFields || [])
-        ]
-        const roleImageFields = roleFields.filter(f => f.type === 'image')
-        if (roleImageFields.length > 0) {
-          imageFields.player = [...imageFields.player, ...roleImageFields]
-          hasAttachments = true
-        }
-      })
     }
 
-    // 准备Excel数据 - 分为队伍信息和队员信息两个sheet
+    if (playerRoles.length === 0) {
+      playerRoles = [
+        {
+          id: 'player',
+          name: '队员信息',
+          commonFields: [],
+          customFields: [],
+          allFields: []
+        }
+      ]
+    }
+
+    const rolesById = new Map(playerRoles.map(role => [role.id, role]))
+    const defaultRole = rolesById.get('player') || playerRoles[0]
+
+    // 为角色准备sheet名和路径名
+    const usedSheetNames = new Set<string>()
+    const roleSheetNames = new Map<string, string>()
+    const rolePathNames = new Map<string, string>()
+    playerRoles.forEach(role => {
+      const rawName = String(role?.name || role?.id || '角色')
+      const sheetName = ensureUniqueSheetName(rawName, usedSheetNames, '队员信息')
+      roleSheetNames.set(role.id, sheetName)
+      rolePathNames.set(role.id, sanitizePathSegment(rawName, '角色'))
+    })
+
+    // 检查所有角色的图片字段
+    playerRoles.forEach(role => {
+      const roleFields = role.allFields || [
+        ...(role.commonFields || []),
+        ...(role.customFields || [])
+      ]
+      const roleImageFields = roleFields.filter((f: any) => f.type === 'image')
+      if (roleImageFields.length > 0) {
+        imageFields.player = [...imageFields.player, ...roleImageFields]
+        hasAttachments = true
+      }
+    })
+
+    // 准备Excel数据 - 分为队伍信息和各角色信息的多个sheet
     const teamSheetData: any[] = []
-    const playerSheetData: any[] = []
+    // 为每个角色创建独立的数据数组
+    const roleSheetData: Map<string, any[]> = new Map()
+    playerRoles.forEach(role => {
+      roleSheetData.set(role.id, [])
+    })
 
     // 如果有附件，创建zip对象
     let zip: JSZip | null = null
@@ -153,6 +212,7 @@ export async function POST(
           if (value && typeof value === 'string' && value.startsWith('http') && zip) {
             // 下载图片
             const fieldLabel = field.label || field.id
+            const safeTeamFieldLabel = sanitizePathSegment(String(fieldLabel), '字段')
             attachmentPromises.push(
               (async () => {
                 try {
@@ -183,10 +243,10 @@ export async function POST(
                   let filePath = ''
                   if (registrations.length === 1) {
                     // 单个队伍：直接放在根目录
-                    filePath = `${fieldLabel}.${extension}`
+                    filePath = `${safeTeamFieldLabel}.${extension}`
                   } else {
                     // 多个队伍：字段文件夹/队伍文件夹/文件名
-                    filePath = `${fieldLabel}/${teamFolderName}/${fieldLabel}.${extension}`
+                    filePath = `${safeTeamFieldLabel}/${teamFolderName}/${safeTeamFieldLabel}.${extension}`
                   }
 
                   zip.file(filePath, arrayBuffer)
@@ -206,25 +266,52 @@ export async function POST(
 
       teamSheetData.push(teamRow)
 
-      // 准备队员信息数据
+      // 准备人员信息数据（按角色分别处理）
       if (playersData.length > 0) {
-        // 获取第一个角色的字段配置（或使用默认配置）
-        const firstRole = playerRoles?.[0]
-        const playerFields = firstRole?.allFields ||
-                            [...(firstRole?.commonFields || []),
-                             ...(firstRole?.customFields || [])] ||
-                            []
+        // 按角色统计人员序号
+        const roleCounters: Map<string, number> = new Map()
 
         for (let playerIndex = 0; playerIndex < playersData.length; playerIndex++) {
           const player: any = playersData[playerIndex]
 
+          // 获取该人员的角色配置
+          const roleIdCandidate = player.role || player.roleId
+          let currentRole = roleIdCandidate ? rolesById.get(roleIdCandidate) : undefined
+          if (!currentRole) {
+            const roleNameCandidate = player.roleName || player.role
+            if (roleNameCandidate) {
+              currentRole = playerRoles.find(r => r.name === roleNameCandidate)
+            }
+          }
+          if (!currentRole) {
+            currentRole = defaultRole
+            if (currentRole) {
+              console.warn(`未找到角色配置: ${roleIdCandidate || player.roleName || '未知'}，已回退到默认角色`)
+            }
+          }
+          if (!currentRole) {
+            console.warn('未找到角色配置且无默认角色，跳过该人员')
+            continue
+          }
+
+          // 获取该角色的字段配置
+          const playerFields = currentRole.allFields ||
+                              [...(currentRole.commonFields || []),
+                               ...(currentRole.customFields || [])] ||
+                              []
+
+          // 更新该角色的序号计数
+          const roleIdForSheet = currentRole.id
+          const currentCount = (roleCounters.get(roleIdForSheet) || 0) + 1
+          roleCounters.set(roleIdForSheet, currentCount)
+
           const playerRow: any = {
-            '序号': `${index + 1}-${playerIndex + 1}`,
+            '序号': `${index + 1}-${currentCount}`,
             '所属队伍': teamName
           }
 
-          // 按照报名设置的字段顺序添加数据
-          playerFields.forEach(field => {
+          // 按照该角色的字段顺序添加数据
+          playerFields.forEach((field: any) => {
             const value = player[field.id]
 
             // 跳过图片字段（已经下载到文件夹）
@@ -232,7 +319,10 @@ export async function POST(
               if (value && typeof value === 'string' && value.startsWith('http') && zip) {
                 // 下载图片
                 const fieldLabel = field.label || field.id
-                const playerName = player['姓名'] || player['name'] || player['队员姓名'] || `队员${playerIndex + 1}`
+                const playerName = player['姓名'] || player['name'] || player['队员姓名'] || `${currentRole.name}${currentCount}`
+                const safeRoleSegment = rolePathNames.get(currentRole.id) || sanitizePathSegment(String(currentRole.name || currentRole.id), '角色')
+                const safeFieldLabel = sanitizePathSegment(String(fieldLabel), '字段')
+                const safePlayerName = sanitizePathSegment(String(playerName), '队员')
 
                 attachmentPromises.push(
                   (async () => {
@@ -263,11 +353,11 @@ export async function POST(
                       // 根据报名数量决定文件路径
                       let filePath = ''
                       if (registrations.length === 1) {
-                        // 单个队伍：字段名文件夹/队员名
-                        filePath = `${fieldLabel}/${playerName}.${extension}`
+                        // 单个队伍：角色-字段名文件夹/队员名
+                        filePath = `${safeRoleSegment}-${safeFieldLabel}/${safePlayerName}.${extension}`
                       } else {
-                        // 多个队伍：字段名文件夹/队伍文件夹/队员名
-                        filePath = `${fieldLabel}/${teamFolderName}/${playerName}.${extension}`
+                        // 多个队伍：角色-字段名文件夹/队伍文件夹/队员名
+                        filePath = `${safeRoleSegment}-${safeFieldLabel}/${teamFolderName}/${safePlayerName}.${extension}`
                       }
 
                       zip.file(filePath, arrayBuffer)
@@ -285,7 +375,14 @@ export async function POST(
             playerRow[field.label] = value || ''
           })
 
-          playerSheetData.push(playerRow)
+          // 将数据添加到对应角色的sheet数据中
+          if (!roleSheetData.has(roleIdForSheet)) {
+            roleSheetData.set(roleIdForSheet, [])
+          }
+          const roleData = roleSheetData.get(roleIdForSheet)
+          if (roleData) {
+            roleData.push(playerRow)
+          }
         }
       }
     }
@@ -308,16 +405,23 @@ export async function POST(
       XLSX.utils.book_append_sheet(wb, teamSheet, '队伍信息')
     }
 
-    // 创建队员信息sheet
-    if (playerSheetData.length > 0) {
-      const playerSheet = XLSX.utils.json_to_sheet(playerSheetData)
-      const playerColWidths = Object.keys(playerSheetData[0] || {}).map(() => ({ wch: 15 }))
-      playerSheet['!cols'] = playerColWidths
-      XLSX.utils.book_append_sheet(wb, playerSheet, '队员信息')
-    }
+    // 为每个角色创建独立的sheet
+    let hasAnyRoleData = false
+    playerRoles.forEach(role => {
+      const roleData = roleSheetData.get(role.id)
+      if (roleData && roleData.length > 0) {
+        hasAnyRoleData = true
+        const roleSheet = XLSX.utils.json_to_sheet(roleData)
+        const roleColWidths = Object.keys(roleData[0] || {}).map(() => ({ wch: 15 }))
+        roleSheet['!cols'] = roleColWidths
+        // 使用角色名称作为sheet名称（需保证合法且唯一）
+        const sheetName = roleSheetNames.get(role.id) || ensureUniqueSheetName(String(role.name || role.id), usedSheetNames, '队员信息')
+        XLSX.utils.book_append_sheet(wb, roleSheet, sheetName)
+      }
+    })
 
     // 如果没有数据，创建一个空sheet
-    if (teamSheetData.length === 0 && playerSheetData.length === 0) {
+    if (teamSheetData.length === 0 && !hasAnyRoleData) {
       const emptySheet = XLSX.utils.json_to_sheet([{ '信息': '暂无数据' }])
       XLSX.utils.book_append_sheet(wb, emptySheet, '报名信息')
     }
@@ -342,7 +446,7 @@ export async function POST(
       const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' })
 
       // 返回zip文件
-      return new NextResponse(zipBuffer, {
+      return new NextResponse(zipBuffer as any, {
         status: 200,
         headers: {
           'Content-Type': 'application/zip',
@@ -351,7 +455,7 @@ export async function POST(
       })
     } else {
       // 没有附件，直接返回Excel
-      return new NextResponse(excelBuffer, {
+      return new NextResponse(excelBuffer as any, {
         status: 200,
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -359,14 +463,14 @@ export async function POST(
         },
       })
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('导出失败:', error)
     console.error('Error details:', {
-      message: error.message,
-      stack: error.stack
+      message: error?.message,
+      stack: error?.stack
     })
     return NextResponse.json(
-      { success: false, error: error.message || '导出失败' },
+      { success: false, error: error?.message || '导出失败' },
       { status: 500 }
     )
   }
