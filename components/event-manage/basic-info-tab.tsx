@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -13,6 +12,17 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Loader2, Upload, Calendar, MapPin, Phone, FileText, Link2, ExternalLink } from 'lucide-react'
 import Image from 'next/image'
+
+const SPORT_EVENT_TYPE = '体育'
+const sportSubTypes: Record<string, string[]> = {
+  [SPORT_EVENT_TYPE]: ['棍网球', '篮球', '足球', '排球'],
+}
+
+const eventTypes = [
+  SPORT_EVENT_TYPE,
+  '科创',
+  '艺术'
+]
 
 // 工具函数：提取文本中的所有链接
 function extractLinks(text: string): string[] {
@@ -74,15 +84,17 @@ const updateEventSchema = z.object({
 }, {
   message: '结束时间不能早于开始时间',
   path: ['end_date']
+}).superRefine((data, ctx) => {
+  if (data.type === SPORT_EVENT_TYPE && !data.short_name?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['short_name'],
+      message: '请选择具体项目',
+    })
+  }
 })
 
 type EventFormData = z.infer<typeof updateEventSchema>
-
-const eventTypes = [
-  '体育',
-  '科创',
-  '艺术'
-]
 
 interface BasicInfoTabProps {
   event: {
@@ -107,7 +119,6 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
   const [posterPreview, setPosterPreview] = useState<string | null>(event.poster_url || null)
   const [error, setError] = useState('')
   const [dateError, setDateError] = useState('')
-  const router = useRouter()
 
   const {
     register,
@@ -340,22 +351,56 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
             </div>
           </div>
 
-          <div>
-            <Label htmlFor="type">赛事类型 *</Label>
-            <Select onValueChange={(value) => setValue('type', value)} value={watchedType}>
-              <SelectTrigger className="mt-1">
-                <SelectValue placeholder="选择赛事类型" />
-              </SelectTrigger>
-              <SelectContent>
-                {eventTypes.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {type}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {errors.type && (
-              <p className="text-red-600 text-sm mt-1">{errors.type.message}</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="type">赛事类型 *</Label>
+              <Select
+                onValueChange={(value) => {
+                  setValue('type', value)
+                  if (!sportSubTypes[value]) {
+                    setValue('short_name', '')
+                  }
+                }}
+                value={watchedType}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="选择赛事类型" />
+                </SelectTrigger>
+                <SelectContent>
+                  {eventTypes.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors.type && (
+                <p className="text-red-600 text-sm mt-1">{errors.type.message}</p>
+              )}
+            </div>
+
+            {sportSubTypes[watchedType] && (
+              <div>
+                <Label>具体项目 *</Label>
+                <Select
+                  onValueChange={(value) => setValue('short_name', value)}
+                  value={watch('short_name') || ''}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="选择具体项目" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sportSubTypes[watchedType].map((sub) => (
+                      <SelectItem key={sub} value={sub}>
+                        {sub}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {errors.short_name && (
+                  <p className="text-red-600 text-sm mt-1">{errors.short_name.message}</p>
+                )}
+              </div>
             )}
           </div>
 

@@ -8,7 +8,6 @@ import type { Event } from '@/lib/types'
 
 export default function HomePage() {
   const [events, setEvents] = useState<Event[]>([])
-  const [filteredEvents, setFilteredEvents] = useState<Event[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const router = useRouter()
@@ -21,10 +20,8 @@ export default function HomePage() {
     try {
       const response = await fetch('/api/events')
       const result = await response.json()
-
       if (result.success) {
         setEvents(result.data)
-        setFilteredEvents(result.data)
       } else {
         setError(result.error || '获取赛事列表失败')
       }
@@ -36,18 +33,6 @@ export default function HomePage() {
     }
   }
 
-  const handleSearch = (keyword: string) => {
-    if (!keyword.trim()) {
-      setFilteredEvents(events)
-    } else {
-      const filtered = events.filter(event =>
-        event.name.toLowerCase().includes(keyword.toLowerCase()) ||
-        event.short_name?.toLowerCase().includes(keyword.toLowerCase())
-      )
-      setFilteredEvents(filtered)
-    }
-  }
-
   const handleCreateEvent = () => {
     router.push('/events/create')
   }
@@ -56,25 +41,12 @@ export default function HomePage() {
     try {
       const response = await fetch(`/api/events/${eventId}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_visible: isVisible }),
       })
-
       const result = await response.json()
-
       if (result.success) {
-        // 更新本地状态
-        const updatedEvents = events.map(event =>
-          event.id === eventId ? { ...event, is_visible: isVisible } : event
-        )
-        setEvents(updatedEvents)
-        setFilteredEvents(updatedEvents.filter(event => {
-          const currentFilter = filteredEvents.length !== events.length
-          if (!currentFilter) return true
-          return event.name.toLowerCase().includes('') // 保持当前搜索结果
-        }))
+        setEvents(prev => prev.map(e => e.id === eventId ? { ...e, is_visible: isVisible } : e))
       } else {
         setError(result.error || '更新显示设置失败')
       }
@@ -90,17 +62,10 @@ export default function HomePage() {
 
   const handleDeleteEvent = async (eventId: string) => {
     try {
-      const response = await fetch(`/api/events/${eventId}`, {
-        method: 'DELETE',
-      })
-
+      const response = await fetch(`/api/events/${eventId}`, { method: 'DELETE' })
       const result = await response.json()
-
       if (result.success) {
-        // 从本地状态中移除
-        const updatedEvents = events.filter(event => event.id !== eventId)
-        setEvents(updatedEvents)
-        setFilteredEvents(updatedEvents)
+        setEvents(prev => prev.filter(e => e.id !== eventId))
       } else {
         setError(result.error || '删除赛事失败')
       }
@@ -122,20 +87,15 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AdminHeader
-        onSearch={handleSearch}
-        onCreateEvent={handleCreateEvent}
-      />
-      
+      <AdminHeader onCreateEvent={handleCreateEvent} />
       <main className="p-6">
         {error && (
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md text-red-600 text-sm">
             {error}
           </div>
         )}
-
         <EventList
-          events={filteredEvents}
+          events={events}
           onToggleVisibility={handleToggleVisibility}
           onManageEvent={handleManageEvent}
           onDeleteEvent={handleDeleteEvent}
