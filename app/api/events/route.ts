@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentAdminSession, createSupabaseServer } from '@/lib/auth'
+import { pickEffectiveRegistrationSetting } from '@/lib/registration-settings'
 
 // 获取赛事列表
 export async function GET() {
@@ -30,9 +31,17 @@ export async function GET() {
       )
     }
 
+    // 处理 registration_settings，确保多组别时选中当前最相关的一条配置
+    const processedEvents = events?.map(event => ({
+      ...event,
+      registration_settings: Array.isArray(event.registration_settings)
+        ? pickEffectiveRegistrationSetting(event.registration_settings)
+        : event.registration_settings
+    })) || []
+
     return NextResponse.json({
       success: true,
-      data: events || [],
+      data: processedEvents,
     })
   } catch (error) {
     console.error('Events API error:', error)
@@ -65,6 +74,8 @@ export async function POST(request: NextRequest) {
       details,
       phone,
       poster_url,
+      requirements,
+      division_ids,
     } = body
 
     // 验证必填字段
@@ -89,6 +100,7 @@ export async function POST(request: NextRequest) {
         details,
         phone,
         poster_url,
+        requirements,
         is_visible: true,
       })
       .select()
@@ -100,6 +112,23 @@ export async function POST(request: NextRequest) {
         { error: '创建赛事失败', success: false },
         { status: 500 }
       )
+    }
+
+    // 创建赛事-组别关联
+    if (division_ids && division_ids.length > 0) {
+      const eventDivisions = division_ids.map((divisionId: string) => ({
+        event_id: event.id,
+        division_id: divisionId,
+      }))
+
+      const { error: divisionError } = await supabase
+        .from('event_divisions')
+        .insert(eventDivisions)
+
+      if (divisionError) {
+        console.error('Create event divisions error:', divisionError)
+        // 不阻断，赛事已创建成功
+      }
     }
 
     return NextResponse.json({

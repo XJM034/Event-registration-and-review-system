@@ -10,29 +10,40 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Loader2, Upload, Calendar, MapPin, Phone, FileText, Link2, ExternalLink } from 'lucide-react'
 import Image from 'next/image'
 
-const SPORT_EVENT_TYPE = '体育'
-const sportSubTypes: Record<string, string[]> = {
-  [SPORT_EVENT_TYPE]: ['棍网球', '篮球', '足球', '排球'],
+interface ProjectType {
+  id: string
+  name: string
+  display_order: number
+  is_enabled: boolean
 }
 
-const eventTypes = [
-  SPORT_EVENT_TYPE,
-  '科创',
-  '艺术'
-]
+interface Project {
+  id: string
+  project_type_id: string
+  name: string
+  display_order: number
+  is_enabled: boolean
+}
 
-// 工具函数：提取文本中的所有链接
+interface DivisionItem {
+  id: string
+  project_id: string
+  name: string
+  description?: string
+  display_order: number
+  is_enabled: boolean
+}
+
 function extractLinks(text: string): string[] {
   if (!text) return []
   const urlRegex = /(https?:\/\/[^\s]+)/g
-  const matches = text.match(urlRegex)
-  return matches || []
+  return text.match(urlRegex) || []
 }
 
-// 链接预览组件
 function LinkPreview({ links }: { links: string[] }) {
   if (links.length === 0) return null
 
@@ -46,22 +57,12 @@ function LinkPreview({ links }: { links: string[] }) {
         {links.map((link, index) => (
           <div key={index} className="flex items-center gap-2 text-sm">
             <ExternalLink className="h-3 w-3 text-blue-600 flex-shrink-0" />
-            <a
-              href={link}
-              target="_blank"
-              rel="noopener noreferrer"
+            <a href={link} target="_blank" rel="noopener noreferrer"
               className="text-blue-600 hover:text-blue-800 underline break-all flex-1"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {link}
-            </a>
-            <span className="text-green-600 text-xs">✓ 可点击</span>
+              onClick={(e) => e.stopPropagation()}>{link}</a>
           </div>
         ))}
       </div>
-      <p className="text-xs text-blue-600 mt-2">
-        💡 提示：这些链接在报名端会自动转换为可点击的超链接
-      </p>
     </div>
   )
 }
@@ -84,14 +85,6 @@ const updateEventSchema = z.object({
 }, {
   message: '结束时间不能早于开始时间',
   path: ['end_date']
-}).superRefine((data, ctx) => {
-  if (data.type === SPORT_EVENT_TYPE && !data.short_name?.trim()) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['short_name'],
-      message: '请选择具体项目',
-    })
-  }
 })
 
 type EventFormData = z.infer<typeof updateEventSchema>
@@ -120,6 +113,15 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
   const [error, setError] = useState('')
   const [dateError, setDateError] = useState('')
 
+  // 动态配置
+  const [projectTypes, setProjectTypes] = useState<ProjectType[]>([])
+  const [allProjects, setAllProjects] = useState<Project[]>([])
+  const [allDivisions, setAllDivisions] = useState<DivisionItem[]>([])
+  const [selectedTypeId, setSelectedTypeId] = useState('')
+  const [selectedProjectId, setSelectedProjectId] = useState('')
+  const [selectedDivisionIds, setSelectedDivisionIds] = useState<string[]>([])
+  const [loadingConfig, setLoadingConfig] = useState(true)
+
   const {
     register,
     handleSubmit,
@@ -141,33 +143,95 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
     }
   })
 
-  const watchedType = watch('type')
   const watchedStartDate = watch('start_date')
   const watchedEndDate = watch('end_date')
   const watchedDetails = watch('details')
   const watchedRequirements = watch('requirements')
 
-  // 提取赛事详情和报名要求中的链接
   const detailsLinks = extractLinks(watchedDetails || '')
   const requirementsLinks = extractLinks(watchedRequirements || '')
 
-  // 格式化日期显示
+  const filteredProjects = allProjects.filter(p => p.project_type_id === selectedTypeId)
+  const filteredDivisions = allDivisions.filter(d => d.project_id === selectedProjectId)
+
+  // 加载配置 + 赛事已关联的组别
+  useEffect(() => {
+    const loadConfig = async () => {
+      try {
+        const [typesRes, projectsRes, divisionsRes, eventDivisionsRes] = await Promise.all([
+          fetch('/api/project-management/types'),
+          fetch('/api/project-management/projects'),
+          fetch('/api/project-management/divisions'),
+          fetch(`/api/events/${event.id}/divisions`),
+        ])
+        const [typesData, projectsData, divisionsData, eventDivisionsData] = await Promise.all([
+          typesRes.json(), projectsRes.json(), divisionsRes.json(), eventDivisionsRes.json(),
+        ])
+
+        const types = typesData.success ? typesData.data.filter((t: ProjectType) => t.is_enabled) : []
+        const projects = projectsData.success ? projectsData.data.filter((p: Project) => p.is_enabled) : []
+        const divs = divisionsData.success ? divisionsData.data.filter((d: DivisionItem) => d.is_enabled) : []
+
+        setProjectTypes(types)
+        setAllProjects(projects)
+        setAllDivisions(divs)
+
+        // 优先根据赛事已关联组别反推“项目/类型”，避免依赖 short_name 猜测导致回填失败
+        if (eventDivisionsData.success && eventDivisionsData.data && eventDivisionsData.data.length > 0) {
+          const linkedDivisions: DivisionItem[] = eventDivisionsData.data
+          setSelectedDivisionIds(linkedDivisions.map((d: DivisionItem) => d.id))
+
+          const projectIdFromDivision = linkedDivisions[0]?.project_id
+          if (projectIdFromDivision) {
+            const matchedProject = projects.find((p: Project) => p.id === projectIdFromDivision)
+            if (matchedProject) {
+              setSelectedProjectId(matchedProject.id)
+              const matchedType = types.find((t: ProjectType) => t.id === matchedProject.project_type_id)
+              if (matchedType) {
+                setSelectedTypeId(matchedType.id)
+                setValue('type', matchedType.name, { shouldValidate: true })
+              }
+            }
+          }
+        } else {
+          // 兼容旧数据：根据赛事的 type + short_name 回填
+          const matchedType = types.find((t: ProjectType) => t.name === event.type)
+          if (matchedType) {
+            setSelectedTypeId(matchedType.id)
+            setValue('type', matchedType.name, { shouldValidate: true })
+            const matchedProject = projects.find((p: Project) =>
+              p.project_type_id === matchedType.id && p.name === event.short_name
+            )
+            if (matchedProject) {
+              setSelectedProjectId(matchedProject.id)
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Load config error:', e)
+      } finally {
+        setLoadingConfig(false)
+      }
+    }
+    loadConfig()
+  }, [event.id, event.type, event.short_name, setValue])
+
+  // 确保编辑场景下未手动切换类型时，type 仍在表单值中
+  useEffect(() => {
+    if (event.type) {
+      setValue('type', event.type, { shouldValidate: true })
+    }
+  }, [event.type, setValue])
+
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr)
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    return `${year}-${month}-${day}`
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
   }
 
-  // 实时验证赛事时间
   useEffect(() => {
     if (watchedStartDate && watchedEndDate) {
-      const startDate = new Date(watchedStartDate)
-      const endDate = new Date(watchedEndDate)
-
-      if (endDate < startDate) {
-        setDateError(`⚠️ 结束时间不能早于开始时间（当前开始时间为：${formatDate(watchedStartDate)}）`)
+      if (new Date(watchedEndDate) < new Date(watchedStartDate)) {
+        setDateError(`结束时间不能早于开始时间（当前开始时间为：${formatDate(watchedStartDate)}）`)
       } else {
         setDateError('')
       }
@@ -177,22 +241,11 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
   const handlePosterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      if (!file.type.startsWith('image/')) {
-        setError('请选择图片文件')
-        return
-      }
-      
-      if (file.size > 5 * 1024 * 1024) {
-        setError('图片大小不能超过 5MB')
-        return
-      }
-
+      if (!file.type.startsWith('image/')) { setError('请选择图片文件'); return }
+      if (file.size > 5 * 1024 * 1024) { setError('图片大小不能超过 5MB'); return }
       setPosterFile(file)
-      
       const reader = new FileReader()
-      reader.onload = (e) => {
-        setPosterPreview(e.target?.result as string)
-      }
+      reader.onload = (e) => setPosterPreview(e.target?.result as string)
       reader.readAsDataURL(file)
       setError('')
     }
@@ -203,19 +256,10 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('bucket', 'event-posters')
-
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      })
-
+      const response = await fetch('/api/upload', { method: 'POST', body: formData })
       const result = await response.json()
-      
-      if (result.success) {
-        return result.data.url
-      } else {
-        throw new Error(result.error || '文件上传失败')
-      }
+      if (result.success) return result.data.url
+      throw new Error(result.error || '文件上传失败')
     } catch (error) {
       console.error('Upload error:', error)
       return null
@@ -228,34 +272,40 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
 
     try {
       let poster_url = event.poster_url
-      
       if (posterFile) {
         const uploadedUrl = await uploadPoster(posterFile)
-        if (!uploadedUrl) {
-          throw new Error('海报上传失败')
-        }
+        if (!uploadedUrl) throw new Error('海报上传失败')
         poster_url = uploadedUrl
       }
 
+      // 更新赛事基本信息
       const response = await fetch(`/api/events/${event.id}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...data,
-          poster_url,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...data, poster_url }),
       })
-
       const result = await response.json()
 
-      if (result.success) {
-        alert('保存成功！')
-        onUpdate()
-      } else {
+      if (!result.success) {
         setError(result.error || '更新赛事失败')
+        return
       }
+
+      // 更新组别关联
+      const divisionResponse = await fetch(`/api/events/${event.id}/divisions`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ division_ids: selectedDivisionIds }),
+      })
+
+      const divisionResult = await divisionResponse.json()
+      if (!divisionResponse.ok || !divisionResult.success) {
+        setError(divisionResult.error || '更新赛事组别失败')
+        return
+      }
+
+      alert('保存成功！')
+      onUpdate()
     } catch (error) {
       console.error('Update event error:', error)
       setError('网络错误，请稍后重试')
@@ -271,43 +321,26 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
           <Calendar className="h-5 w-5 mr-2" />
           基本信息
         </CardTitle>
-        <CardDescription>
-          修改赛事基本信息
-        </CardDescription>
+        <CardDescription>修改赛事基本信息</CardDescription>
       </CardHeader>
       <CardContent>
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md text-red-600 text-sm">
-            {error}
-          </div>
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md text-red-600 text-sm">{error}</div>
         )}
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+          <input type="hidden" {...register('type')} />
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="name">赛事名称 *</Label>
-              <Input
-                id="name"
-                {...register('name')}
-                placeholder="输入完整的赛事名称"
-                className="mt-1"
-              />
-              {errors.name && (
-                <p className="text-red-600 text-sm mt-1">{errors.name.message}</p>
-              )}
+              <Input id="name" {...register('name')} placeholder="输入完整的赛事名称" className="mt-1" />
+              {errors.name && <p className="text-red-600 text-sm mt-1">{errors.name.message}</p>}
             </div>
-
             <div>
               <Label htmlFor="short_name">赛事简称</Label>
-              <Input
-                id="short_name"
-                {...register('short_name')}
-                placeholder="用于显示的简短名称"
-                className="mt-1"
-              />
-              {errors.short_name && (
-                <p className="text-red-600 text-sm mt-1">{errors.short_name.message}</p>
-              )}
+              <Input id="short_name" {...register('short_name')} placeholder="用于显示的简短名称" className="mt-1" />
+              {errors.short_name && <p className="text-red-600 text-sm mt-1">{errors.short_name.message}</p>}
             </div>
           </div>
 
@@ -316,89 +349,103 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
             <div className="mt-2">
               {posterPreview ? (
                 <div className="relative w-40 h-40 border rounded-lg overflow-hidden">
-                  <Image
-                    src={posterPreview}
-                    alt="海报预览"
-                    fill
-                    className="object-cover"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="destructive"
-                    className="absolute top-2 right-2"
-                    onClick={() => {
-                      setPosterFile(null)
-                      setPosterPreview(null)
-                    }}
-                  >
-                    移除
-                  </Button>
+                  <Image src={posterPreview} alt="海报预览" fill className="object-cover" />
+                  <Button type="button" size="sm" variant="destructive" className="absolute top-2 right-2"
+                    onClick={() => { setPosterFile(null); setPosterPreview(null) }}>移除</Button>
                 </div>
               ) : (
                 <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors">
                   <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
                   <p className="text-sm text-gray-600 mb-2">点击或拖拽上传海报图片</p>
                   <p className="text-xs text-gray-500">支持 JPG、PNG 格式，文件大小不超过 5MB</p>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePosterChange}
-                    className="absolute inset-0 opacity-0 cursor-pointer"
-                  />
+                  <input type="file" accept="image/*" onChange={handlePosterChange}
+                    className="absolute inset-0 opacity-0 cursor-pointer" />
                 </div>
               )}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="type">赛事类型 *</Label>
-              <Select
-                onValueChange={(value) => {
-                  setValue('type', value)
-                  if (!sportSubTypes[value]) {
-                    setValue('short_name', '')
-                  }
-                }}
-                value={watchedType}
-              >
-                <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="选择赛事类型" />
-                </SelectTrigger>
-                <SelectContent>
-                  {eventTypes.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {errors.type && (
-                <p className="text-red-600 text-sm mt-1">{errors.type.message}</p>
-              )}
-            </div>
-
-            {sportSubTypes[watchedType] && (
+          {/* 赛事类型 - 三级联动 */}
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <Label>具体项目 *</Label>
+                <Label>赛事类型 *</Label>
                 <Select
-                  onValueChange={(value) => setValue('short_name', value)}
-                  value={watch('short_name') || ''}
+                  onValueChange={(value) => {
+                    const pt = projectTypes.find(t => t.id === value)
+                    setSelectedTypeId(value)
+                    setSelectedProjectId('')
+                    setSelectedDivisionIds([])
+                    setValue('type', pt?.name || '')
+                    setValue('short_name', '')
+                  }}
+                  value={selectedTypeId}
+                  disabled={loadingConfig}
                 >
                   <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="选择具体项目" />
+                    <SelectValue placeholder={loadingConfig ? '加载中...' : '选择赛事类型'} />
                   </SelectTrigger>
                   <SelectContent>
-                    {sportSubTypes[watchedType].map((sub) => (
-                      <SelectItem key={sub} value={sub}>
-                        {sub}
-                      </SelectItem>
+                    {projectTypes.map((pt) => (
+                      <SelectItem key={pt.id} value={pt.id}>{pt.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {errors.short_name && (
-                  <p className="text-red-600 text-sm mt-1">{errors.short_name.message}</p>
+                {errors.type && <p className="text-red-600 text-sm mt-1">{errors.type.message}</p>}
+              </div>
+
+              {filteredProjects.length > 0 && (
+                <div>
+                  <Label>具体项目 *</Label>
+                  <Select
+                    onValueChange={(value) => {
+                      const proj = allProjects.find(p => p.id === value)
+                      setSelectedProjectId(value)
+                      setSelectedDivisionIds([])
+                      setValue('short_name', proj?.name || '')
+                    }}
+                    value={selectedProjectId}
+                  >
+                    <SelectTrigger className="mt-1">
+                      <SelectValue placeholder="选择具体项目" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filteredProjects.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+
+            {filteredDivisions.length > 0 && (
+              <div>
+                <Label>组别选择</Label>
+                <p className="text-sm text-gray-500 mb-2">选择该赛事包含的组别</p>
+                <div className="border rounded-md p-4 space-y-2 max-h-60 overflow-y-auto">
+                  {filteredDivisions.map((division) => (
+                    <div key={division.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`div-${division.id}`}
+                        checked={selectedDivisionIds.includes(division.id)}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setSelectedDivisionIds([...selectedDivisionIds, division.id])
+                          } else {
+                            setSelectedDivisionIds(selectedDivisionIds.filter(id => id !== division.id))
+                          }
+                        }}
+                      />
+                      <label htmlFor={`div-${division.id}`} className="text-sm cursor-pointer">
+                        {division.name}
+                        {division.description && <span className="text-gray-500 ml-2">({division.description})</span>}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+                {selectedDivisionIds.length > 0 && (
+                  <p className="text-sm text-blue-600 mt-1">已选择 {selectedDivisionIds.length} 个组别</p>
                 )}
               </div>
             )}
@@ -407,114 +454,54 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label htmlFor="start_date">开始时间 *</Label>
-              <Input
-                id="start_date"
-                type="date"
-                {...register('start_date')}
-                className="mt-1"
-              />
-              {errors.start_date && (
-                <p className="text-red-600 text-sm mt-1">{errors.start_date.message}</p>
-              )}
+              <Input id="start_date" type="date" {...register('start_date')} className="mt-1" />
+              {errors.start_date && <p className="text-red-600 text-sm mt-1">{errors.start_date.message}</p>}
             </div>
-
             <div>
               <Label htmlFor="end_date">结束时间 *</Label>
-              <Input
-                id="end_date"
-                type="date"
-                {...register('end_date')}
-                className="mt-1"
-              />
-              {errors.end_date && (
-                <p className="text-red-600 text-sm mt-1">{errors.end_date.message}</p>
-              )}
-              {dateError && (
-                <p className="text-amber-600 text-sm mt-1">{dateError}</p>
-              )}
+              <Input id="end_date" type="date" {...register('end_date')} className="mt-1" />
+              {errors.end_date && <p className="text-red-600 text-sm mt-1">{errors.end_date.message}</p>}
+              {dateError && <p className="text-amber-600 text-sm mt-1">{dateError}</p>}
             </div>
           </div>
 
           <div>
             <Label htmlFor="address" className="flex items-center">
-              <MapPin className="h-4 w-4 mr-1" />
-              赛事地址
+              <MapPin className="h-4 w-4 mr-1" />赛事地址
             </Label>
-            <Input
-              id="address"
-              {...register('address')}
-              placeholder="比赛举办地址"
-              className="mt-1"
-            />
-            {errors.address && (
-              <p className="text-red-600 text-sm mt-1">{errors.address.message}</p>
-            )}
+            <Input id="address" {...register('address')} placeholder="比赛举办地址" className="mt-1" />
           </div>
 
           <div>
             <Label htmlFor="phone" className="flex items-center">
-              <Phone className="h-4 w-4 mr-1" />
-              咨询电话
+              <Phone className="h-4 w-4 mr-1" />咨询电话
             </Label>
-            <Input
-              id="phone"
-              {...register('phone')}
-              placeholder="联系电话"
-              className="mt-1"
-            />
-            {errors.phone && (
-              <p className="text-red-600 text-sm mt-1">{errors.phone.message}</p>
-            )}
+            <Input id="phone" {...register('phone')} placeholder="联系电话" className="mt-1" />
           </div>
 
           <div>
             <Label htmlFor="details" className="flex items-center">
-              <FileText className="h-4 w-4 mr-1" />
-              赛事详情
+              <FileText className="h-4 w-4 mr-1" />赛事详情
             </Label>
-            <Textarea
-              id="details"
-              {...register('details')}
+            <Textarea id="details" {...register('details')}
               placeholder="详细描述赛事规则、奖项设置等信息。支持插入链接，格式：https://..."
-              className="mt-1 min-h-32"
-            />
-            {errors.details && (
-              <p className="text-red-600 text-sm mt-1">{errors.details.message}</p>
-            )}
+              className="mt-1 min-h-32" />
             <LinkPreview links={detailsLinks} />
           </div>
 
           <div>
             <Label htmlFor="requirements" className="flex items-center">
-              <FileText className="h-4 w-4 mr-1" />
-              报名要求
+              <FileText className="h-4 w-4 mr-1" />报名要求
             </Label>
-            <Textarea
-              id="requirements"
-              {...register('requirements')}
+            <Textarea id="requirements" {...register('requirements')}
               placeholder="详细描述参赛要求、资格条件、注意事项等信息。支持插入链接，格式：https://..."
-              className="mt-1 min-h-32"
-            />
-            {errors.requirements && (
-              <p className="text-red-600 text-sm mt-1">{errors.requirements.message}</p>
-            )}
+              className="mt-1 min-h-32" />
             <LinkPreview links={requirementsLinks} />
           </div>
 
           <div className="flex justify-end">
-            <Button
-              type="submit"
-              disabled={isSubmitting}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  保存中...
-                </>
-              ) : (
-                '保存'
-              )}
+            <Button type="submit" disabled={isSubmitting} className="bg-blue-600 hover:bg-blue-700">
+              {isSubmitting ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />保存中...</>) : '保存'}
             </Button>
           </div>
         </form>

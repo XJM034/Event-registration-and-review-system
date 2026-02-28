@@ -3,8 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, Settings, Users, ClipboardList } from 'lucide-react'
 import Link from 'next/link'
@@ -59,7 +57,7 @@ export default function EventManagePage() {
         console.error('Failed to fetch event:', result.error)
         // 如果是未授权访问，重定向到登录页
         if (response.status === 401 || result.error === '未授权访问') {
-          router.push('/admin/login')
+          router.push('/auth/login')
         }
       }
     } catch (error) {
@@ -79,7 +77,7 @@ export default function EventManagePage() {
       } else {
         // 如果是未授权访问，重定向到登录页
         if (response.status === 401 || result.error === '未授权访问') {
-          router.push('/admin/login')
+          router.push('/auth/login')
         }
       }
     } catch (error) {
@@ -105,7 +103,7 @@ export default function EventManagePage() {
           <p className="text-gray-600">赛事不存在</p>
           <Button
             className="mt-4"
-            onClick={() => router.push('/')}
+            onClick={() => router.push('/events')}
           >
             返回主页
           </Button>
@@ -120,7 +118,7 @@ export default function EventManagePage() {
         {/* 左侧边栏 */}
         <div className="w-64 bg-white shadow-lg min-h-screen">
           <div className="p-4">
-            <Link href="/" className="inline-flex items-center text-blue-600 hover:text-blue-700 mb-6">
+            <Link href="/events" className="inline-flex items-center text-blue-600 hover:text-blue-700 mb-6">
               <ArrowLeft className="h-4 w-4 mr-2" />
               返回赛事列表
             </Link>

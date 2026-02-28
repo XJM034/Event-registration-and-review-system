@@ -1,11 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentAdminSession } from '@/lib/auth'
 import { createClient } from '@supabase/supabase-js'
+import { cookies } from 'next/headers'
+import { createServerClient } from '@supabase/ssr'
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getCurrentAdminSession()
-    if (!session) {
+    // 使用 Supabase Auth 验证管理员身份
+    const cookieStore = await cookies()
+    const supabaseAuth = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll()
+          },
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                cookieStore.set(name, value, options)
+              )
+            } catch {}
+          },
+        },
+      }
+    )
+
+    const { data: { session } } = await supabaseAuth.auth.getSession()
+
+    if (!session || session.user.user_metadata?.role !== 'admin') {
       return NextResponse.json(
         { error: '未授权访问', success: false },
         { status: 401 }
@@ -50,7 +73,7 @@ export async function POST(request: NextRequest) {
         }
       }
     )
-    
+
     // 生成唯一的文件名
     const fileExt = file.name.split('.').pop()
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`

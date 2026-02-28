@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServer } from '@/lib/auth'
+import { pickEffectiveRegistrationSetting } from '@/lib/registration-settings'
 
 // 获取赛事列表（报名端）
 export async function GET() {
@@ -45,13 +46,17 @@ export async function GET() {
       )
     }
 
-    // 安全处理JOIN结果，确保registration_settings是单个对象而不是数组
-    const processedEvents = eventsWithSettings?.map(event => ({
-      ...event,
-      registration_settings: Array.isArray(event.registration_settings)
-        ? (event.registration_settings.length > 0 ? event.registration_settings[0] : null)
+    // 多组别场景下，挑选当前最相关的一条设置返回给前端
+    const processedEvents = eventsWithSettings?.map(event => {
+      const settings = Array.isArray(event.registration_settings)
+        ? pickEffectiveRegistrationSetting(event.registration_settings)
         : event.registration_settings
-    })) || []
+      console.log('Event:', event.name, 'registration_settings:', settings)
+      return {
+        ...event,
+        registration_settings: settings
+      }
+    }) || []
 
     console.log('Portal Events API - Data processing completed')
 

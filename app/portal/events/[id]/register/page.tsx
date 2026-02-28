@@ -31,28 +31,62 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import Image from 'next/image'
+import { parseIdCard, validateAgainstDivisionRules } from '@/lib/id-card-validator'
+
+interface DivisionRules {
+  gender?: 'male' | 'female' | 'mixed' | 'none'
+  minAge?: number
+  maxAge?: number
+  minBirthDate?: string
+  maxBirthDate?: string
+  minPlayers?: number
+  maxPlayers?: number
+}
+
+interface PlayerRuleHints {
+  genderRequirement: 'none' | 'male' | 'female'
+  ageRequirementEnabled: boolean
+  minAge?: number
+  maxAge?: number
+  minAgeDate?: string
+  maxAgeDate?: string
+}
+
+interface TeamRequirementsConfig {
+  registrationStartDate?: string
+  registrationEndDate?: string
+  reviewEndDate?: string
+  commonFields?: Record<string, unknown>[]
+  customFields?: Record<string, unknown>[]
+  allFields?: Record<string, unknown>[]
+}
+
+interface PlayerRequirementsConfig {
+  roles?: Record<string, unknown>[]
+  genderRequirement?: string
+  ageRequirementEnabled?: boolean
+  countRequirementEnabled?: boolean
+  minCount?: number
+  maxCount?: number
+}
+
+interface RegistrationSettingsConfig {
+  division_id?: string | null
+  team_requirements?: TeamRequirementsConfig | string
+  player_requirements?: PlayerRequirementsConfig
+}
 
 interface Event {
   id: string
   name: string
   short_name?: string
-  registration_settings?: {
-    team_requirements?: {
-      registrationStartDate?: string
-      registrationEndDate?: string
-      reviewEndDate?: string  // 新增：审核结束时间
-      commonFields?: any[]
-      customFields?: any[]
-    }
-    player_requirements?: {
-      roles?: any[]
-      genderRequirement?: string
-      ageRequirementEnabled?: boolean
-      countRequirementEnabled?: boolean
-      minCount?: number
-      maxCount?: number
-    }
-  }
+  registration_settings?: RegistrationSettingsConfig
+  registration_settings_by_division?: RegistrationSettingsConfig[]
+  divisions?: Array<{
+    id: string
+    name: string
+    rules?: DivisionRules
+  }>
 }
 
 interface Player {
@@ -64,6 +98,20 @@ interface Player {
   [key: string]: any
 }
 
+function inferPlayerGender(player: Player): 'male' | 'female' | undefined {
+  const rawGender = String(player.gender || player.sex || '').trim()
+  if (rawGender === '男' || rawGender.toLowerCase() === 'male') return 'male'
+  if (rawGender === '女' || rawGender.toLowerCase() === 'female') return 'female'
+
+  const idNumber = String(player.id_number || '').trim()
+  if (idNumber.length === 18) {
+    const parsed = parseIdCard(idNumber)
+    if (parsed.isValid && parsed.gender) return parsed.gender
+  }
+
+  return undefined
+}
+
 interface Registration {
   id?: string
   event_id: string
@@ -71,6 +119,26 @@ interface Registration {
   team_data: any
   players_data: Player[]
   status: 'draft' | 'pending' | 'approved' | 'rejected' | 'cancelled'
+}
+
+function parseTeamRequirements(
+  value?: TeamRequirementsConfig | string | null
+): TeamRequirementsConfig | undefined {
+  if (!value) return undefined
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      if (parsed && typeof parsed === 'object') {
+        return parsed as TeamRequirementsConfig
+      }
+      return undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  return value
 }
 
 // 动态生成表单 schema
@@ -121,9 +189,9 @@ export default function RegisterPage() {
 
   // 获取有序的角色列表（非队员角色在前，队员角色在后）
   const getOrderedRoles = () => {
-    const roles = event?.registration_settings?.player_requirements?.roles || []
+    const roles = activeRegistrationSettings?.player_requirements?.roles || []
     // 返回排序后的角色：非队员角色在前，队员角色在后
-    return roles.sort((a: any, b: any) => {
+    return [...roles].sort((a: any, b: any) => {
       if (a.id === 'player' && b.id !== 'player') return 1
       if (a.id !== 'player' && b.id === 'player') return -1
       return 0
@@ -139,19 +207,29 @@ export default function RegisterPage() {
   const [shareTokens, setShareTokens] = useState<Map<string, string>>(new Map())
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
   const [copiedPlayerId, setCopiedPlayerId] = useState<string | null>(null)
+  const [selectedDivisionId, setSelectedDivisionId] = useState<string>('')
+
+  const activeRegistrationSettings = useMemo<RegistrationSettingsConfig | null>(() => {
+    const settingsByDivision = event?.registration_settings_by_division || []
+    if (settingsByDivision.length === 0) {
+      return event?.registration_settings || null
+    }
+
+    const preferredDivisionId = selectedDivisionId || event?.registration_settings?.division_id || null
+    if (preferredDivisionId) {
+      const matched = settingsByDivision.find((setting) => setting.division_id === preferredDivisionId)
+      if (matched) return matched
+    }
+
+    return event?.registration_settings || settingsByDivision[0] || null
+  }, [event?.registration_settings, event?.registration_settings_by_division, selectedDivisionId])
+
+  const activeTeamRequirements = parseTeamRequirements(activeRegistrationSettings?.team_requirements)
 
   // 判断是否在审核期内
   const isInReviewPeriod = () => {
     const now = new Date()
-    let teamReq = event?.registration_settings?.team_requirements
-    if (typeof teamReq === 'string') {
-      try {
-        teamReq = JSON.parse(teamReq)
-      } catch (e) {
-        return false
-      }
-    }
-
+    const teamReq = activeTeamRequirements
     const regEndDate = teamReq?.registrationEndDate
     const reviewEndDate = teamReq?.reviewEndDate
     const regEnd = regEndDate ? new Date(regEndDate) : null
@@ -163,15 +241,7 @@ export default function RegisterPage() {
   // 判断报名是否已截止（超过审核结束时间）
   const isRegistrationClosed = () => {
     const now = new Date()
-    let teamReq = event?.registration_settings?.team_requirements
-    if (typeof teamReq === 'string') {
-      try {
-        teamReq = JSON.parse(teamReq)
-      } catch (e) {
-        return false
-      }
-    }
-
+    const teamReq = activeTeamRequirements
     const regEndDate = teamReq?.registrationEndDate
     const reviewEndDate = teamReq?.reviewEndDate
     const regEnd = regEndDate ? new Date(regEndDate) : null
@@ -212,7 +282,7 @@ export default function RegisterPage() {
   }
 
   // 获取字段配置 - 使用管理端设置的字段顺序
-  const teamRequirements = event?.registration_settings?.team_requirements
+  const teamRequirements = activeTeamRequirements
   const rawFields = teamRequirements?.allFields || [
     ...(teamRequirements?.commonFields || []),
     ...(teamRequirements?.customFields || [])
@@ -223,7 +293,19 @@ export default function RegisterPage() {
     array.findIndex((f: any) => f.id === field.id) === index
   )
 
+  const activeDivisionRules = useMemo<DivisionRules>(() => {
+    if (!event?.divisions || event.divisions.length === 0) return {}
+    const preferredDivisionId = selectedDivisionId || activeRegistrationSettings?.division_id
+    const matched = preferredDivisionId
+      ? event.divisions.find((d) => d.id === preferredDivisionId)
+      : undefined
+    return (matched || event.divisions[0])?.rules || {}
+  }, [activeRegistrationSettings?.division_id, event?.divisions, selectedDivisionId])
 
+  const selectedDivision = useMemo(
+    () => event?.divisions?.find((d) => d.id === selectedDivisionId),
+    [event?.divisions, selectedDivisionId]
+  )
 
   // 创建动态表单 - 使用 useMemo 确保 schema 正确更新
   const teamSchema = useMemo(() => createTeamSchema(allFields), [allFields])
@@ -238,6 +320,12 @@ export default function RegisterPage() {
   } = useForm({
     resolver: zodResolver(teamSchema)
   })
+
+  useEffect(() => {
+    if (selectedDivision?.name) {
+      setValue('participationGroup', selectedDivision.name)
+    }
+  }, [selectedDivision?.name, setValue])
 
   useEffect(() => {
     if (eventId) {
@@ -258,6 +346,12 @@ export default function RegisterPage() {
       Object.keys(registration.team_data).forEach(key => {
         setValue(key, registration.team_data[key])
       })
+
+      if (registration.team_data.division_id) {
+        setSelectedDivisionId(registration.team_data.division_id)
+      } else if (event?.divisions?.length && !selectedDivisionId) {
+        setSelectedDivisionId(event.divisions[0].id)
+      }
       
       // 设置logo预览
       if (registration.team_data.team_logo) {
@@ -276,7 +370,13 @@ export default function RegisterPage() {
         isNewRegistration
       })
     }
-  }, [registration, setValue, isNewRegistration])
+  }, [registration, setValue, isNewRegistration, event?.divisions, selectedDivisionId])
+
+  useEffect(() => {
+    if (event?.divisions?.length && !selectedDivisionId) {
+      setSelectedDivisionId(event.divisions[0].id)
+    }
+  }, [event?.divisions, selectedDivisionId])
 
   // 定期检查分享的队员信息更新
   useEffect(() => {
@@ -638,14 +738,11 @@ export default function RegisterPage() {
   }
 
   const addPlayerByRole = (roleId: string) => {
-    // 只在启用人数要求时才检查人数限制
-    const countRequirementEnabled = event?.registration_settings?.player_requirements?.countRequirementEnabled
-
-    if (countRequirementEnabled) {
-      const maxCount = event?.registration_settings?.player_requirements?.maxCount || 20
-
-      if (players.length >= maxCount) {
-        alert(`人员数量不能超过 ${maxCount} 人`)
+    // 仅队员角色受组别人数规则约束
+    if (roleId === 'player' && activeDivisionRules.maxPlayers !== undefined) {
+      const currentPlayerCount = players.filter((p) => (p.role || 'player') === 'player').length
+      if (currentPlayerCount >= activeDivisionRules.maxPlayers) {
+        alert(`队员人数不能超过 ${activeDivisionRules.maxPlayers} 人`)
         return
       }
     }
@@ -720,209 +817,143 @@ export default function RegisterPage() {
     // 同时更新按角色分组的数据
     setPlayersByRole(organizePlayersByRole(updatedPlayers))
 
-    // 实时验证性别和年龄要求
-    const playerRequirements = event?.registration_settings?.player_requirements
     const updatedPlayer = updatedPlayers.find(p => p.id === playerId)
     const playerIndex = players.findIndex(p => p.id === playerId)
+    const isPlayerRole = (updatedPlayer?.role || 'player') === 'player'
 
-    if (updatedPlayer && playerRequirements) {
-      // 验证性别要求
-      if (field === 'gender' || field === 'sex') {
-        const genderRequirement = playerRequirements.genderRequirement
-        if (genderRequirement && genderRequirement !== 'none') {
-          const requiredGender = genderRequirement === 'male' ? '男' : '女'
-          if (value && value !== requiredGender) {
-            setTimeout(() => {
-              alert(`注意：此赛事要求所有队员必须为${requiredGender}性，请确认队员 ${playerIndex + 1} 的性别信息`)
-            }, 100)
-          }
+    if (updatedPlayer && isPlayerRole) {
+      if (field === 'id_number' && typeof value === 'string' && value.trim().length === 18) {
+        const idRuleValidation = validateAgainstDivisionRules(value.trim(), activeDivisionRules)
+        if (!idRuleValidation.isValid) {
+          setTimeout(() => {
+            alert(`⚠️ 队员${playerIndex + 1}身份证信息不符合组别要求\n\n${idRuleValidation.errors.join('\n')}`)
+          }, 100)
         }
       }
 
-      // 验证年龄要求 - 支持更多字段名
-      if ((field === 'age' || field === 'birthdate' || field === 'birthday') && playerRequirements?.ageRequirementEnabled) {
-        // 获取出生日期范围
-        const minAgeDate = playerRequirements.minAgeDate  // 最早出生日期
-        const maxAgeDate = playerRequirements.maxAgeDate  // 最晚出生日期
-
-        // 获取年龄范围（向后兼容）
-        const minAge = playerRequirements.minAge
-        const maxAge = playerRequirements.maxAge
-
-        let playerAge = value
-        let playerBirthDate = null
-
-        // 如果是出生日期字段
-        if ((field === 'birthdate' || field === 'birthday') && value) {
-          playerBirthDate = new Date(value)
-          const today = new Date()
-          playerAge = today.getFullYear() - playerBirthDate.getFullYear()
-          const monthDiff = today.getMonth() - playerBirthDate.getMonth()
-          if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < playerBirthDate.getDate())) {
-            playerAge--
-          }
-        } else if (field === 'age') {
-          playerAge = parseInt(value) || 0
-        }
-
-        // 验证逻辑
-        if (field === 'birthdate' || field === 'birthday') {
-          // 出生日期字段：直接比较日期范围
-          if (playerBirthDate && (minAgeDate || maxAgeDate)) {
-            const birthDateStr = playerBirthDate.toISOString().split('T')[0]
-            let dateWarning = ''
-
-            if (minAgeDate && birthDateStr < minAgeDate) {
-              const minYear = new Date(minAgeDate).getFullYear()
-              dateWarning = `此赛事要求队员出生日期不早于 ${minAgeDate}（不超过 ${new Date().getFullYear() - minYear} 岁）`
-            } else if (maxAgeDate && birthDateStr > maxAgeDate) {
-              const maxYear = new Date(maxAgeDate).getFullYear()
-              dateWarning = `此赛事要求队员出生日期不晚于 ${maxAgeDate}（不小于 ${new Date().getFullYear() - maxYear} 岁）`
-            }
-
-            if (dateWarning) {
-              setTimeout(() => {
-                alert(`⚠️ 出生日期不符合要求\n\n队员 ${playerIndex + 1}：${dateWarning}\n\n当前选择：${birthDateStr}\n请重新选择出生日期`)
-              }, 300)
-            }
-          }
-        } else if (field === 'age' && (minAge || maxAge)) {
-          // 年龄字段：比较年龄范围
-          if (playerAge && playerAge > 0) {
-            let ageWarning = ''
-            if (minAge && playerAge < minAge) {
-              ageWarning = `此赛事要求队员年龄不小于 ${minAge} 岁，当前为 ${playerAge} 岁`
-            } else if (maxAge && playerAge > maxAge) {
-              ageWarning = `此赛事要求队员年龄不大于 ${maxAge} 岁，当前为 ${playerAge} 岁`
-            }
-
-            if (ageWarning) {
-              setTimeout(() => {
-                alert(`⚠️ 年龄不符合要求\n\n队员 ${playerIndex + 1}：${ageWarning}\n\n请检查并修改年龄信息`)
-              }, 300)
-            }
-          }
+      if ((field === 'gender' || field === 'sex') && activeDivisionRules.gender && activeDivisionRules.gender !== 'none' && activeDivisionRules.gender !== 'mixed') {
+        const requiredGender = activeDivisionRules.gender === 'male' ? '男' : '女'
+        if (value && value !== requiredGender) {
+          setTimeout(() => {
+            alert(`注意：该组别仅限${requiredGender}队员，队员 ${playerIndex + 1} 当前为${value}`)
+          }, 100)
         }
       }
     }
   }
 
   const validatePlayers = () => {
-    const playerRequirements = event?.registration_settings?.player_requirements
+    const playerRequirements = activeRegistrationSettings?.player_requirements
+    const playerOnlyList = players.filter((player) => (player.role || 'player') === 'player')
 
-    // 1. 验证人数要求
-    const countRequirementEnabled = playerRequirements?.countRequirementEnabled
-    if (countRequirementEnabled) {
-      const minCount = playerRequirements?.minCount || 1
-      const maxCount = playerRequirements?.maxCount || 20
-
-      if (players.length < minCount) {
-        alert(`队员人数不能少于 ${minCount} 人`)
-        return false
-      }
-
-      if (players.length > maxCount) {
-        alert(`队员人数不能超过 ${maxCount} 人`)
-        return false
-      }
+    // 1. 验证队员人数（来源：组别规则）
+    if (activeDivisionRules.minPlayers !== undefined && playerOnlyList.length < activeDivisionRules.minPlayers) {
+      alert(`队员人数不能少于 ${activeDivisionRules.minPlayers} 人`)
+      return false
     }
 
-    // 2. 验证性别要求
-    const genderRequirement = playerRequirements?.genderRequirement
-    if (genderRequirement && genderRequirement !== 'none') {
-      const requiredGender = genderRequirement === 'male' ? '男' : '女'
+    if (activeDivisionRules.maxPlayers !== undefined && playerOnlyList.length > activeDivisionRules.maxPlayers) {
+      alert(`队员人数不能超过 ${activeDivisionRules.maxPlayers} 人`)
+      return false
+    }
 
-      for (let i = 0; i < players.length; i++) {
-        const player = players[i]
+    // 2. 验证性别与年龄（来源：组别规则）
+    for (let i = 0; i < playerOnlyList.length; i++) {
+      const player = playerOnlyList[i]
+      const idNumber = String(player.id_number || '').trim()
 
-        // 查找性别字段 - 可能是 'gender' 或 'sex'
+      if (idNumber) {
+        const idRuleValidation = validateAgainstDivisionRules(idNumber, activeDivisionRules)
+        if (!idRuleValidation.isValid) {
+          alert(`队员 ${i + 1} 不符合组别要求：\n${idRuleValidation.errors.join('\n')}`)
+          return false
+        }
+        continue
+      }
+
+      if (activeDivisionRules.gender && activeDivisionRules.gender !== 'none' && activeDivisionRules.gender !== 'mixed') {
+        const requiredGender = activeDivisionRules.gender === 'male' ? '男' : '女'
         const playerGender = player.gender || player.sex
-
         if (!playerGender) {
           alert(`队员 ${i + 1} 必须填写性别信息`)
           return false
         }
-
-        // 检查性别是否符合要求
         if (playerGender !== requiredGender) {
-          alert(`此赛事要求所有队员必须为${requiredGender}性，但队员 ${i + 1} 的性别为${playerGender}`)
+          alert(`该组别仅限${requiredGender}队员，但队员 ${i + 1} 的性别为${playerGender}`)
           return false
         }
       }
-    }
 
-    // 3. 验证年龄要求
-    if (playerRequirements?.ageRequirementEnabled) {
-      const minAgeDate = playerRequirements.minAgeDate
-      const maxAgeDate = playerRequirements.maxAgeDate
-      const minAge = playerRequirements.minAge
-      const maxAge = playerRequirements.maxAge
-
-      for (let i = 0; i < players.length; i++) {
-        const player = players[i]
-        const today = new Date()
-
-        // 优先使用出生日期范围验证
-        if ((minAgeDate || maxAgeDate) && player.birthdate) {
-          const birthDate = new Date(player.birthdate)
-          const birthDateStr = birthDate.toISOString().split('T')[0]
-
-          if (minAgeDate && birthDateStr < minAgeDate) {
-            const minYear = new Date(minAgeDate).getFullYear()
-            const maxAgeFromDate = today.getFullYear() - minYear
-            alert(`此赛事要求队员出生日期不早于 ${minAgeDate}（不超过 ${maxAgeFromDate} 岁），但队员 ${i + 1} 的出生日期为 ${birthDateStr}`)
-            return false
-          }
-
-          if (maxAgeDate && birthDateStr > maxAgeDate) {
-            const maxYear = new Date(maxAgeDate).getFullYear()
-            const minAgeFromDate = today.getFullYear() - maxYear
-            alert(`此赛事要求队员出生日期不晚于 ${maxAgeDate}（不小于 ${minAgeFromDate} 岁），但队员 ${i + 1} 的出生日期为 ${birthDateStr}`)
-            return false
-          }
+      if (activeDivisionRules.minBirthDate || activeDivisionRules.maxBirthDate) {
+        let birthDateStr: string | undefined
+        if (player.birthdate) {
+          birthDateStr = String(player.birthdate).slice(0, 10)
+        } else if (player.birthday) {
+          birthDateStr = String(player.birthday).slice(0, 10)
         }
-        // 兼容旧的年龄范围验证
-        else if (minAge || maxAge) {
-          // 查找年龄字段 - 可能是 'age' 或通过 'birthdate' 计算
-          let playerAge = player.age
-
-          // 如果没有直接的年龄，尝试从出生日期计算
-          if (!playerAge && player.birthdate) {
-            const birthDate = new Date(player.birthdate)
-            playerAge = today.getFullYear() - birthDate.getFullYear()
-
-            // 考虑月份和日期的影响
-            const monthDiff = today.getMonth() - birthDate.getMonth()
-            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        if (!birthDateStr) {
+          alert(`队员 ${i + 1} 缺少身份证号，需补充出生日期用于组别日期校验`)
+          return false
+        }
+        if (activeDivisionRules.minBirthDate && birthDateStr < activeDivisionRules.minBirthDate) {
+          alert(`队员 ${i + 1} 出生日期为 ${birthDateStr}，早于组别要求的 ${activeDivisionRules.minBirthDate}`)
+          return false
+        }
+        if (activeDivisionRules.maxBirthDate && birthDateStr > activeDivisionRules.maxBirthDate) {
+          alert(`队员 ${i + 1} 出生日期为 ${birthDateStr}，晚于组别要求的 ${activeDivisionRules.maxBirthDate}`)
+          return false
+        }
+      } else if (activeDivisionRules.minAge !== undefined || activeDivisionRules.maxAge !== undefined) {
+        let playerAge = player.age ? Number(player.age) : undefined
+        if (!playerAge && player.birthdate) {
+          const birthDate = new Date(player.birthdate)
+          if (!Number.isNaN(birthDate.getTime())) {
+            const now = new Date()
+            playerAge = now.getFullYear() - birthDate.getFullYear()
+            const monthDiff = now.getMonth() - birthDate.getMonth()
+            if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birthDate.getDate())) {
               playerAge--
             }
           }
-
-          if (!playerAge) {
-            alert(`队员 ${i + 1} 必须填写年龄或出生日期信息`)
-            return false
-          }
-
-          // 检查年龄范围
-          if (minAge && playerAge < minAge) {
-            alert(`此赛事要求队员年龄不小于 ${minAge} 岁，但队员 ${i + 1} 年龄为 ${playerAge} 岁`)
-            return false
-          }
-
-          if (maxAge && playerAge > maxAge) {
-            alert(`此赛事要求队员年龄不大于 ${maxAge} 岁，但队员 ${i + 1} 年龄为 ${playerAge} 岁`)
-            return false
-          }
         }
-        // 如果启用了年龄要求但没有设置具体的范围，至少要求填写出生日期或年龄
-        else if (!player.birthdate && !player.age) {
-          alert(`队员 ${i + 1} 必须填写出生日期或年龄信息`)
+
+        if (playerAge === undefined || Number.isNaN(playerAge)) {
+          alert(`队员 ${i + 1} 缺少身份证号，需补充年龄或出生日期用于组别年龄校验`)
+          return false
+        }
+        if (activeDivisionRules.minAge !== undefined && playerAge < activeDivisionRules.minAge) {
+          alert(`队员 ${i + 1} 年龄为 ${playerAge} 岁，小于组别最小年龄 ${activeDivisionRules.minAge} 岁`)
+          return false
+        }
+        if (activeDivisionRules.maxAge !== undefined && playerAge > activeDivisionRules.maxAge) {
+          alert(`队员 ${i + 1} 年龄为 ${playerAge} 岁，大于组别最大年龄 ${activeDivisionRules.maxAge} 岁`)
           return false
         }
       }
     }
 
-    // 4. 验证必填字段
+    // 2.1 混合组：至少1男1女
+    if (activeDivisionRules.gender === 'mixed') {
+      let maleCount = 0
+      let femaleCount = 0
+
+      for (let i = 0; i < playerOnlyList.length; i++) {
+        const gender = inferPlayerGender(playerOnlyList[i])
+        if (!gender) {
+          alert(`混合组要求至少1男1女，且需识别每位队员性别。请完善队员 ${i + 1} 的性别或身份证号`)
+          return false
+        }
+        if (gender === 'male') maleCount++
+        if (gender === 'female') femaleCount++
+      }
+
+      if (maleCount === 0 || femaleCount === 0) {
+        alert(`混合组要求至少1名男队员和1名女队员（当前男:${maleCount}，女:${femaleCount}）`)
+        return false
+      }
+    }
+
+    // 3. 验证必填字段
     for (let i = 0; i < players.length; i++) {
       const player = players[i]
       const selectedRoleId = player.role || 'player'
@@ -956,10 +987,16 @@ export default function RegisterPage() {
       return null
     }
 
+    if (event?.divisions?.length && !selectedDivisionId) {
+      alert('请选择参赛组别')
+      setActiveTab('team')
+      return null
+    }
+
     // 验证团队信息必填项
-    const teamFields = event?.registration_settings?.team_requirements?.allFields ||
-                      [...(event?.registration_settings?.team_requirements?.commonFields || []),
-                       ...(event?.registration_settings?.team_requirements?.customFields || [])]
+    const teamFields = teamRequirements?.allFields ||
+                      [...(teamRequirements?.commonFields || []),
+                       ...(teamRequirements?.customFields || [])]
 
     const missingFields: string[] = []
     for (const field of teamFields) {
@@ -992,15 +1029,7 @@ export default function RegisterPage() {
 
     // 检查是否在审核期内（报名已结束但审核未结束）
     const now = new Date()
-    let teamReq = event?.registration_settings?.team_requirements
-    if (typeof teamReq === 'string') {
-      try {
-        teamReq = JSON.parse(teamReq)
-      } catch (e) {
-        console.error('解析 team_requirements 失败:', e)
-      }
-    }
-
+    const teamReq = activeTeamRequirements
     const regEndDate = teamReq?.registrationEndDate
     const reviewEndDate = teamReq?.reviewEndDate
     const regEnd = regEndDate ? new Date(regEndDate) : null
@@ -1042,7 +1071,9 @@ export default function RegisterPage() {
 
       const teamData = {
         ...data,
-        team_logo: logoUrl
+        team_logo: logoUrl,
+        division_id: selectedDivisionId || undefined,
+        participationGroup: selectedDivision?.name || data?.participationGroup
       }
 
       console.log('Saving registration with players data:', players)
@@ -1095,6 +1126,12 @@ export default function RegisterPage() {
       return
     }
 
+    if (event?.divisions?.length && !selectedDivisionId) {
+      alert('请选择参赛组别')
+      setActiveTab('team')
+      return
+    }
+
     // 检查是否是已通过或待审核状态
     if (registration?.status === 'approved') {
       alert('已报名成功，无法重复提交报名。请取消报名后再进行相应的操作。')
@@ -1113,15 +1150,7 @@ export default function RegisterPage() {
 
     // 检查是否在审核期内（报名已结束但审核未结束）
     const now = new Date()
-    let teamReq = event?.registration_settings?.team_requirements
-    if (typeof teamReq === 'string') {
-      try {
-        teamReq = JSON.parse(teamReq)
-      } catch (e) {
-        console.error('解析 team_requirements 失败:', e)
-      }
-    }
-
+    const teamReq = activeTeamRequirements
     const regEndDate = teamReq?.registrationEndDate
     const reviewEndDate = teamReq?.reviewEndDate
     const regEnd = regEndDate ? new Date(regEndDate) : null
@@ -1184,7 +1213,9 @@ export default function RegisterPage() {
       
       const teamData = {
         ...data,
-        team_logo: logoUrl
+        team_logo: logoUrl,
+        division_id: selectedDivisionId || undefined,
+        participationGroup: selectedDivision?.name || data?.participationGroup
       }
       
       console.log('Submitting registration with players data:', players)
@@ -1281,15 +1312,7 @@ export default function RegisterPage() {
     const now = new Date()
 
     // 获取报名相关时间
-    let teamReq = event.registration_settings?.team_requirements
-    if (typeof teamReq === 'string') {
-      try {
-        teamReq = JSON.parse(teamReq)
-      } catch (e) {
-        console.error('解析 team_requirements 失败:', e)
-      }
-    }
-
+    const teamReq = activeTeamRequirements
     const regEndDate = teamReq?.registrationEndDate
     const reviewEndDate = teamReq?.reviewEndDate
 
@@ -1523,6 +1546,29 @@ export default function RegisterPage() {
             </TabsList>
             
             <TabsContent value="team" className="mt-6">
+              {event.divisions && event.divisions.length > 0 && (
+                <div className="mb-6 p-4 border rounded-lg bg-gray-50">
+                  <Label className="text-sm font-semibold">参赛组别 *</Label>
+                  <p className="text-xs text-gray-500 mt-1 mb-2">请选择当前报名对应的组别，队员限制将按此组别自动校验</p>
+                  <Select
+                    value={selectedDivisionId}
+                    onValueChange={setSelectedDivisionId}
+                    disabled={isEventEndedView}
+                  >
+                    <SelectTrigger className="max-w-sm bg-white">
+                      <SelectValue placeholder="请选择组别" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {event.divisions.map((division) => (
+                        <SelectItem key={division.id} value={division.id}>
+                          {division.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
               <form className="space-y-6">
                 {allFields.map((field: any, index: number) => {
                   // Logo字段特殊处理
@@ -1789,10 +1835,13 @@ export default function RegisterPage() {
                     <h3 className="text-lg font-semibold">人员列表</h3>
                     {/* 显示所有要求信息 */}
                     {(() => {
-                      const playerReqs = event?.registration_settings?.player_requirements
-                      const hasCountReq = playerReqs?.countRequirementEnabled
-                      const hasGenderReq = playerReqs?.genderRequirement && playerReqs.genderRequirement !== 'none'
-                      const hasAgeReq = playerReqs?.ageRequirementEnabled
+                      const hasCountReq = activeDivisionRules.minPlayers !== undefined || activeDivisionRules.maxPlayers !== undefined
+                      const hasGenderReq = activeDivisionRules.gender && activeDivisionRules.gender !== 'none'
+                      const hasAgeReq =
+                        activeDivisionRules.minBirthDate !== undefined ||
+                        activeDivisionRules.maxBirthDate !== undefined ||
+                        activeDivisionRules.minAge !== undefined ||
+                        activeDivisionRules.maxAge !== undefined
 
                       if (hasCountReq || hasGenderReq || hasAgeReq) {
                         return (
@@ -1804,7 +1853,7 @@ export default function RegisterPage() {
                               <div className="flex items-center gap-2">
                                 <span className="text-blue-600">•</span>
                                 <span>
-                                  人数：{playerReqs.minCount || 1} - {playerReqs.maxCount || 20} 人
+                                  队员人数：{activeDivisionRules.minPlayers ?? '不限'} - {activeDivisionRules.maxPlayers ?? '不限'} 人
                                 </span>
                               </div>
                             )}
@@ -1814,7 +1863,7 @@ export default function RegisterPage() {
                               <div className="flex items-center gap-2">
                                 <span className="text-blue-600">•</span>
                                 <span>
-                                  性别：仅限{playerReqs.genderRequirement === 'male' ? '男性' : '女性'}队员
+                                  性别：{activeDivisionRules.gender === 'male' ? '仅限男性队员' : activeDivisionRules.gender === 'female' ? '仅限女性队员' : '混合（至少1男1女）'}
                                 </span>
                               </div>
                             )}
@@ -1825,14 +1874,15 @@ export default function RegisterPage() {
                                 <span className="text-blue-600">•</span>
                                 <span>
                                   年龄：
-                                  {playerReqs.minAge && playerReqs.maxAge ?
-                                    `${playerReqs.minAge} - ${playerReqs.maxAge} 岁` :
-                                    playerReqs.minAge ?
-                                      `不小于 ${playerReqs.minAge} 岁` :
-                                      playerReqs.maxAge ?
-                                        `不大于 ${playerReqs.maxAge} 岁` :
-                                        '有年龄限制'
-                                  }
+                                  {activeDivisionRules.minBirthDate || activeDivisionRules.maxBirthDate
+                                    ? `${activeDivisionRules.minBirthDate || '不限'} 至 ${activeDivisionRules.maxBirthDate || '不限'}`
+                                    : activeDivisionRules.minAge !== undefined && activeDivisionRules.maxAge !== undefined
+                                      ? `${activeDivisionRules.minAge} - ${activeDivisionRules.maxAge} 岁`
+                                      : activeDivisionRules.minAge !== undefined
+                                        ? `不小于 ${activeDivisionRules.minAge} 岁`
+                                        : activeDivisionRules.maxAge !== undefined
+                                          ? `不大于 ${activeDivisionRules.maxAge} 岁`
+                                          : '有年龄限制'}
                                 </span>
                               </div>
                             )}
@@ -1946,8 +1996,37 @@ export default function RegisterPage() {
                                     const selectedRole = role
                                     if (!selectedRole) return null
 
-                                    // 获取队员要求配置
-                                    const playerRequirements = event?.registration_settings?.player_requirements
+                                    const isPlayerRole = role.id === 'player'
+                                    const playerRequirements: PlayerRuleHints = isPlayerRole
+                                      ? {
+                                          genderRequirement:
+                                            activeDivisionRules.gender === 'male' || activeDivisionRules.gender === 'female'
+                                              ? activeDivisionRules.gender
+                                              : 'none',
+                                          ageRequirementEnabled:
+                                            activeDivisionRules.minBirthDate !== undefined ||
+                                            activeDivisionRules.maxBirthDate !== undefined ||
+                                            activeDivisionRules.minAge !== undefined ||
+                                            activeDivisionRules.maxAge !== undefined,
+                                          minAge:
+                                            activeDivisionRules.minBirthDate || activeDivisionRules.maxBirthDate
+                                              ? undefined
+                                              : activeDivisionRules.minAge,
+                                          maxAge:
+                                            activeDivisionRules.minBirthDate || activeDivisionRules.maxBirthDate
+                                              ? undefined
+                                              : activeDivisionRules.maxAge,
+                                          minAgeDate: activeDivisionRules.minBirthDate,
+                                          maxAgeDate: activeDivisionRules.maxBirthDate,
+                                        }
+                                      : {
+                                          genderRequirement: 'none',
+                                          ageRequirementEnabled: false,
+                                          minAge: undefined,
+                                          maxAge: undefined,
+                                          minAgeDate: undefined,
+                                          maxAgeDate: undefined,
+                                        }
 
                                     // 使用管理端设置的字段顺序
                                     const roleFields = selectedRole.allFields || [
@@ -1962,8 +2041,13 @@ export default function RegisterPage() {
                                     // 检查是否是身份证号码字段
                                     const isIdNumberField = field.id === 'id_number'
                                     let idValidation = { valid: true, message: '' }
+                                    let idRuleErrors: string[] = []
                                     if (isIdNumberField && player[field.id]) {
                                       idValidation = validateIdNumber(player[field.id])
+                                      if (idValidation.valid && isPlayerRole) {
+                                        const idRuleValidation = validateAgainstDivisionRules(player[field.id], activeDivisionRules)
+                                        idRuleErrors = idRuleValidation.errors
+                                      }
                                     }
 
                                     // 检查是否是年龄字段并有要求
@@ -2018,9 +2102,9 @@ export default function RegisterPage() {
                                           disabled={isEventEndedView}
                                           readOnly={isEventEndedView}
                                           className={`mt-1 ${
-                                            isIdNumberField && !idValidation.valid
+                                            isIdNumberField && (!idValidation.valid || idRuleErrors.length > 0)
                                               ? 'border-red-300 bg-red-50'
-                                              : isIdNumberField && idValidation.valid && player[field.id]
+                                            : isIdNumberField && idValidation.valid && player[field.id]
                                               ? 'border-green-300 bg-green-50'
                                               : ageStatus === 'too_young' || ageStatus === 'too_old'
                                               ? 'border-red-300 bg-red-50'
@@ -2031,11 +2115,11 @@ export default function RegisterPage() {
                                         />
                                         {isIdNumberField && player[field.id] && (
                                           <p className={`text-xs mt-1 font-medium ${
-                                            !idValidation.valid
+                                            !idValidation.valid || idRuleErrors.length > 0
                                               ? 'text-red-600 bg-red-50 p-2 rounded border border-red-200'
                                               : 'text-green-600 bg-green-50 p-2 rounded border border-green-200'
                                           }`}>
-                                            {idValidation.message}
+                                            {!idValidation.valid ? idValidation.message : idRuleErrors.length > 0 ? idRuleErrors.join('；') : '身份证号码格式正确'}
                                           </p>
                                         )}
                                         {ageMessage && (
