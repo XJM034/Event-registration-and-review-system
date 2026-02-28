@@ -11,20 +11,34 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ArrowLeft, Upload, Loader2, Calendar, MapPin, Phone, FileText } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
 
-const SPORT_EVENT_TYPE = '体育'
-const sportSubTypes: Record<string, string[]> = {
-  [SPORT_EVENT_TYPE]: ['棍网球', '篮球', '足球', '排球'],
+interface ProjectType {
+  id: string
+  name: string
+  display_order: number
+  is_enabled: boolean
 }
 
-const eventTypes = [
-  SPORT_EVENT_TYPE,
-  '科创',
-  '艺术'
-]
+interface Project {
+  id: string
+  project_type_id: string
+  name: string
+  display_order: number
+  is_enabled: boolean
+}
+
+interface Division {
+  id: string
+  project_id: string
+  name: string
+  description?: string
+  display_order: number
+  is_enabled: boolean
+}
 
 // 表单验证 schema
 const createEventSchema = z.object({
@@ -45,14 +59,6 @@ const createEventSchema = z.object({
 }, {
   message: '结束时间不能早于开始时间',
   path: ['end_date']
-}).superRefine((data, ctx) => {
-  if (data.type === SPORT_EVENT_TYPE && !data.short_name?.trim()) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['short_name'],
-      message: '请选择具体项目',
-    })
-  }
 })
 
 type EventFormData = z.infer<typeof createEventSchema>
@@ -64,6 +70,15 @@ export default function CreateEventPage() {
   const [error, setError] = useState('')
   const [dateError, setDateError] = useState('')
   const router = useRouter()
+
+  // 动态配置数据
+  const [projectTypes, setProjectTypes] = useState<ProjectType[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [divisions, setDivisions] = useState<Division[]>([])
+  const [selectedTypeId, setSelectedTypeId] = useState('')
+  const [selectedProjectId, setSelectedProjectId] = useState('')
+  const [selectedDivisionIds, setSelectedDivisionIds] = useState<string[]>([])
+  const [loadingConfig, setLoadingConfig] = useState(true)
 
   const {
     register,
@@ -86,9 +101,39 @@ export default function CreateEventPage() {
     }
   })
 
-  const watchedType = watch('type')
   const watchedStartDate = watch('start_date')
   const watchedEndDate = watch('end_date')
+
+  // 加载项目配置
+  useEffect(() => {
+    const loadConfig = async () => {
+      try {
+        const [typesRes, projectsRes, divisionsRes] = await Promise.all([
+          fetch('/api/project-management/types'),
+          fetch('/api/project-management/projects'),
+          fetch('/api/project-management/divisions'),
+        ])
+        const [typesData, projectsData, divisionsData] = await Promise.all([
+          typesRes.json(),
+          projectsRes.json(),
+          divisionsRes.json(),
+        ])
+        if (typesData.success) setProjectTypes(typesData.data.filter((t: ProjectType) => t.is_enabled))
+        if (projectsData.success) setProjects(projectsData.data.filter((p: Project) => p.is_enabled))
+        if (divisionsData.success) setDivisions(divisionsData.data.filter((d: Division) => d.is_enabled))
+      } catch (e) {
+        console.error('Load config error:', e)
+      } finally {
+        setLoadingConfig(false)
+      }
+    }
+    loadConfig()
+  }, [])
+
+  // 当前类型下的项目
+  const filteredProjects = projects.filter(p => p.project_type_id === selectedTypeId)
+  // 当前项目下的组别
+  const filteredDivisions = divisions.filter(d => d.project_id === selectedProjectId)
 
   // 格式化日期显示
   const formatDate = (dateStr: string) => {
@@ -165,12 +210,18 @@ export default function CreateEventPage() {
   }
 
   const onSubmit = async (data: EventFormData) => {
+    // 验证组别选择
+    if (filteredDivisions.length > 0 && selectedDivisionIds.length === 0) {
+      setError('请至少选择一个组别')
+      return
+    }
+
     setIsSubmitting(true)
     setError('')
 
     try {
       let poster_url = null
-      
+
       // 如果有海报文件，先上传
       if (posterFile) {
         poster_url = await uploadPoster(posterFile)
@@ -188,13 +239,14 @@ export default function CreateEventPage() {
         body: JSON.stringify({
           ...data,
           poster_url,
+          division_ids: selectedDivisionIds,
         }),
       })
 
       const result = await response.json()
 
       if (result.success) {
-        router.push('/')
+        router.push('/events')
         router.refresh()
       } else {
         setError(result.error || '创建赛事失败')
@@ -212,7 +264,7 @@ export default function CreateEventPage() {
       <div className="max-w-4xl mx-auto px-6">
         {/* 头部导航 */}
         <div className="mb-6">
-          <Link href="/" className="inline-flex items-center text-blue-600 hover:text-blue-700">
+          <Link href="/events" className="inline-flex items-center text-blue-600 hover:text-blue-700">
             <ArrowLeft className="h-4 w-4 mr-2" />
             返回赛事列表
           </Link>
@@ -306,55 +358,98 @@ export default function CreateEventPage() {
                 </div>
               </div>
 
-              {/* 赛事类型 */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="type">赛事类型 *</Label>
-                  <Select
-                    onValueChange={(value) => {
-                      setValue('type', value)
-                      if (!sportSubTypes[value]) {
-                        setValue('short_name', '')
-                      }
-                    }}
-                    value={watchedType}
-                  >
-                    <SelectTrigger className="mt-1">
-                      <SelectValue placeholder="选择赛事类型" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {eventTypes.map((type) => (
-                        <SelectItem key={type} value={type}>
-                          {type}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {errors.type && (
-                    <p className="text-red-600 text-sm mt-1">{errors.type.message}</p>
-                  )}
-                </div>
-
-                {sportSubTypes[watchedType] && (
+              {/* 赛事类型 - 三级联动 */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <Label>具体项目 *</Label>
+                    <Label>赛事类型 *</Label>
                     <Select
-                      onValueChange={(value) => setValue('short_name', value)}
-                      value={watch('short_name') || ''}
+                      onValueChange={(value) => {
+                        const pt = projectTypes.find(t => t.id === value)
+                        setSelectedTypeId(value)
+                        setSelectedProjectId('')
+                        setSelectedDivisionIds([])
+                        setValue('type', pt?.name || '')
+                        setValue('short_name', '')
+                      }}
+                      value={selectedTypeId}
+                      disabled={loadingConfig}
                     >
                       <SelectTrigger className="mt-1">
-                        <SelectValue placeholder="选择具体项目" />
+                        <SelectValue placeholder={loadingConfig ? '加载中...' : '选择赛事类型'} />
                       </SelectTrigger>
                       <SelectContent>
-                        {sportSubTypes[watchedType].map((sub) => (
-                          <SelectItem key={sub} value={sub}>
-                            {sub}
+                        {projectTypes.map((pt) => (
+                          <SelectItem key={pt.id} value={pt.id}>
+                            {pt.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    {errors.short_name && (
-                      <p className="text-red-600 text-sm mt-1">{errors.short_name.message}</p>
+                    {errors.type && (
+                      <p className="text-red-600 text-sm mt-1">{errors.type.message}</p>
+                    )}
+                  </div>
+
+                  {filteredProjects.length > 0 && (
+                    <div>
+                      <Label>具体项目 *</Label>
+                      <Select
+                        onValueChange={(value) => {
+                          const proj = projects.find(p => p.id === value)
+                          setSelectedProjectId(value)
+                          setSelectedDivisionIds([])
+                          setValue('short_name', proj?.name || '')
+                        }}
+                        value={selectedProjectId}
+                      >
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="选择具体项目" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {filteredProjects.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+
+                {/* 组别多选 */}
+                {filteredDivisions.length > 0 && (
+                  <div>
+                    <Label>组别选择 *</Label>
+                    <p className="text-sm text-gray-500 mb-2">选择该赛事包含的组别，每个组别可独立配置报名设置</p>
+                    <div className="border rounded-md p-4 space-y-2 max-h-60 overflow-y-auto">
+                      {filteredDivisions.map((division) => (
+                        <div key={division.id} className="flex items-center space-x-2">
+                          <Checkbox
+                            id={`division-${division.id}`}
+                            checked={selectedDivisionIds.includes(division.id)}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                setSelectedDivisionIds([...selectedDivisionIds, division.id])
+                              } else {
+                                setSelectedDivisionIds(selectedDivisionIds.filter(id => id !== division.id))
+                              }
+                            }}
+                          />
+                          <label htmlFor={`division-${division.id}`} className="text-sm cursor-pointer">
+                            {division.name}
+                            {division.description && (
+                              <span className="text-gray-500 ml-2">({division.description})</span>
+                            )}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                    {selectedDivisionIds.length > 0 && (
+                      <p className="text-sm text-blue-600 mt-1">
+                        已选择 {selectedDivisionIds.length} 个组别
+                      </p>
                     )}
                   </div>
                 )}

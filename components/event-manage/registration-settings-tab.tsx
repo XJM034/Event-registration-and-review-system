@@ -159,8 +159,25 @@ interface RegistrationSettingsTabProps {
   eventStartDate?: string // 添加赛事开始日期
 }
 
+interface EventDivision {
+  id: string
+  name: string
+  description?: string
+  rules?: {
+    gender?: 'male' | 'female' | 'mixed' | 'none'
+    minAge?: number
+    maxAge?: number
+    minBirthDate?: string
+    maxBirthDate?: string
+    minPlayers?: number
+    maxPlayers?: number
+  }
+}
+
 export default function RegistrationSettingsTab({ eventId, eventStartDate }: RegistrationSettingsTabProps) {
   const [initialDataLoaded, setInitialDataLoaded] = useState(false) // 添加初始数据加载状态
+  const [eventDivisions, setEventDivisions] = useState<EventDivision[]>([])
+  const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
   const [teamRequirements, setTeamRequirements] = useState<TeamRequirements>({
     commonFields: [],
     customFields: [],
@@ -230,8 +247,31 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
   const [reviewEndError, setReviewEndError] = useState('')
 
   useEffect(() => {
-    fetchSettings()
+    // 先加载赛事关联的组别
+    const loadDivisions = async () => {
+      try {
+        const res = await fetch(`/api/events/${eventId}/divisions`)
+        const data = await res.json()
+        if (data.success && data.data && data.data.length > 0) {
+          setEventDivisions(data.data)
+          setSelectedDivisionId(data.data[0].id)
+        } else {
+          // 无组别，按旧逻辑加载
+          fetchSettings()
+        }
+      } catch {
+        fetchSettings()
+      }
+    }
+    loadDivisions()
   }, [eventId])
+
+  // 当选中的组别变化时，加载对应的报名设置
+  useEffect(() => {
+    if (selectedDivisionId !== null) {
+      fetchSettings(selectedDivisionId)
+    }
+  }, [selectedDivisionId])
 
   // 格式化日期时间显示
   const formatDateTime = (dateTimeStr: string) => {
@@ -387,9 +427,13 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
     }
   }
 
-  const fetchSettings = async () => {
+  const fetchSettings = async (divisionId?: string | null) => {
     try {
-      const response = await fetch(`/api/events/${eventId}/registration-settings`)
+      let url = `/api/events/${eventId}/registration-settings`
+      if (divisionId) {
+        url += `?division_id=${divisionId}`
+      }
+      const response = await fetch(url)
       const result = await response.json()
 
       if (result.success && result.data) {
@@ -618,7 +662,8 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         },
         body: JSON.stringify({
           team_requirements: teamReqToSave,
-          player_requirements: playerReqToSave
+          player_requirements: playerReqToSave,
+          division_id: selectedDivisionId,
         }),
       })
 
@@ -627,7 +672,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
       if (result.success) {
         alert('报名设置保存成功')
         // 重新加载数据以确保状态同步
-        await fetchSettings()
+        await fetchSettings(selectedDivisionId)
       } else {
         alert('保存失败: ' + result.error)
       }
@@ -1025,6 +1070,73 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {/* 组别选择器 */}
+        {eventDivisions.length > 0 && (
+          <div className="mb-6 p-4 bg-gray-50 border rounded-lg">
+            <Label className="text-sm font-semibold mb-2 block">选择组别</Label>
+            <p className="text-xs text-gray-500 mb-3">每个组别可独立配置报名设置</p>
+            <div className="flex flex-wrap gap-2">
+              {eventDivisions.map((div) => (
+                <Button
+                  key={div.id}
+                  type="button"
+                  variant={selectedDivisionId === div.id ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setSelectedDivisionId(div.id)}
+                >
+                  {div.name}
+                </Button>
+              ))}
+            </div>
+
+            {/* 显示当前选中组别的规则 */}
+            {selectedDivisionId && (() => {
+              const selectedDiv = eventDivisions.find(d => d.id === selectedDivisionId)
+              if (selectedDiv?.rules && (
+                selectedDiv.rules.gender !== 'none' ||
+                selectedDiv.rules.minBirthDate !== undefined ||
+                selectedDiv.rules.maxBirthDate !== undefined ||
+                selectedDiv.rules.minAge !== undefined ||
+                selectedDiv.rules.maxAge !== undefined ||
+                selectedDiv.rules.minPlayers !== undefined ||
+                selectedDiv.rules.maxPlayers !== undefined
+              )) {
+                return (
+                  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded">
+                    <p className="text-sm font-medium text-blue-900 mb-2">该组别报名限制：</p>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedDiv.rules.gender && selectedDiv.rules.gender !== 'none' && (
+                        <span className="inline-block px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded">
+                          {selectedDiv.rules.gender === 'male' ? '仅限男子' : selectedDiv.rules.gender === 'female' ? '仅限女子' : '混合（男女均可）'}
+                        </span>
+                      )}
+                      {(selectedDiv.rules.minBirthDate || selectedDiv.rules.maxBirthDate) && (
+                        <span className="inline-block px-2 py-1 bg-green-100 text-green-700 text-xs rounded">
+                          出生日期限制: {selectedDiv.rules.minBirthDate || '不限'} ~ {selectedDiv.rules.maxBirthDate || '不限'}
+                        </span>
+                      )}
+                      {(!selectedDiv.rules.minBirthDate && !selectedDiv.rules.maxBirthDate) && (selectedDiv.rules.minAge !== undefined || selectedDiv.rules.maxAge !== undefined) && (
+                        <span className="inline-block px-2 py-1 bg-green-100 text-green-700 text-xs rounded">
+                          年龄限制: {selectedDiv.rules.minAge || '不限'} - {selectedDiv.rules.maxAge || '不限'}岁
+                        </span>
+                      )}
+                      {(selectedDiv.rules.minPlayers !== undefined || selectedDiv.rules.maxPlayers !== undefined) && (
+                        <span className="inline-block px-2 py-1 bg-orange-100 text-orange-700 text-xs rounded">
+                          队员人数: {selectedDiv.rules.minPlayers || '不限'} - {selectedDiv.rules.maxPlayers || '不限'}人
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-600 mt-2">
+                      提示：以上队员限制统一在“项目管理-组别设置”中维护，教练报名时会自动校验
+                    </p>
+                  </div>
+                )
+              }
+              return null
+            })()}
+          </div>
+        )}
+
         <Tabs defaultValue="team" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="team">
@@ -1218,155 +1330,9 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                   <div className="bg-gray-50 p-4 rounded-lg space-y-4">
                     <h4 className="font-medium">角色: {role.name}</h4>
 
-                    {/* 队员角色的特殊要求（性别、年龄、人数） */}
                     {role.id === 'player' && (
-                      <div className="space-y-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                        <h5 className="text-sm font-semibold text-blue-900">队员要求（仅适用于队员角色）</h5>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          {/* 左侧：性别和年龄要求 */}
-                          <div className="space-y-4">
-                            {/* 性别要求 */}
-                            <div>
-                              <Label>性别要求</Label>
-                              <Select
-                                value={playerRequirements.genderRequirement}
-                                onValueChange={(value: 'none' | 'male' | 'female') =>
-                                  setPlayerRequirements(prev => ({ ...prev, genderRequirement: value }))
-                                }
-                              >
-                                <SelectTrigger className="mt-1 w-full">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="none">无</SelectItem>
-                                  <SelectItem value="male">男</SelectItem>
-                                  <SelectItem value="female">女</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            {/* 年龄要求 */}
-                            <div>
-                              <div className="flex items-center space-x-4 mb-2">
-                                <Label>年龄要求</Label>
-                                <Select
-                                  value={playerRequirements.ageRequirementEnabled ? 'enabled' : 'disabled'}
-                                  onValueChange={(value) =>
-                                    setPlayerRequirements(prev => ({ ...prev, ageRequirementEnabled: value === 'enabled' }))
-                                  }
-                                >
-                                  <SelectTrigger className="w-24">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="disabled">无</SelectItem>
-                                    <SelectItem value="enabled">有</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              {playerRequirements.ageRequirementEnabled && (
-                                <div className="space-y-2 pl-4">
-                                  <div>
-                                    <Label className="text-xs">最晚出生日期（年龄下限）</Label>
-                                    <Input
-                                      type="date"
-                                      value={playerRequirements.maxAgeDate || ''}
-                                      onChange={(e) => {
-                                        const newMaxAgeDate = e.target.value
-                                        const minAgeDate = playerRequirements.minAgeDate
-
-                                        if (newMaxAgeDate && minAgeDate && newMaxAgeDate <= minAgeDate) {
-                                          alert('⚠️ 日期设置不合理\n\n最晚出生日期应该晚于最早出生日期\n\n请调整日期范围')
-                                          return
-                                        }
-
-                                        setPlayerRequirements(prev => ({
-                                          ...prev,
-                                          maxAgeDate: newMaxAgeDate
-                                        }))
-                                      }}
-                                      className="mt-1"
-                                    />
-                                  </div>
-                                  <div>
-                                    <Label className="text-xs">最早出生日期（年龄上限）</Label>
-                                    <Input
-                                      type="date"
-                                      value={playerRequirements.minAgeDate || ''}
-                                      onChange={(e) => {
-                                        const newMinAgeDate = e.target.value
-                                        const maxAgeDate = playerRequirements.maxAgeDate
-
-                                        if (newMinAgeDate && maxAgeDate && newMinAgeDate >= maxAgeDate) {
-                                          alert('⚠️ 日期设置不合理\n\n最早出生日期应该早于最晚出生日期\n\n请调整日期范围')
-                                          return
-                                        }
-
-                                        setPlayerRequirements(prev => ({
-                                          ...prev,
-                                          minAgeDate: newMinAgeDate
-                                        }))
-                                      }}
-                                      className="mt-1"
-                                    />
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* 右侧：人数要求 */}
-                          <div>
-                            <div className="flex items-center space-x-4 mb-2">
-                              <Label>人数要求</Label>
-                              <Select
-                                value={playerRequirements.countRequirementEnabled ? 'enabled' : 'disabled'}
-                                onValueChange={(value) =>
-                                  setPlayerRequirements(prev => ({ ...prev, countRequirementEnabled: value === 'enabled' }))
-                                }
-                              >
-                                <SelectTrigger className="w-24">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="disabled">无</SelectItem>
-                                  <SelectItem value="enabled">有</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            {playerRequirements.countRequirementEnabled && (
-                              <div className="space-y-2 pl-4">
-                                <div>
-                                  <Label className="text-xs">人数下限</Label>
-                                  <Input
-                                    type="number"
-                                    value={playerRequirements.minCount || ''}
-                                    onChange={(e) => setPlayerRequirements(prev => ({
-                                      ...prev,
-                                      minCount: parseInt(e.target.value) || undefined
-                                    }))}
-                                    placeholder="最少人数"
-                                    className="mt-1"
-                                  />
-                                </div>
-                                <div>
-                                  <Label className="text-xs">人数上限</Label>
-                                  <Input
-                                    type="number"
-                                    value={playerRequirements.maxCount || ''}
-                                    onChange={(e) => setPlayerRequirements(prev => ({
-                                      ...prev,
-                                      maxCount: parseInt(e.target.value) || undefined
-                                    }))}
-                                    placeholder="最多人数"
-                                    className="mt-1"
-                                  />
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                      <div className="text-xs text-gray-600 bg-blue-50 border border-blue-200 rounded p-3">
+                        队员性别、年龄、人数限制已迁移至项目管理的组别规则统一配置。
                       </div>
                     )}
 

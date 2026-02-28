@@ -245,13 +245,7 @@ export default function PortalHomePage() {
 
   const getRegistrationStatus = (event: any) => {
     const now = new Date()
-    const eventStart = new Date(event.start_date)
     const eventEnd = new Date(event.end_date)
-
-    // 首先检查赛事是否已经结束
-    if (now > eventEnd) {
-      return { canRegister: false, text: '赛事已结束', isEventEnded: true, inReviewPeriod: false }
-    }
 
     // 从 registration_settings 中获取报名时间
     let teamReq = event.registration_settings?.team_requirements
@@ -267,26 +261,33 @@ export default function PortalHomePage() {
 
     const regStartDate = teamReq?.registrationStartDate
     const regEndDate = teamReq?.registrationEndDate
-    const reviewEndDate = teamReq?.reviewEndDate  // 新增：审核结束时间
+    const reviewEndDate = teamReq?.reviewEndDate
 
-    if (!regStartDate || !regEndDate) {
-      return { canRegister: false, text: '未设置报名时间', isEventEnded: false, inReviewPeriod: false }
+    // 优先检查报名时间配置
+    if (regStartDate && regEndDate) {
+      const regStart = new Date(regStartDate)
+      const regEnd = new Date(regEndDate)
+      const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
+
+      if (now < regStart) {
+        return { canRegister: false, text: '报名未开始', isEventEnded: false, inReviewPeriod: false }
+      } else if (now <= regEnd) {
+        return { canRegister: true, text: '去报名', isEventEnded: false, inReviewPeriod: false }
+      } else if (reviewEnd && now <= reviewEnd) {
+        // 报名已结束但在审核期内
+        return { canRegister: false, text: '去报名', isEventEnded: false, inReviewPeriod: true }
+      } else {
+        // 报名和审核都结束了
+        return { canRegister: false, text: '报名已截止', isEventEnded: false, inReviewPeriod: false }
+      }
     }
 
-    const regStart = new Date(regStartDate)
-    const regEnd = new Date(regEndDate)
-    const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
-
-    if (now < regStart) {
-      return { canRegister: false, text: '报名未开始', isEventEnded: false, inReviewPeriod: false }
-    } else if (now <= regEnd) {
-      return { canRegister: true, text: '去报名', isEventEnded: false, inReviewPeriod: false }
-    } else if (reviewEnd && now <= reviewEnd) {
-      // 报名已结束但在审核期内
-      return { canRegister: false, text: '去报名', isEventEnded: false, inReviewPeriod: true }
-    } else {
-      return { canRegister: false, text: '去报名', isEventEnded: false, inReviewPeriod: false}
+    // 没有报名时间配置时，检查赛事是否结束
+    if (now > eventEnd) {
+      return { canRegister: false, text: '赛事已结束', isEventEnded: true, inReviewPeriod: false }
     }
+
+    return { canRegister: false, text: '未设置报名时间', isEventEnded: false, inReviewPeriod: false }
   }
 
   const formatDate = (dateString: string) => {

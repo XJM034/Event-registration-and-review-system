@@ -315,7 +315,7 @@ export default function EventList({
                         </Badge>
                         <span className="text-gray-300 text-xs">/</span>
                         <Badge variant={regStatus.variant} className="text-[10px] px-1.5 py-0 h-5 w-fit whitespace-nowrap">
-                          报名{regStatus.text}
+                          {regStatus.text}
                         </Badge>
                       </div>
                     </TableCell>

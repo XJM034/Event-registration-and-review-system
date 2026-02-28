@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from '@supabase/ssr'
+import { ADMIN_SESSION_COOKIE_NAME, verifyAdminSessionToken } from '@/lib/admin-session'
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -10,11 +11,7 @@ export async function middleware(request: NextRequest) {
   // 公开路径 - 不需要任何认证
   const publicPaths = [
     '/auth/login',
-    '/auth/register',
     '/auth/forgot-password',
-    '/api/auth/login',
-    '/api/auth/logout',
-    '/api/init-admin',
     '/api/player-share',  // 队员分享API，无需登录
     '/init',
     '/_next',
@@ -32,42 +29,7 @@ export async function middleware(request: NextRequest) {
     return response
   }
 
-  // 检查管理员会话
-  const adminSessionToken = request.cookies.get('admin-session')?.value
-
-  // 如果是根路径
-  if (pathname === '/') {
-    // 如果有管理员会话，允许访问
-    if (adminSessionToken) {
-      try {
-        // 验证管理员 JWT
-        const parts = adminSessionToken.split('.')
-        if (parts.length !== 3) {
-          throw new Error('Invalid JWT format')
-        }
-
-        const payload = JSON.parse(atob(parts[1]))
-
-        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-          throw new Error('Token expired')
-        }
-
-        console.log('Admin authenticated for root path')
-        return response
-      } catch (error) {
-        console.log('Invalid admin token at root, redirecting to login')
-        const redirectResponse = NextResponse.redirect(new URL('/auth/login', request.url))
-        redirectResponse.cookies.delete('admin-session')
-        return redirectResponse
-      }
-    }
-
-    // 没有管理员会话，重定向到登录页
-    console.log('Root path without admin session, redirecting to login')
-    return NextResponse.redirect(new URL('/auth/login', request.url))
-  }
-
-  // 创建 Supabase 客户端检查教练登录状态
+  // 创建 Supabase 客户端
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY!,
@@ -76,7 +38,7 @@ export async function middleware(request: NextRequest) {
         get(name: string) {
           return request.cookies.get(name)?.value
         },
-        set(name: string, value: string, options: any) {
+        set(name: string, value: string, options: Record<string, unknown>) {
           response = NextResponse.next({
             request: {
               headers: request.headers,
@@ -88,7 +50,7 @@ export async function middleware(request: NextRequest) {
             ...options,
           })
         },
-        remove(name: string, options: any) {
+        remove(name: string, options: Record<string, unknown>) {
           response = NextResponse.next({
             request: {
               headers: request.headers,
@@ -104,58 +66,90 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const { data: { session: coachSession } } = await supabase.auth.getSession()
+  const { data: { session } } = await supabase.auth.getSession()
+  const adminSessionToken = request.cookies.get(ADMIN_SESSION_COOKIE_NAME)?.value
+  const adminSession = await verifyAdminSessionToken(adminSessionToken)
+  let adminChecked = false
+  let adminInfo: { isAdmin: boolean; isSuper: boolean } = { isAdmin: false, isSuper: false }
 
-  // Portal 路径 - 需要教练认证
+  const checkAdmin = async () => {
+    if (adminChecked) return adminInfo
+
+    if (!adminSession?.adminId) {
+      adminInfo = { isAdmin: false, isSuper: false }
+      adminChecked = true
+      return adminInfo
+    }
+
+    adminInfo = {
+      isAdmin: true,
+      isSuper: adminSession.isSuper === true,
+    }
+
+    adminChecked = true
+    return adminInfo
+  }
+
+  // 根路径固定进入登录页，避免因历史会话自动进入系统
+  if (pathname === '/') {
+    return NextResponse.redirect(new URL('/auth/login', request.url))
+  }
+
+  // Portal 路径：按 Supabase 登录态控制
   if (pathname.startsWith('/portal')) {
-    if (!coachSession) {
-      console.log('No coach session for portal, redirecting to login')
+    if (!session) {
       return NextResponse.redirect(new URL('/auth/login', request.url))
     }
-    console.log('Coach authenticated, allowing portal access')
     return response
   }
 
-  // 管理端路径 - 需要管理员认证
+  // 管理端路径 - 只允许管理员访问
   if (pathname.startsWith('/admin') || pathname.startsWith('/events')) {
-    if (!adminSessionToken) {
-      console.log('No admin session, redirecting to login')
+    const { isAdmin, isSuper } = await checkAdmin()
+
+    if (!isAdmin) {
+      console.log('Non-admin trying to access admin area, redirecting to login')
       return NextResponse.redirect(new URL('/auth/login', request.url))
     }
 
-    try {
-      // 验证管理员 JWT
-      const parts = adminSessionToken.split('.')
-      if (parts.length !== 3) {
-        throw new Error('Invalid JWT format')
+    // 项目管理路径 - 需要超级管理员
+    if (pathname.startsWith('/admin/project-management')) {
+      if (!isSuper) {
+        console.log('Non-super admin trying to access project management')
+        return NextResponse.redirect(new URL('/', request.url))
       }
-
-      const payload = JSON.parse(atob(parts[1]))
-
-      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-        throw new Error('Token expired')
-      }
-
-      console.log('Admin token valid, allowing access')
-      return response
-    } catch (error) {
-      console.log('Admin token invalid, redirecting to login:', error)
-      const redirectResponse = NextResponse.redirect(new URL('/auth/login', request.url))
-      redirectResponse.cookies.delete('admin-session')
-      return redirectResponse
     }
+
+    return response
   }
 
   // API 路径处理
   if (pathname.startsWith('/api')) {
     // Portal API 需要教练认证
     if (pathname.startsWith('/api/portal')) {
-      if (!coachSession) {
+      if (!session) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
-      console.log('Coach authenticated for API access')
+      return response
     }
-    // 其他 API 路径根据需要检查
+
+    // 项目管理 API：读取需管理员，写入需超级管理员
+    if (pathname.startsWith('/api/project-management')) {
+      const { isAdmin, isSuper } = await checkAdmin()
+
+      if (!isAdmin) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      }
+
+      // 只读接口允许普通管理员访问，写接口仍要求超级管理员
+      const method = request.method.toUpperCase()
+      const isReadMethod = method === 'GET' || method === 'HEAD' || method === 'OPTIONS'
+
+      if (!isReadMethod && !isSuper) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
+    }
+
     return response
   }
 

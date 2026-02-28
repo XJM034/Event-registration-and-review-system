@@ -28,14 +28,23 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         return
       }
 
+      if (user.user_metadata?.role === 'admin') {
+        setUnreadCount(0)
+        return
+      }
+
       const { data: coach, error: coachError } = await supabase
         .from('coaches')
         .select('id')
         .eq('auth_id', user.id)
-        .single()
+        .maybeSingle()
 
-      if (coachError || !coach) {
-        console.error('Error fetching coach:', coachError)
+      if (coachError) {
+        setUnreadCount(0)
+        return
+      }
+
+      if (!coach) {
         setUnreadCount(0)
         return
       }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServer } from '@/lib/auth'
+import { pickEffectiveRegistrationSetting } from '@/lib/registration-settings'
 
 // 获取单个赛事详情（报名端）
 export async function GET(
@@ -46,20 +47,19 @@ export async function GET(
       )
     }
 
-    // 获取报名设置
-    let settings, settingsError
+    // 获取报名设置（多组别时会有多条）
+    let settingsRows, settingsError
     try {
       const result = await supabase
         .from('registration_settings')
         .select('*')
         .eq('event_id', eventId)
-        .single()
-
-      settings = result.data
+      settingsRows = result.data
       settingsError = result.error
+
     } catch (fetchError) {
       console.warn(`Supabase连接失败 - 获取报名设置:`, fetchError)
-      settings = null
+      settingsRows = null
       settingsError = null
     }
 
@@ -68,22 +68,61 @@ export async function GET(
       console.warn(`获取报名设置失败:`, settingsError)
     }
 
+    const effectiveSettings = Array.isArray(settingsRows)
+      ? pickEffectiveRegistrationSetting(settingsRows)
+      : settingsRows
+
+    // 获取赛事关联的组别信息（包含规则）
+    let divisions = []
+    try {
+      const { data: divisionsData } = await supabase
+        .from('event_divisions')
+        .select(`
+          division_id,
+          divisions (
+            id,
+            name,
+            description,
+            rules
+          )
+        `)
+        .eq('event_id', eventId)
+
+      if (divisionsData) {
+        divisions = divisionsData
+          .map((ed: { divisions: Record<string, unknown> | null }) => ed.divisions)
+          .filter((d): d is Record<string, unknown> => d !== null)
+      }
+    } catch (error) {
+      console.warn('获取组别信息失败:', error)
+    }
+
+    const settingsList = Array.isArray(settingsRows)
+      ? settingsRows
+      : settingsRows
+        ? [settingsRows]
+        : []
+
     const eventWithSettings = {
       ...event,
-      registration_settings: settingsError ? null : settings
+      registration_settings: settingsError ? null : effectiveSettings,
+      registration_settings_by_division: settingsError ? [] : settingsList,
+      divisions: divisions
     }
 
     // 调试信息
     console.log('Portal API debug - Event with settings:', {
       eventId,
-      hasSettings: !!settings,
-      settingsType: typeof settings,
-      teamRequirements: settings?.team_requirements,
-      teamReqType: typeof settings?.team_requirements,
-      allFields: settings?.team_requirements?.allFields,
-      commonFields: settings?.team_requirements?.commonFields,
-      customFields: settings?.team_requirements?.customFields,
-      rawSettings: settings
+      settingsCount: Array.isArray(settingsRows) ? settingsRows.length : settingsRows ? 1 : 0,
+      hasSettings: !!effectiveSettings,
+      hasDivisionSettings: settingsList.length > 0,
+      settingsType: typeof effectiveSettings,
+      teamRequirements: effectiveSettings?.team_requirements,
+      teamReqType: typeof effectiveSettings?.team_requirements,
+      allFields: effectiveSettings?.team_requirements?.allFields,
+      commonFields: effectiveSettings?.team_requirements?.commonFields,
+      customFields: effectiveSettings?.team_requirements?.customFields,
+      rawSettings: effectiveSettings
     })
 
     return NextResponse.json({

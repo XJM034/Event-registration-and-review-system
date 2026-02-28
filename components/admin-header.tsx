@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
@@ -19,7 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Settings, LogOut, Plus } from 'lucide-react'
+import { Settings, LogOut, Plus, Settings2 } from 'lucide-react'
 
 interface AdminHeaderProps {
   onCreateEvent: () => void
@@ -27,17 +27,46 @@ interface AdminHeaderProps {
 
 export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
   const [showLogoutDialog, setShowLogoutDialog] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const router = useRouter()
+
+  useEffect(() => {
+    const checkSuperAdmin = async () => {
+      try {
+        const res = await fetch('/api/auth/admin-session', {
+          method: 'GET',
+          credentials: 'include',
+        })
+
+        if (!res.ok) {
+          setIsSuperAdmin(false)
+          return
+        }
+
+        const result = await res.json()
+        setIsSuperAdmin(result?.success && result?.data?.is_super === true)
+      } catch (error) {
+        console.error('Check super admin failed:', error)
+        setIsSuperAdmin(false)
+      }
+    }
+
+    checkSuperAdmin()
+  }, [])
 
   const handleLogout = async () => {
     try {
-      const response = await fetch('/api/auth/logout', {
+      await fetch('/api/auth/logout', {
         method: 'POST',
+        credentials: 'include',
       })
-      if (response.ok) {
-        router.push('/auth/login')
-        router.refresh()
-      }
+
+      await fetch('/api/auth/admin-session', {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      router.push('/auth/login')
+      router.refresh()
     } catch (error) {
       console.error('Logout error:', error)
     }
@@ -59,6 +88,14 @@ export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
+              {isSuperAdmin && (
+                <DropdownMenuItem
+                  onClick={() => router.push('/admin/project-management')}
+                >
+                  <Settings2 className="h-4 w-4 mr-2" />
+                  项目管理
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 onClick={(e) => { e.preventDefault(); setShowLogoutDialog(true) }}
                 className="text-red-600"
