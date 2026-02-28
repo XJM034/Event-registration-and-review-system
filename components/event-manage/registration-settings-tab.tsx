@@ -33,7 +33,7 @@ import { CSS } from '@dnd-kit/utilities'
 interface FieldConfig {
   id: string
   label: string
-  type: 'text' | 'image' | 'select' | 'multiselect' | 'date'
+  type: 'text' | 'image' | 'select' | 'multiselect' | 'date' | 'attachment' | 'attachments'
   required: boolean
   options?: string[]
   isCommon?: boolean  // 添加标记来区分常用项和自定义项
@@ -68,7 +68,9 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, can
     'image': '图片',
     'select': '单选',
     'multiselect': '多选',
-    'date': '日期'
+    'date': '日期',
+    'attachment': '单附件',
+    'attachments': '多附件'
   }
 
   return (
@@ -220,7 +222,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
   })
 
   const [isLoading, setIsLoading] = useState(false)
-  const [newFieldType, setNewFieldType] = useState<'text' | 'image' | 'select' | 'multiselect'>('text')
+  const [newFieldType, setNewFieldType] = useState<'text' | 'image' | 'select' | 'multiselect' | 'date' | 'attachment' | 'attachments'>('text')
   const [newFieldLabel, setNewFieldLabel] = useState('')
   const [showOptionsDialog, setShowOptionsDialog] = useState(false)
   const [showRoleDialog, setShowRoleDialog] = useState(false)
@@ -238,7 +240,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
     isCommon: boolean
   } | null>(null)
   const [tempFieldLabel, setTempFieldLabel] = useState('')
-  const [tempFieldType, setTempFieldType] = useState<'text' | 'image' | 'select' | 'multiselect' | 'date'>('text')
+  const [tempFieldType, setTempFieldType] = useState<'text' | 'image' | 'select' | 'multiselect' | 'date' | 'attachment' | 'attachments'>('text')
   const [tempFieldOptions, setTempFieldOptions] = useState<string[]>([])
 
   // 时间验证错误状态
@@ -1268,6 +1270,8 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                       <SelectItem value="text">文本</SelectItem>
                       <SelectItem value="date">日期</SelectItem>
                       <SelectItem value="image">图片</SelectItem>
+                      <SelectItem value="attachment">单附件</SelectItem>
+                      <SelectItem value="attachments">多附件</SelectItem>
                       <SelectItem value="select">单选</SelectItem>
                       <SelectItem value="multiselect">多选</SelectItem>
                     </SelectContent>
@@ -1453,6 +1457,8 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                               <SelectItem value="text">文本</SelectItem>
                               <SelectItem value="date">日期</SelectItem>
                               <SelectItem value="image">图片</SelectItem>
+                              <SelectItem value="attachment">单附件</SelectItem>
+                              <SelectItem value="attachments">多附件</SelectItem>
                               <SelectItem value="select">单选</SelectItem>
                               <SelectItem value="multiselect">多选</SelectItem>
                             </SelectContent>
@@ -1630,6 +1636,8 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                 <SelectItem value="text">文本</SelectItem>
                 <SelectItem value="date">日期</SelectItem>
                 <SelectItem value="image">图片</SelectItem>
+                <SelectItem value="attachment">单附件</SelectItem>
+                <SelectItem value="attachments">多附件</SelectItem>
                 <SelectItem value="select">单选</SelectItem>
                 <SelectItem value="multiselect">多选</SelectItem>
               </SelectContent>
