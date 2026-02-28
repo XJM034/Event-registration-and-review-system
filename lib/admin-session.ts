@@ -18,6 +18,7 @@ let signingKeyPromise: Promise<CryptoKey> | null = null
 
 function getSecret() {
   const secret = process.env.ADMIN_SESSION_SECRET
+    || process.env.JWT_SECRET
     || process.env.SUPABASE_SERVICE_ROLE_KEY
     || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY
 

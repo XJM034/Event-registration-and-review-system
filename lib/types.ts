@@ -57,7 +57,7 @@ export interface Registration {
 export interface CustomField {
   id: string;
   title: string;
-  type: 'text' | 'image' | 'select' | 'multiselect';
+  type: 'text' | 'image' | 'select' | 'multiselect' | 'attachment' | 'attachments';
   required: boolean;
   options?: string[]; // 用于 select 和 multiselect
 }

@@ -31,7 +31,9 @@ export async function POST(request: NextRequest) {
 
     const formData = await request.formData()
     const file = formData.get('file') as File
-    const bucket = formData.get('bucket') as string || 'player-photos'
+    const bucketValue = formData.get('bucket')
+    const bucket = typeof bucketValue === 'string' && bucketValue.trim() ? bucketValue.trim() : 'player-photos'
+    const allowedBuckets = new Set(['player-photos', 'registration-files', 'team-documents'])
 
     if (!file) {
       return NextResponse.json(
@@ -40,18 +42,43 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 验证文件类型
-    if (!file.type.startsWith('image/')) {
+    if (!allowedBuckets.has(bucket)) {
       return NextResponse.json(
-        { error: '请上传图片文件', success: false },
+        { error: '不支持的上传目录', success: false },
         { status: 400 }
       )
     }
 
-    // 验证文件大小 (5MB)
-    if (file.size > 5 * 1024 * 1024) {
+    const allowedExtensions = new Set([
+      'jpg', 'jpeg', 'png', 'gif', 'webp',
+      'pdf', 'doc', 'docx', 'xls', 'xlsx'
+    ])
+    const allowedMimeTypes = new Set([
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ])
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || ''
+    const mimeType = (file.type || '').toLowerCase()
+    const isMimeTypeAllowed = !mimeType || allowedMimeTypes.has(mimeType)
+
+    if (!allowedExtensions.has(fileExt) || !isMimeTypeAllowed) {
       return NextResponse.json(
-        { error: '文件大小不能超过 5MB', success: false },
+        { error: '仅支持 JPG/PNG/GIF/WEBP/PDF/DOC/DOCX/XLS/XLSX 文件', success: false },
+        { status: 400 }
+      )
+    }
+
+    // 验证文件大小 (20MB)
+    if (file.size > 20 * 1024 * 1024) {
+      return NextResponse.json(
+        { error: '文件大小不能超过 20MB', success: false },
         { status: 400 }
       )
     }
@@ -69,20 +96,36 @@ export async function POST(request: NextRequest) {
     )
 
     // 生成唯一的文件名
-    const fileExt = file.name.split('.').pop()
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`
 
     // 将文件转换为 ArrayBuffer
     const arrayBuffer = await file.arrayBuffer()
     const uint8Array = new Uint8Array(arrayBuffer)
+    const uploadContentType = mimeType || 'application/octet-stream'
 
     // 上传到 Supabase Storage
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    let { data: uploadData, error: uploadError } = await supabase.storage
       .from(bucket)
       .upload(fileName, uint8Array, {
-        contentType: file.type,
+        contentType: uploadContentType,
         upsert: false,
       })
+
+    // 部分存储服务/桶配置对 MIME 较严格时，降级为 octet-stream 再重试
+    if (
+      uploadError &&
+      uploadContentType !== 'application/octet-stream' &&
+      /mime type .* is not supported/i.test(uploadError.message || '')
+    ) {
+      const fallback = await supabase.storage
+        .from(bucket)
+        .upload(fileName, uint8Array, {
+          contentType: 'application/octet-stream',
+          upsert: false,
+        })
+      uploadData = fallback.data
+      uploadError = fallback.error
+    }
 
     if (uploadError) {
       console.error('Upload error:', uploadError)
@@ -109,6 +152,9 @@ export async function POST(request: NextRequest) {
         path: uploadData.path,
         url: urlData.publicUrl,
         fileName,
+        originalName: file.name,
+        mimeType: uploadContentType,
+        size: file.size,
       },
     })
   } catch (error) {

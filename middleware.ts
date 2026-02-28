@@ -76,6 +76,29 @@ export async function middleware(request: NextRequest) {
     if (adminChecked) return adminInfo
 
     if (!adminSession?.adminId) {
+      if (!session) {
+        adminInfo = { isAdmin: false, isSuper: false }
+        adminChecked = true
+        return adminInfo
+      }
+
+      // Fallback: verify admin identity from admin_users instead of trusting mutable user_metadata.
+      const { data: adminByAuthId, error: adminLookupError } = await supabase
+        .from('admin_users')
+        .select('id, is_super')
+        .eq('auth_id', session.user.id)
+        .maybeSingle()
+
+      if (adminLookupError) {
+        console.warn('Admin fallback lookup failed:', adminLookupError)
+      }
+
+      if (adminByAuthId?.id) {
+        adminInfo = { isAdmin: true, isSuper: adminByAuthId.is_super === true }
+        adminChecked = true
+        return adminInfo
+      }
+
       adminInfo = { isAdmin: false, isSuper: false }
       adminChecked = true
       return adminInfo

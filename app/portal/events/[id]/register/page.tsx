@@ -98,6 +98,15 @@ interface Player {
   [key: string]: any
 }
 
+interface AttachmentValue {
+  name: string
+  path: string
+  url: string
+  size: number
+  mimeType: string
+  uploadedAt: string
+}
+
 function inferPlayerGender(player: Player): 'male' | 'female' | undefined {
   const rawGender = String(player.gender || player.sex || '').trim()
   if (rawGender === '男' || rawGender.toLowerCase() === 'male') return 'male'
@@ -151,6 +160,15 @@ const createTeamSchema = (fields: any[]) => {
         schemaObject[field.id] = z.string().min(1, `${field.label}不能为空`)
       } else if (field.type === 'date') {
         schemaObject[field.id] = z.string().min(1, `请选择${field.label}`)
+      } else if (field.type === 'image') {
+        schemaObject[field.id] = z.string().min(1, `请上传${field.label}`)
+      } else if (field.type === 'attachment') {
+        schemaObject[field.id] = z.any().refine((value) => {
+          if (!value) return false
+          return typeof value === 'object' && !!value.url
+        }, `请上传${field.label}`)
+      } else if (field.type === 'attachments') {
+        schemaObject[field.id] = z.any().refine((value) => Array.isArray(value) && value.length > 0, `请上传${field.label}`)
       }
     } else {
       schemaObject[field.id] = z.any().optional()
@@ -225,6 +243,50 @@ export default function RegisterPage() {
   }, [event?.registration_settings, event?.registration_settings_by_division, selectedDivisionId])
 
   const activeTeamRequirements = parseTeamRequirements(activeRegistrationSettings?.team_requirements)
+  const attachmentAccept = '.pdf,.doc,.docx,.xls,.xlsx'
+
+  const uploadPortalFile = async (file: File, bucket: string) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('bucket', bucket)
+
+    const response = await fetch('/api/portal/upload', {
+      method: 'POST',
+      body: formData,
+    })
+
+    const result = await response.json()
+    if (!result.success) {
+      throw new Error(result.error || '上传失败')
+    }
+
+    return result.data
+  }
+
+  const toAttachmentValue = (data: any): AttachmentValue => ({
+    name: data.originalName || data.fileName || '附件',
+    path: data.path,
+    url: data.url,
+    size: Number(data.size || 0),
+    mimeType: data.mimeType || '',
+    uploadedAt: new Date().toISOString(),
+  })
+
+  const formatFileSize = (size: number) => {
+    if (size <= 0) return '0 B'
+    if (size < 1024) return `${size} B`
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  const getPreviewUrl = (url: string, fileName?: string) => {
+    const ext = (fileName || url).split('.').pop()?.toLowerCase()?.split('?')[0] || ''
+    if (ext === 'pdf') return url
+    if (['doc', 'docx', 'xls', 'xlsx'].includes(ext)) {
+      return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(url)}`
+    }
+    return url
+  }
 
   // 判断是否在审核期内
   const isInReviewPeriod = () => {
@@ -1780,6 +1842,129 @@ export default function RegisterPage() {
                     )
                   }
 
+                  if (field.type === 'attachment') {
+                    const attachmentValue = watch(field.id) as AttachmentValue | undefined
+                    return (
+                      <div key={`${field.id}-${index}`}>
+                        <Label htmlFor={field.id}>
+                          {field.label}{field.required && ' *'}
+                        </Label>
+                        <div className="mt-2 space-y-2">
+                          {attachmentValue?.url ? (
+                            <div className="border rounded-lg p-3 flex items-center justify-between">
+                              <div className="text-sm">
+                                <p className="font-medium">{attachmentValue.name}</p>
+                                <p className="text-gray-500">{formatFileSize(attachmentValue.size)}</p>
+                              </div>
+                              <div className="flex gap-2">
+                                <Button type="button" size="sm" variant="outline" asChild>
+                                  <a href={getPreviewUrl(attachmentValue.url, attachmentValue.name)} target="_blank" rel="noopener noreferrer">预览</a>
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => setValue(field.id, null)}
+                                  disabled={isEventEndedView}
+                                >
+                                  移除
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
+                              <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
+                              <p className="text-sm text-gray-600">点击上传{field.label}</p>
+                              <p className="text-xs text-gray-500">支持 PDF、Word、Excel，大小不超过20MB</p>
+                              <input
+                                type="file"
+                                accept={attachmentAccept}
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0]
+                                  if (!file) return
+                                  try {
+                                    setIsSubmitting(true)
+                                    const data = await uploadPortalFile(file, 'team-documents')
+                                    setValue(field.id, toAttachmentValue(data))
+                                    alert('上传成功！')
+                                  } catch (error: any) {
+                                    alert(error.message || '上传失败')
+                                  } finally {
+                                    setIsSubmitting(false)
+                                    e.target.value = ''
+                                  }
+                                }}
+                                className="absolute inset-0 opacity-0 cursor-pointer"
+                                disabled={isEventEndedView}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  }
+
+                  if (field.type === 'attachments') {
+                    const attachmentValues = (watch(field.id) as AttachmentValue[] | undefined) || []
+                    return (
+                      <div key={`${field.id}-${index}`}>
+                        <Label htmlFor={field.id}>
+                          {field.label}{field.required && ' *'}
+                        </Label>
+                        <div className="mt-2 space-y-2">
+                          {attachmentValues.map((item, fileIndex) => (
+                            <div key={`${item.path}-${fileIndex}`} className="border rounded-lg p-3 flex items-center justify-between">
+                              <div className="text-sm">
+                                <p className="font-medium">{item.name}</p>
+                                <p className="text-gray-500">{formatFileSize(item.size)}</p>
+                              </div>
+                              <div className="flex gap-2">
+                                <Button type="button" size="sm" variant="outline" asChild>
+                                  <a href={getPreviewUrl(item.url, item.name)} target="_blank" rel="noopener noreferrer">预览</a>
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => setValue(field.id, attachmentValues.filter((_, i) => i !== fileIndex))}
+                                  disabled={isEventEndedView}
+                                >
+                                  删除
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                          <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
+                            <Upload className="h-6 w-6 mx-auto text-gray-400 mb-1" />
+                            <p className="text-xs text-gray-600">继续上传{field.label}</p>
+                            <p className="text-xs text-gray-500">支持 PDF、Word、Excel，大小不超过20MB</p>
+                            <input
+                              type="file"
+                              accept={attachmentAccept}
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0]
+                                if (!file) return
+                                try {
+                                  setIsSubmitting(true)
+                                  const data = await uploadPortalFile(file, 'team-documents')
+                                  setValue(field.id, [...attachmentValues, toAttachmentValue(data)])
+                                  alert('上传成功！')
+                                } catch (error: any) {
+                                  alert(error.message || '上传失败')
+                                } finally {
+                                  setIsSubmitting(false)
+                                  e.target.value = ''
+                                }
+                              }}
+                              className="absolute inset-0 opacity-0 cursor-pointer"
+                              disabled={isEventEndedView}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  }
+
                   // 多选字段
                   if (field.type === 'multiselect' && field.options) {
                     return (
@@ -2383,6 +2568,121 @@ export default function RegisterPage() {
                                               />
                                             </div>
                                           )}
+                                        </div>
+                                      </div>
+                                    )
+                                  case 'attachment':
+                                    const playerAttachment = player[field.id] as AttachmentValue | undefined
+                                    return (
+                                      <div key={`${field.id}-${index}`}>
+                                        <Label>{field.label}{field.required && ' *'}</Label>
+                                        <div className="mt-2 space-y-2">
+                                          {playerAttachment?.url ? (
+                                            <div className="border rounded-lg p-3 flex items-center justify-between">
+                                              <div className="text-sm">
+                                                <p className="font-medium">{playerAttachment.name}</p>
+                                                <p className="text-gray-500">{formatFileSize(playerAttachment.size)}</p>
+                                              </div>
+                                              <div className="flex gap-2">
+                                                <Button type="button" size="sm" variant="outline" asChild>
+                                                  <a href={getPreviewUrl(playerAttachment.url, playerAttachment.name)} target="_blank" rel="noopener noreferrer">预览</a>
+                                                </Button>
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="destructive"
+                                                  onClick={() => updatePlayer(player.id, field.id, null)}
+                                                  disabled={isEventEndedView}
+                                                >
+                                                  删除
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
+                                              <Upload className="h-6 w-6 mx-auto text-gray-400 mb-1" />
+                                              <p className="text-xs text-gray-600">点击上传{field.label}</p>
+                                              <p className="text-xs text-gray-500">支持 PDF、Word、Excel，大小不超过20MB</p>
+                                              <input
+                                                type="file"
+                                                accept={attachmentAccept}
+                                                onChange={async (e) => {
+                                                  const file = e.target.files?.[0]
+                                                  if (!file) return
+                                                  try {
+                                                    setIsSubmitting(true)
+                                                    const data = await uploadPortalFile(file, 'team-documents')
+                                                    updatePlayer(player.id, field.id, toAttachmentValue(data))
+                                                    alert('上传成功！')
+                                                  } catch (error: any) {
+                                                    alert(error.message || '上传失败')
+                                                  } finally {
+                                                    setIsSubmitting(false)
+                                                    e.target.value = ''
+                                                  }
+                                                }}
+                                                className="absolute inset-0 opacity-0 cursor-pointer"
+                                                disabled={isEventEndedView}
+                                              />
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )
+                                  case 'attachments':
+                                    const playerAttachments = (player[field.id] as AttachmentValue[] | undefined) || []
+                                    return (
+                                      <div key={`${field.id}-${index}`} className="md:col-span-2">
+                                        <Label>{field.label}{field.required && ' *'}</Label>
+                                        <div className="mt-2 space-y-2">
+                                          {playerAttachments.map((item, itemIndex) => (
+                                            <div key={`${item.path}-${itemIndex}`} className="border rounded-lg p-3 flex items-center justify-between">
+                                              <div className="text-sm">
+                                                <p className="font-medium">{item.name}</p>
+                                                <p className="text-gray-500">{formatFileSize(item.size)}</p>
+                                              </div>
+                                              <div className="flex gap-2">
+                                                <Button type="button" size="sm" variant="outline" asChild>
+                                                  <a href={getPreviewUrl(item.url, item.name)} target="_blank" rel="noopener noreferrer">预览</a>
+                                                </Button>
+                                                <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="destructive"
+                                                  onClick={() => updatePlayer(player.id, field.id, playerAttachments.filter((_, i) => i !== itemIndex))}
+                                                  disabled={isEventEndedView}
+                                                >
+                                                  删除
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          ))}
+                                          <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
+                                            <Upload className="h-6 w-6 mx-auto text-gray-400 mb-1" />
+                                            <p className="text-xs text-gray-600">继续上传{field.label}</p>
+                                            <p className="text-xs text-gray-500">支持 PDF、Word、Excel，大小不超过20MB</p>
+                                            <input
+                                              type="file"
+                                              accept={attachmentAccept}
+                                              onChange={async (e) => {
+                                                const file = e.target.files?.[0]
+                                                if (!file) return
+                                                try {
+                                                  setIsSubmitting(true)
+                                                  const data = await uploadPortalFile(file, 'team-documents')
+                                                  updatePlayer(player.id, field.id, [...playerAttachments, toAttachmentValue(data)])
+                                                  alert('上传成功！')
+                                                } catch (error: any) {
+                                                  alert(error.message || '上传失败')
+                                                } finally {
+                                                  setIsSubmitting(false)
+                                                  e.target.value = ''
+                                                }
+                                              }}
+                                              className="absolute inset-0 opacity-0 cursor-pointer"
+                                              disabled={isEventEndedView}
+                                            />
+                                          </div>
                                         </div>
                                       </div>
                                     )

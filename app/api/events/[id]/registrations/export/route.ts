@@ -35,6 +35,21 @@ const sanitizePathSegment = (name: string, fallback: string) => {
   return cleaned || fallback
 }
 
+const extractFileUrls = (value: unknown): string[] => {
+  if (!value) return []
+  if (typeof value === 'string' && value.startsWith('http')) return [value]
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'object' && item && 'url' in item ? (item as any).url : null))
+      .filter((url): url is string => typeof url === 'string' && url.startsWith('http'))
+  }
+  if (typeof value === 'object' && value && 'url' in value) {
+    const url = (value as any).url
+    if (typeof url === 'string' && url.startsWith('http')) return [url]
+  }
+  return []
+}
+
 export async function POST(
   request: NextRequest,
   context: RouteParams
@@ -97,7 +112,7 @@ export async function POST(
     let teamFields: any[] = []
     let playerRoles: any[] = []
     let hasAttachments = false
-    const imageFields: { team: any[], player: any[] } = { team: [], player: [] }
+    const attachmentFields: { team: any[], player: any[] } = { team: [], player: [] }
 
     if (settings?.team_requirements) {
       const teamReq = settings.team_requirements
@@ -106,9 +121,8 @@ export async function POST(
         ...(teamReq.commonFields || []),
         ...(teamReq.customFields || [])
       ]
-      // 检查是否有图片字段
-      imageFields.team = teamFields.filter(f => f.type === 'image')
-      if (imageFields.team.length > 0) hasAttachments = true
+      attachmentFields.team = teamFields.filter(f => ['image', 'attachment', 'attachments'].includes(f.type))
+      if (attachmentFields.team.length > 0) hasAttachments = true
     }
 
     if (settings?.player_requirements?.roles) {
@@ -141,15 +155,15 @@ export async function POST(
       rolePathNames.set(role.id, sanitizePathSegment(rawName, '角色'))
     })
 
-    // 检查所有角色的图片字段
+    // 检查所有角色的附件字段
     playerRoles.forEach(role => {
       const roleFields = role.allFields || [
         ...(role.commonFields || []),
         ...(role.customFields || [])
       ]
-      const roleImageFields = roleFields.filter((f: any) => f.type === 'image')
-      if (roleImageFields.length > 0) {
-        imageFields.player = [...imageFields.player, ...roleImageFields]
+      const roleAttachmentFields = roleFields.filter((f: any) => ['image', 'attachment', 'attachments'].includes(f.type))
+      if (roleAttachmentFields.length > 0) {
+        attachmentFields.player = [...attachmentFields.player, ...roleAttachmentFields]
         hasAttachments = true
       }
     })
@@ -186,7 +200,7 @@ export async function POST(
         const firstThreeFields = teamFields.slice(0, 3)
         const folderNameParts: string[] = []
         firstThreeFields.forEach(field => {
-          if (field.type !== 'image') {
+          if (!['image', 'attachment', 'attachments'].includes(field.type)) {
             const value = teamData[field.id]
             if (value) {
               folderNameParts.push(String(value).replace(/[/\\?%*:|"<>]/g, '-')) // 移除非法文件名字符
@@ -207,57 +221,54 @@ export async function POST(
       teamFields.forEach(field => {
         const value = teamData[field.id]
 
-        // 跳过图片字段（已经下载到文件夹）
-        if (field.type === 'image') {
-          if (value && typeof value === 'string' && value.startsWith('http') && zip) {
-            // 下载图片
+        // 跳过附件字段（已经下载到文件夹）
+        if (['image', 'attachment', 'attachments'].includes(field.type)) {
+          const urls = extractFileUrls(value)
+          if (urls.length > 0 && zip) {
             const fieldLabel = field.label || field.id
             const safeTeamFieldLabel = sanitizePathSegment(String(fieldLabel), '字段')
-            attachmentPromises.push(
-              (async () => {
-                try {
-                  const response = await fetch(value, {
-                    headers: {
-                      'Accept': 'image/*'
+            urls.forEach((url, urlIndex) => {
+              attachmentPromises.push(
+                (async () => {
+                  try {
+                    const response = await fetch(url)
+
+                    if (!response.ok) {
+                      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
                     }
-                  })
 
-                  if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+                    const arrayBuffer = await response.arrayBuffer()
+
+                    let extension = url.match(/\.([a-zA-Z0-9]+)(?:\?|$)/)?.[1]?.toLowerCase()
+                    if (!extension) {
+                      const contentType = response.headers.get('content-type') || ''
+                      if (contentType.includes('jpeg') || contentType.includes('jpg')) extension = 'jpg'
+                      else if (contentType.includes('png')) extension = 'png'
+                      else if (contentType.includes('gif')) extension = 'gif'
+                      else if (contentType.includes('webp')) extension = 'webp'
+                      else if (contentType.includes('pdf')) extension = 'pdf'
+                      else if (contentType.includes('word')) extension = 'docx'
+                      else if (contentType.includes('excel') || contentType.includes('sheet')) extension = 'xlsx'
+                      else extension = 'bin'
+                    }
+
+                    const fileBaseName = urls.length > 1 ? `${safeTeamFieldLabel}-${urlIndex + 1}` : safeTeamFieldLabel
+                    let filePath = ''
+                    if (registrations.length === 1) {
+                      filePath = `${fileBaseName}.${extension}`
+                    } else {
+                      filePath = `${safeTeamFieldLabel}/${teamFolderName}/${fileBaseName}.${extension}`
+                    }
+
+                    zip.file(filePath, arrayBuffer)
+                  } catch (err) {
+                    console.error(`Failed to download team attachment:`, err)
                   }
-
-                  const arrayBuffer = await response.arrayBuffer()
-
-                  // 获取文件扩展名
-                  let extension = value.match(/\.(jpg|jpeg|png|gif|webp)$/i)?.[1]
-                  if (!extension) {
-                    const contentType = response.headers.get('content-type')
-                    if (contentType?.includes('jpeg') || contentType?.includes('jpg')) extension = 'jpg'
-                    else if (contentType?.includes('png')) extension = 'png'
-                    else if (contentType?.includes('gif')) extension = 'gif'
-                    else if (contentType?.includes('webp')) extension = 'webp'
-                    else extension = 'jpg'
-                  }
-
-                  // 根据报名数量决定文件路径
-                  let filePath = ''
-                  if (registrations.length === 1) {
-                    // 单个队伍：直接放在根目录
-                    filePath = `${safeTeamFieldLabel}.${extension}`
-                  } else {
-                    // 多个队伍：字段文件夹/队伍文件夹/文件名
-                    filePath = `${safeTeamFieldLabel}/${teamFolderName}/${safeTeamFieldLabel}.${extension}`
-                  }
-
-                  zip.file(filePath, arrayBuffer)
-                  console.log(`Downloaded team image: ${filePath}`)
-                } catch (err) {
-                  console.error(`Failed to download team image:`, err)
-                }
-              })()
-            )
+                })()
+              )
+            })
           }
-          return // 不在Excel中显示图片字段
+          return // 不在Excel中显示附件字段
         }
 
         // 添加非图片字段到Excel
@@ -314,61 +325,57 @@ export async function POST(
           playerFields.forEach((field: any) => {
             const value = player[field.id]
 
-            // 跳过图片字段（已经下载到文件夹）
-            if (field.type === 'image') {
-              if (value && typeof value === 'string' && value.startsWith('http') && zip) {
-                // 下载图片
+            // 跳过附件字段（已经下载到文件夹）
+            if (['image', 'attachment', 'attachments'].includes(field.type)) {
+              const urls = extractFileUrls(value)
+              if (urls.length > 0 && zip) {
                 const fieldLabel = field.label || field.id
                 const playerName = player['姓名'] || player['name'] || player['队员姓名'] || `${currentRole.name}${currentCount}`
                 const safeRoleSegment = rolePathNames.get(currentRole.id) || sanitizePathSegment(String(currentRole.name || currentRole.id), '角色')
                 const safeFieldLabel = sanitizePathSegment(String(fieldLabel), '字段')
                 const safePlayerName = sanitizePathSegment(String(playerName), '队员')
+                urls.forEach((url, urlIndex) => {
+                  attachmentPromises.push(
+                    (async () => {
+                      try {
+                        const response = await fetch(url)
 
-                attachmentPromises.push(
-                  (async () => {
-                    try {
-                      const response = await fetch(value, {
-                        headers: {
-                          'Accept': 'image/*'
+                        if (!response.ok) {
+                          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
                         }
-                      })
 
-                      if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+                        const arrayBuffer = await response.arrayBuffer()
+
+                        let extension = url.match(/\.([a-zA-Z0-9]+)(?:\?|$)/)?.[1]?.toLowerCase()
+                        if (!extension) {
+                          const contentType = response.headers.get('content-type') || ''
+                          if (contentType.includes('jpeg') || contentType.includes('jpg')) extension = 'jpg'
+                          else if (contentType.includes('png')) extension = 'png'
+                          else if (contentType.includes('gif')) extension = 'gif'
+                          else if (contentType.includes('webp')) extension = 'webp'
+                          else if (contentType.includes('pdf')) extension = 'pdf'
+                          else if (contentType.includes('word')) extension = 'docx'
+                          else if (contentType.includes('excel') || contentType.includes('sheet')) extension = 'xlsx'
+                          else extension = 'bin'
+                        }
+
+                        const playerFileName = urls.length > 1 ? `${safePlayerName}-${urlIndex + 1}` : safePlayerName
+                        let filePath = ''
+                        if (registrations.length === 1) {
+                          filePath = `${safeRoleSegment}-${safeFieldLabel}/${playerFileName}.${extension}`
+                        } else {
+                          filePath = `${safeRoleSegment}-${safeFieldLabel}/${teamFolderName}/${playerFileName}.${extension}`
+                        }
+
+                        zip.file(filePath, arrayBuffer)
+                      } catch (err) {
+                        console.error(`Failed to download player attachment:`, err)
                       }
-
-                      const arrayBuffer = await response.arrayBuffer()
-
-                      // 获取文件扩展名
-                      let extension = value.match(/\.(jpg|jpeg|png|gif|webp)$/i)?.[1]
-                      if (!extension) {
-                        const contentType = response.headers.get('content-type')
-                        if (contentType?.includes('jpeg') || contentType?.includes('jpg')) extension = 'jpg'
-                        else if (contentType?.includes('png')) extension = 'png'
-                        else if (contentType?.includes('gif')) extension = 'gif'
-                        else if (contentType?.includes('webp')) extension = 'webp'
-                        else extension = 'jpg'
-                      }
-
-                      // 根据报名数量决定文件路径
-                      let filePath = ''
-                      if (registrations.length === 1) {
-                        // 单个队伍：角色-字段名文件夹/队员名
-                        filePath = `${safeRoleSegment}-${safeFieldLabel}/${safePlayerName}.${extension}`
-                      } else {
-                        // 多个队伍：角色-字段名文件夹/队伍文件夹/队员名
-                        filePath = `${safeRoleSegment}-${safeFieldLabel}/${teamFolderName}/${safePlayerName}.${extension}`
-                      }
-
-                      zip.file(filePath, arrayBuffer)
-                      console.log(`Downloaded player image: ${filePath}`)
-                    } catch (err) {
-                      console.error(`Failed to download player image:`, err)
-                    }
-                  })()
-                )
+                    })()
+                  )
+                })
               }
-              return // 不在Excel中显示图片字段
+              return // 不在Excel中显示附件字段
             }
 
             // 添加非图片字段到Excel

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useState, useEffect, useCallback } from 'react'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, Settings, Users, ClipboardList } from 'lucide-react'
@@ -29,32 +29,24 @@ interface Event {
 export default function EventManagePage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const eventId = Array.isArray(params.id) ? params.id[0] : params.id
   const [event, setEvent] = useState<Event | null>(null)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('basic-info')
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'basic-info')
   const [pendingReviewCount, setPendingReviewCount] = useState(0)
 
-  useEffect(() => {
-    fetchEvent()
-    fetchPendingReviewCount()
-  }, [params.id])
-
-  useEffect(() => {
-    // 当切换到审核列表时，重新获取数量
-    if (activeTab === 'review-list') {
-      fetchPendingReviewCount()
-    }
-  }, [activeTab])
-
-  const fetchEvent = async () => {
+  const fetchEvent = useCallback(async (id: string) => {
     try {
-      const response = await fetch(`/api/events/${params.id}`)
+      const response = await fetch(`/api/events/${id}`)
       const result = await response.json()
 
       if (result.success) {
         setEvent(result.data)
       } else {
-        console.error('Failed to fetch event:', result.error)
+        if (response.status !== 404) {
+          console.error('Failed to fetch event:', result.error)
+        }
         // 如果是未授权访问，重定向到登录页
         if (response.status === 401 || result.error === '未授权访问') {
           router.push('/auth/login')
@@ -65,11 +57,11 @@ export default function EventManagePage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [router])
 
-  const fetchPendingReviewCount = async () => {
+  const fetchPendingReviewCount = useCallback(async (id: string) => {
     try {
-      const response = await fetch(`/api/events/${params.id}/registrations?status=pending`)
+      const response = await fetch(`/api/events/${id}/registrations?status=pending`)
       const result = await response.json()
 
       if (result.success) {
@@ -83,7 +75,20 @@ export default function EventManagePage() {
     } catch (error) {
       console.error('Error fetching pending review count:', error)
     }
-  }
+  }, [router])
+
+  useEffect(() => {
+    if (!eventId || typeof eventId !== 'string') return
+    fetchEvent(eventId)
+    fetchPendingReviewCount(eventId)
+  }, [eventId, fetchEvent, fetchPendingReviewCount])
+
+  useEffect(() => {
+    // 当切换到审核列表时，重新获取数量
+    if (activeTab === 'review-list' && eventId && typeof eventId === 'string') {
+      fetchPendingReviewCount(eventId)
+    }
+  }, [activeTab, eventId, fetchPendingReviewCount])
 
   if (loading) {
     return (
@@ -191,7 +196,7 @@ export default function EventManagePage() {
         {/* 右侧内容区 */}
         <div className="flex-1 p-6">
           {activeTab === 'basic-info' && (
-            <BasicInfoTab event={event} onUpdate={fetchEvent} />
+            <BasicInfoTab event={event} onUpdate={() => fetchEvent(event.id)} />
           )}
           
           {activeTab === 'registration-settings' && (
@@ -201,7 +206,7 @@ export default function EventManagePage() {
           {activeTab === 'review-list' && (
             <ReviewListTab
               eventId={event.id}
-              onReviewComplete={fetchPendingReviewCount}
+              onReviewComplete={() => fetchPendingReviewCount(event.id)}
             />
           )}
 
