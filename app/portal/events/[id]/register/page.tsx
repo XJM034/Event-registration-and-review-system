@@ -52,18 +52,36 @@ interface PlayerRuleHints {
   maxAgeDate?: string
 }
 
+interface FieldConfig {
+  id: string
+  label?: string
+  type?: string
+  required?: boolean
+  options?: Array<string | { label: string; value: string }>
+  [key: string]: any
+}
+
+interface RoleConfig {
+  id: string
+  name: string
+  commonFields?: FieldConfig[]
+  customFields?: FieldConfig[]
+  allFields?: FieldConfig[]
+  [key: string]: any
+}
+
 interface TeamRequirementsConfig {
   registrationStartDate?: string
   registrationEndDate?: string
   reviewEndDate?: string
-  commonFields?: Record<string, unknown>[]
-  customFields?: Record<string, unknown>[]
-  allFields?: Record<string, unknown>[]
+  commonFields?: FieldConfig[]
+  customFields?: FieldConfig[]
+  allFields?: FieldConfig[]
 }
 
 interface PlayerRequirementsConfig {
-  roles?: Record<string, unknown>[]
-  genderRequirement?: string
+  roles?: RoleConfig[]
+  genderRequirement?: 'none' | 'male' | 'female'
   ageRequirementEnabled?: boolean
   countRequirementEnabled?: boolean
   minCount?: number
@@ -127,7 +145,8 @@ interface Registration {
   coach_id?: string
   team_data: any
   players_data: Player[]
-  status: 'draft' | 'pending' | 'approved' | 'rejected' | 'cancelled'
+  status: 'draft' | 'submitted' | 'pending' | 'approved' | 'rejected' | 'cancelled'
+  rejection_reason?: string | null
 }
 
 function parseTeamRequirements(
@@ -148,6 +167,19 @@ function parseTeamRequirements(
   }
 
   return value
+}
+
+function getMergedFields(config?: {
+  allFields?: FieldConfig[]
+  commonFields?: FieldConfig[]
+  customFields?: FieldConfig[]
+}): FieldConfig[] {
+  const raw = config?.allFields || [
+    ...(config?.commonFields || []),
+    ...(config?.customFields || [])
+  ]
+
+  return raw.filter((field): field is FieldConfig => Boolean(field?.id))
 }
 
 // 动态生成表单 schema
@@ -206,10 +238,10 @@ export default function RegisterPage() {
   }
 
   // 获取有序的角色列表（非队员角色在前，队员角色在后）
-  const getOrderedRoles = () => {
+  const getOrderedRoles = (): RoleConfig[] => {
     const roles = activeRegistrationSettings?.player_requirements?.roles || []
     // 返回排序后的角色：非队员角色在前，队员角色在后
-    return [...roles].sort((a: any, b: any) => {
+    return [...roles].sort((a, b) => {
       if (a.id === 'player' && b.id !== 'player') return 1
       if (a.id !== 'player' && b.id === 'player') return -1
       return 0
@@ -338,21 +370,18 @@ export default function RegisterPage() {
     if (isInReviewPeriod() && (registration?.status === 'submitted' || registration?.status === 'rejected')) return true
 
     // 报名期内，除了已通过状态外都显示
-    if (!isInReviewPeriod() && registration?.status !== 'approved') return true
+    if (!isInReviewPeriod()) return true
 
     return true
   }
 
   // 获取字段配置 - 使用管理端设置的字段顺序
   const teamRequirements = activeTeamRequirements
-  const rawFields = teamRequirements?.allFields || [
-    ...(teamRequirements?.commonFields || []),
-    ...(teamRequirements?.customFields || [])
-  ]
+  const rawFields = getMergedFields(teamRequirements)
 
   // 去重字段，避免重复显示
-  const allFields = rawFields.filter((field: any, index: number, array: any[]) =>
-    array.findIndex((f: any) => f.id === field.id) === index
+  const allFields = rawFields.filter((field, index, array) =>
+    array.findIndex((f) => f.id === field.id) === index
   )
 
   const activeDivisionRules = useMemo<DivisionRules>(() => {
@@ -1020,15 +1049,12 @@ export default function RegisterPage() {
       const player = players[i]
       const selectedRoleId = player.role || 'player'
       const selectedRole = playerRequirements?.roles?.find(
-        (r: any) => r.id === selectedRoleId
+        (r) => r.id === selectedRoleId
       ) || playerRequirements?.roles?.[0]
 
       if (selectedRole) {
         // 使用管理端设置的字段顺序
-        const roleFields = selectedRole.allFields || [
-          ...(selectedRole.commonFields || []),
-          ...(selectedRole.customFields || [])
-        ]
+        const roleFields = getMergedFields(selectedRole)
 
         // 检查所有必填字段
         for (const field of roleFields) {
@@ -1056,14 +1082,12 @@ export default function RegisterPage() {
     }
 
     // 验证团队信息必填项
-    const teamFields = teamRequirements?.allFields ||
-                      [...(teamRequirements?.commonFields || []),
-                       ...(teamRequirements?.customFields || [])]
+    const teamFields = getMergedFields(teamRequirements)
 
     const missingFields: string[] = []
     for (const field of teamFields) {
       if (field.required && !data[field.id]) {
-        missingFields.push(field.label)
+        missingFields.push(field.label || field.id)
       }
     }
 
@@ -2078,7 +2102,7 @@ export default function RegisterPage() {
                     })()}
                   </div>
                   <div className="flex gap-2 flex-wrap">
-                    {getOrderedRoles().map((role: any) => {
+                    {getOrderedRoles().map((role) => {
                       const rolePlayerCount = players.filter(p => (p.role || 'player') === role.id).length
                       return (
                         <Button
@@ -2113,7 +2137,7 @@ export default function RegisterPage() {
                   </Card>
                 ) : (
                   <div className="space-y-6">
-                    {getOrderedRoles().map((role: any) => {
+                    {getOrderedRoles().map((role) => {
                       const rolePlayers = players.filter(p => (p.role || 'player') === role.id)
                       if (rolePlayers.length === 0) return null
 
@@ -2214,12 +2238,9 @@ export default function RegisterPage() {
                                         }
 
                                     // 使用管理端设置的字段顺序
-                                    const roleFields = selectedRole.allFields || [
-                                      ...(selectedRole.commonFields || []),
-                                      ...(selectedRole.customFields || [])
-                                    ]
+                                    const roleFields = getMergedFields(selectedRole)
 
-                                    return roleFields.map((field: any) => {
+                                    return roleFields.map((field) => {
                                 // 根据字段类型渲染不同的输入组件
                                 switch (field.type) {
                                   case 'text':
@@ -2474,11 +2495,16 @@ export default function RegisterPage() {
                                             <SelectValue placeholder={`请选择${field.label}`} />
                                           </SelectTrigger>
                                           <SelectContent>
-                                            {field.options?.map((option: string) => (
-                                              <SelectItem key={option} value={option}>
-                                                {option}
-                                              </SelectItem>
-                                            ))}
+                                            {field.options?.map((option) => {
+                                              const optionValue = typeof option === 'string' ? option : option?.value
+                                              const optionLabel = typeof option === 'string' ? option : (option?.label || option?.value)
+                                              if (!optionValue) return null
+                                              return (
+                                                <SelectItem key={optionValue} value={optionValue}>
+                                                  {optionLabel}
+                                                </SelectItem>
+                                              )
+                                            })}
                                           </SelectContent>
                                         </Select>
                                         {genderRequirement && currentGender &&
@@ -2501,7 +2527,7 @@ export default function RegisterPage() {
                                             <div className="relative w-32 h-32 border rounded-lg overflow-hidden">
                                               <Image
                                                 src={player[field.id]}
-                                                alt={field.label}
+                                                alt={field.label || '队员图片'}
                                                 fill
                                                 className="object-cover"
                                               />

@@ -37,6 +37,11 @@ interface FieldConfig {
   required: boolean
   options?: string[]
   isCommon?: boolean  // 添加标记来区分常用项和自定义项
+  conditionalRequired?: {  // 新增：条件必填配置
+    dependsOn: string      // 依赖字段的 id
+    values: string[]       // 当依赖字段值在此数组中时必填
+  }
+  canRemove?: boolean  // 是否可删除
 }
 
 // 可排序的字段项组件
@@ -112,7 +117,8 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, can
           />
           <span className="text-sm">必填</span>
         </label>
-        {canRemove && onRemove && (
+        {/* 始终显示删除按钮位置，保持对齐 */}
+        {canRemove && onRemove ? (
           <Button
             size="sm"
             variant="ghost"
@@ -120,6 +126,8 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, can
           >
             <Trash2 className="h-4 w-4" />
           </Button>
+        ) : (
+          <div className="h-9 px-3" />
         )}
       </div>
     </div>
@@ -143,6 +151,7 @@ interface RoleConfig {
   allFields?: FieldConfig[]  // 统一的字段数组
   minPlayers?: number
   maxPlayers?: number
+  isDeletable?: boolean  // 新增：标记角色是否可删除
 }
 
 interface PlayerRequirements {
@@ -181,7 +190,14 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
   const [eventDivisions, setEventDivisions] = useState<EventDivision[]>([])
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
   const [teamRequirements, setTeamRequirements] = useState<TeamRequirements>({
-    commonFields: [],
+    commonFields: [
+      { id: 'group', label: '队伍组别', type: 'select', required: true, options: [] },
+      { id: 'unit', label: '参赛单位', type: 'text', required: true, canRemove: false },
+      { id: 'name', label: '队伍名称', type: 'text', required: true, canRemove: false },
+      { id: 'contact', label: '联系人', type: 'text', required: true, canRemove: false },
+      { id: 'phone', label: '联系电话', type: 'text', required: true },
+      { id: 'logo', label: '队伍logo', type: 'image', required: false }
+    ],
     customFields: [],
     registrationStartDate: '',
     registrationEndDate: '',
@@ -194,22 +210,63 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         id: 'player',
         name: '队员',
         commonFields: [
-          { id: 'name', label: '姓名', type: 'text', required: false },
-          { id: 'id_number', label: '身份证号码', type: 'text', required: false },
-          { id: 'gender', label: '性别', type: 'select', required: false, options: ['男', '女'] },
-          { id: 'id_photo', label: '证件照', type: 'image', required: false },
-          { id: 'emergency_contact', label: '紧急联系人', type: 'text', required: false }
+          { id: 'name', label: '姓名', type: 'text', required: true, canRemove: false },
+          { id: 'gender', label: '性别', type: 'select', required: true, options: ['男', '女'], canRemove: false },
+          { id: 'age', label: '年龄', type: 'text', required: true, canRemove: false },
+          { id: 'id_type', label: '证件类型', type: 'select', required: true, options: ['身份证', '其他'] },
+          { id: 'id_number', label: '身份证号', type: 'text', required: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
+          { id: 'player_number', label: '参赛号码', type: 'text', required: true },
+          { id: 'emergency_contact', label: '紧急联系人', type: 'text', required: true },
+          { id: 'contact_phone', label: '联系电话', type: 'text', required: true },
+          { id: 'id_photo', label: '证件照', type: 'image', required: false }
         ],
         customFields: [],
         allFields: [
-          { id: 'name', label: '姓名', type: 'text', required: false, isCommon: true },
-          { id: 'id_number', label: '身份证号码', type: 'text', required: false, isCommon: true },
-          { id: 'gender', label: '性别', type: 'select', required: false, options: ['男', '女'], isCommon: true },
-          { id: 'id_photo', label: '证件照', type: 'image', required: false, isCommon: true },
-          { id: 'emergency_contact', label: '紧急联系人', type: 'text', required: false, isCommon: true }
+          { id: 'name', label: '姓名', type: 'text', required: true, isCommon: true, canRemove: false },
+          { id: 'gender', label: '性别', type: 'select', required: true, options: ['男', '女'], isCommon: true, canRemove: false },
+          { id: 'age', label: '年龄', type: 'text', required: true, isCommon: true, canRemove: false },
+          { id: 'id_type', label: '证件类型', type: 'select', required: true, options: ['身份证', '其他'], isCommon: true },
+          { id: 'id_number', label: '身份证号', type: 'text', required: true, isCommon: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
+          { id: 'player_number', label: '参赛号码', type: 'text', required: true, isCommon: true },
+          { id: 'emergency_contact', label: '紧急联系人', type: 'text', required: true, isCommon: true },
+          { id: 'contact_phone', label: '联系电话', type: 'text', required: true, isCommon: true },
+          { id: 'id_photo', label: '证件照', type: 'image', required: false, isCommon: true }
         ],
         minPlayers: 1,
-        maxPlayers: 30
+        maxPlayers: 30,
+        isDeletable: false
+      },
+      {
+        id: 'coach',
+        name: '教练员',
+        commonFields: [
+          { id: 'name', label: '姓名', type: 'text', required: true },
+          { id: 'contact', label: '联系方式', type: 'text', required: true },
+          { id: 'id_photo', label: '证件照', type: 'image', required: false }
+        ],
+        customFields: [],
+        allFields: [
+          { id: 'name', label: '姓名', type: 'text', required: true, isCommon: true },
+          { id: 'contact', label: '联系方式', type: 'text', required: true, isCommon: true },
+          { id: 'id_photo', label: '证件照', type: 'image', required: false, isCommon: true }
+        ],
+        isDeletable: true
+      },
+      {
+        id: 'leader',
+        name: '领队',
+        commonFields: [
+          { id: 'name', label: '姓名', type: 'text', required: true },
+          { id: 'contact', label: '联系方式', type: 'text', required: true },
+          { id: 'id_photo', label: '证件照', type: 'image', required: false }
+        ],
+        customFields: [],
+        allFields: [
+          { id: 'name', label: '姓名', type: 'text', required: true, isCommon: true },
+          { id: 'contact', label: '联系方式', type: 'text', required: true, isCommon: true },
+          { id: 'id_photo', label: '证件照', type: 'image', required: false, isCommon: true }
+        ],
+        isDeletable: true
       }
     ],
     genderRequirement: 'none',
@@ -230,6 +287,14 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
   const [selectedRole, setSelectedRole] = useState<string>('player')
   const [editingField, setEditingField] = useState<{ type: 'team' | 'player', roleId?: string, field: FieldConfig, isCommon: boolean } | null>(null)
   const [tempOptions, setTempOptions] = useState<string[]>(['选项1', '选项2'])
+
+  // 删除角色确认对话框状态
+  const [showDeleteRoleDialog, setShowDeleteRoleDialog] = useState(false)
+  const [roleToDelete, setRoleToDelete] = useState<{ id: string, name: string } | null>(null)
+
+  // 删除字段确认对话框状态
+  const [showDeleteFieldDialog, setShowDeleteFieldDialog] = useState(false)
+  const [fieldToDelete, setFieldToDelete] = useState<{ type: 'team' | 'player', fieldId: string, fieldLabel: string, isCommon: boolean, roleId?: string } | null>(null)
 
   // 字段编辑对话框状态
   const [showFieldEditDialog, setShowFieldEditDialog] = useState(false)
@@ -439,17 +504,19 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
       const result = await response.json()
 
       if (result.success && result.data) {
-        const loadedTeamReq = result.data.team_requirements || {
+        const loadedTeamReq: TeamRequirements = result.data.team_requirements || {
           commonFields: [
-            { id: 'logo', label: '队伍logo', type: 'image', required: false },
-            { id: 'name', label: '队伍名称', type: 'text', required: true },
-            { id: 'contact', label: '联系人', type: 'text', required: true },
-            { id: 'phone', label: '联系方式', type: 'text', required: true },
-            { id: 'campus', label: '报名校区', type: 'text', required: true }
+            { id: 'group', label: '队伍组别', type: 'select', required: true, options: [] },
+            { id: 'unit', label: '参赛单位', type: 'text', required: true, canRemove: false },
+            { id: 'name', label: '队伍名称', type: 'text', required: true, canRemove: false },
+            { id: 'contact', label: '联系人', type: 'text', required: true, canRemove: false },
+            { id: 'phone', label: '联系电话', type: 'text', required: true },
+            { id: 'logo', label: '队伍logo', type: 'image', required: false }
           ],
           customFields: [],
           registrationStartDate: '',
-          registrationEndDate: ''
+          registrationEndDate: '',
+          reviewEndDate: ''
         }
 
         // 如果没有allFields，从commonFields和customFields创建
@@ -463,50 +530,106 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         setTeamRequirements(loadedTeamReq)
 
         // 确保player_requirements始终包含roles数组
-        const loadedPlayerReq = result.data.player_requirements || {}
+        const loadedPlayerReq = (result.data.player_requirements || {}) as Partial<PlayerRequirements>
 
         // 为每个角色创建allFields如果不存在
         if (loadedPlayerReq.roles) {
-          loadedPlayerReq.roles = loadedPlayerReq.roles.map(role => {
+          loadedPlayerReq.roles = loadedPlayerReq.roles.map((role) => {
+            const customFields = role.customFields || []
             if (!role.allFields) {
               return {
                 ...role,
+                customFields,
                 allFields: [
                   ...(role.commonFields || []).map(f => ({ ...f, isCommon: true })),
-                  ...role.customFields.map(f => ({ ...f, isCommon: false }))
+                  ...customFields.map(f => ({ ...f, isCommon: false }))
                 ]
               }
             }
-            return role
+            return {
+              ...role,
+              customFields
+            }
           })
         }
 
         // 确保默认角色存在
-        let rolesWithDefault = loadedPlayerReq.roles || [];
+        const rolesWithDefault = [...(loadedPlayerReq.roles || [])]
 
-        // 检查是否已有队员角色，如果没有则添加默认队员角色
-        const hasPlayerRole = rolesWithDefault.some((role: any) => role.id === 'player');
+        // 检查是否已有队员角色，如果没有则添加默认队员角色（9个字段）
+        const hasPlayerRole = rolesWithDefault.some((role) => role.id === 'player');
         if (!hasPlayerRole) {
           rolesWithDefault.unshift({
             id: 'player',
             name: '队员',
             commonFields: [
-              { id: 'name', label: '姓名', type: 'text' as const, required: false },
-              { id: 'id_number', label: '身份证号码', type: 'text' as const, required: false },
-              { id: 'gender', label: '性别', type: 'select' as const, required: false, options: ['男', '女'] },
-              { id: 'id_photo', label: '证件照', type: 'image' as const, required: false },
-              { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: false }
+              { id: 'name', label: '姓名', type: 'text' as const, required: true, canRemove: false },
+              { id: 'gender', label: '性别', type: 'select' as const, required: true, options: ['男', '女'], canRemove: false },
+              { id: 'age', label: '年龄', type: 'text' as const, required: true, canRemove: false },
+              { id: 'id_type', label: '证件类型', type: 'select' as const, required: true, options: ['身份证', '其他'] },
+              { id: 'id_number', label: '身份证号', type: 'text' as const, required: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
+              { id: 'player_number', label: '参赛号码', type: 'text' as const, required: true },
+              { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: true },
+              { id: 'contact_phone', label: '联系电话', type: 'text' as const, required: true },
+              { id: 'id_photo', label: '证件照', type: 'image' as const, required: false }
             ],
             customFields: [],
             allFields: [
-              { id: 'name', label: '姓名', type: 'text' as const, required: false, isCommon: true },
-              { id: 'id_number', label: '身份证号码', type: 'text' as const, required: false, isCommon: true },
-              { id: 'gender', label: '性别', type: 'select' as const, required: false, options: ['男', '女'], isCommon: true },
-              { id: 'id_photo', label: '证件照', type: 'image' as const, required: false, isCommon: true },
-              { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: false, isCommon: true }
+              { id: 'name', label: '姓名', type: 'text' as const, required: true, isCommon: true, canRemove: false },
+              { id: 'gender', label: '性别', type: 'select' as const, required: true, options: ['男', '女'], isCommon: true, canRemove: false },
+              { id: 'age', label: '年龄', type: 'text' as const, required: true, isCommon: true, canRemove: false },
+              { id: 'id_type', label: '证件类型', type: 'select' as const, required: true, options: ['身份证', '其他'], isCommon: true },
+              { id: 'id_number', label: '身份证号', type: 'text' as const, required: true, isCommon: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
+              { id: 'player_number', label: '参赛号码', type: 'text' as const, required: true, isCommon: true },
+              { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: true, isCommon: true },
+              { id: 'contact_phone', label: '联系电话', type: 'text' as const, required: true, isCommon: true },
+              { id: 'id_photo', label: '证件照', type: 'image' as const, required: false, isCommon: true }
             ],
             minPlayers: 1,
-            maxPlayers: 30
+            maxPlayers: 30,
+            isDeletable: false
+          });
+        }
+
+        // 检查是否已有教练员角色，如果没有则添加
+        const hasCoachRole = rolesWithDefault.some((role) => role.id === 'coach');
+        if (!hasCoachRole) {
+          rolesWithDefault.push({
+            id: 'coach',
+            name: '教练员',
+            commonFields: [
+              { id: 'name', label: '姓名', type: 'text' as const, required: true },
+              { id: 'contact', label: '联系方式', type: 'text' as const, required: true },
+              { id: 'id_photo', label: '证件照', type: 'image' as const, required: false }
+            ],
+            customFields: [],
+            allFields: [
+              { id: 'name', label: '姓名', type: 'text' as const, required: true, isCommon: true },
+              { id: 'contact', label: '联系方式', type: 'text' as const, required: true, isCommon: true },
+              { id: 'id_photo', label: '证件照', type: 'image' as const, required: false, isCommon: true }
+            ],
+            isDeletable: true
+          });
+        }
+
+        // 检查是否已有领队角色，如果没有则添加
+        const hasLeaderRole = rolesWithDefault.some((role) => role.id === 'leader');
+        if (!hasLeaderRole) {
+          rolesWithDefault.push({
+            id: 'leader',
+            name: '领队',
+            commonFields: [
+              { id: 'name', label: '姓名', type: 'text' as const, required: true },
+              { id: 'contact', label: '联系方式', type: 'text' as const, required: true },
+              { id: 'id_photo', label: '证件照', type: 'image' as const, required: false }
+            ],
+            customFields: [],
+            allFields: [
+              { id: 'name', label: '姓名', type: 'text' as const, required: true, isCommon: true },
+              { id: 'contact', label: '联系方式', type: 'text' as const, required: true, isCommon: true },
+              { id: 'id_photo', label: '证件照', type: 'image' as const, required: false, isCommon: true }
+            ],
+            isDeletable: true
           });
         }
 
@@ -517,24 +640,27 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         })
       } else {
         // 如果没有保存的数据，使用默认值并标记为已加载
-        const defaultTeamReq = {
+        const defaultTeamReq: TeamRequirements = {
           commonFields: [
-            { id: 'logo', label: '队伍logo', type: 'image', required: false },
-            { id: 'name', label: '队伍名称', type: 'text', required: true },
-            { id: 'contact', label: '联系人', type: 'text', required: true },
-            { id: 'phone', label: '联系方式', type: 'text', required: true },
-            { id: 'campus', label: '报名校区', type: 'text', required: true }
+            { id: 'group', label: '队伍组别', type: 'select', required: true, options: [] },
+            { id: 'unit', label: '参赛单位', type: 'text', required: true, canRemove: false },
+            { id: 'name', label: '队伍名称', type: 'text', required: true, canRemove: false },
+            { id: 'contact', label: '联系人', type: 'text', required: true, canRemove: false },
+            { id: 'phone', label: '联系电话', type: 'text', required: true },
+            { id: 'logo', label: '队伍logo', type: 'image', required: false }
           ],
           customFields: [],
           allFields: [
-            { id: 'logo', label: '队伍logo', type: 'image', required: false, isCommon: true },
-            { id: 'name', label: '队伍名称', type: 'text', required: true, isCommon: true },
-            { id: 'contact', label: '联系人', type: 'text', required: true, isCommon: true },
-            { id: 'phone', label: '联系方式', type: 'text', required: true, isCommon: true },
-            { id: 'campus', label: '报名校区', type: 'text', required: true, isCommon: true }
+            { id: 'group', label: '队伍组别', type: 'select', required: true, isCommon: true, options: [] },
+            { id: 'unit', label: '参赛单位', type: 'text', required: true, isCommon: true, canRemove: false },
+            { id: 'name', label: '队伍名称', type: 'text', required: true, isCommon: true, canRemove: false },
+            { id: 'contact', label: '联系人', type: 'text', required: true, isCommon: true, canRemove: false },
+            { id: 'phone', label: '联系电话', type: 'text', required: true, isCommon: true },
+            { id: 'logo', label: '队伍logo', type: 'image', required: false, isCommon: true }
           ],
           registrationStartDate: '',
-          registrationEndDate: ''
+          registrationEndDate: '',
+          reviewEndDate: ''
         }
         setTeamRequirements(defaultTeamReq)
       }
@@ -543,24 +669,27 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
     } catch (error) {
       console.error('Error fetching settings:', error)
       // 出错时也要设置默认值并标记为已加载
-      const defaultTeamReq = {
-        commonFields: [
-          { id: 'logo', label: '队伍logo', type: 'image', required: false },
-          { id: 'name', label: '队伍名称', type: 'text', required: true },
-          { id: 'contact', label: '联系人', type: 'text', required: true },
-          { id: 'phone', label: '联系方式', type: 'text', required: true },
-          { id: 'campus', label: '报名校区', type: 'text', required: true }
-        ],
-        customFields: [],
-        allFields: [
-          { id: 'logo', label: '队伍logo', type: 'image', required: false, isCommon: true },
-          { id: 'name', label: '队伍名称', type: 'text', required: true, isCommon: true },
-          { id: 'contact', label: '联系人', type: 'text', required: true, isCommon: true },
-          { id: 'phone', label: '联系方式', type: 'text', required: true, isCommon: true },
-          { id: 'campus', label: '报名校区', type: 'text', required: true, isCommon: true }
+        const defaultTeamReq: TeamRequirements = {
+          commonFields: [
+            { id: 'group', label: '队伍组别', type: 'select', required: true, options: [] },
+            { id: 'unit', label: '参赛单位', type: 'text', required: true, canRemove: false },
+            { id: 'name', label: '队伍名称', type: 'text', required: true, canRemove: false },
+            { id: 'contact', label: '联系人', type: 'text', required: true, canRemove: false },
+            { id: 'phone', label: '联系电话', type: 'text', required: true },
+            { id: 'logo', label: '队伍logo', type: 'image', required: false }
+          ],
+          customFields: [],
+          allFields: [
+            { id: 'group', label: '队伍组别', type: 'select', required: true, isCommon: true, options: [] },
+            { id: 'unit', label: '参赛单位', type: 'text', required: true, isCommon: true, canRemove: false },
+            { id: 'name', label: '队伍名称', type: 'text', required: true, isCommon: true, canRemove: false },
+            { id: 'contact', label: '联系人', type: 'text', required: true, isCommon: true, canRemove: false },
+            { id: 'phone', label: '联系电话', type: 'text', required: true, isCommon: true },
+            { id: 'logo', label: '队伍logo', type: 'image', required: false, isCommon: true }
         ],
         registrationStartDate: '',
-        registrationEndDate: ''
+        registrationEndDate: '',
+        reviewEndDate: ''
       }
       setTeamRequirements(defaultTeamReq)
       setInitialDataLoaded(true)
@@ -687,28 +816,60 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
   }
 
   const addRole = () => {
-    if (!newRoleName) {
+    const normalizedRoleName = newRoleName.trim()
+    if (!normalizedRoleName) {
       alert('请输入角色名称')
       return
     }
 
-    // 新角色默认包含常用字段（包括身份证号码），用户可选择删除
-    const defaultCommonFields: FieldConfig[] = [
-      { id: 'name', label: '姓名', type: 'text' as const, required: false },
-      { id: 'id_number', label: '身份证号码', type: 'text' as const, required: false },
-      { id: 'gender', label: '性别', type: 'select' as const, required: false, options: ['男', '女'] },
-      { id: 'id_photo', label: '证件照', type: 'image' as const, required: false },
-      { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: false }
-    ]
+    // 根据角色名称确定默认字段
+    let defaultCommonFields: FieldConfig[] = []
+    if (normalizedRoleName === '教练员' || normalizedRoleName === '领队') {
+      // 教练员和领队使用简化的3个字段
+      defaultCommonFields = [
+        { id: 'name', label: '姓名', type: 'text' as const, required: true },
+        { id: 'contact', label: '联系方式', type: 'text' as const, required: true },
+        { id: 'id_photo', label: '证件照', type: 'image' as const, required: false }
+      ]
+    } else {
+      // 其他自定义角色使用完整的队员字段
+      defaultCommonFields = [
+        { id: 'name', label: '姓名', type: 'text' as const, required: true, canRemove: false },
+        { id: 'gender', label: '性别', type: 'select' as const, required: true, options: ['男', '女'], canRemove: false },
+        { id: 'age', label: '年龄', type: 'text' as const, required: true, canRemove: false },
+        { id: 'id_type', label: '证件类型', type: 'select' as const, required: true, options: ['身份证', '其他'] },
+        { id: 'id_number', label: '身份证号', type: 'text' as const, required: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
+        { id: 'player_number', label: '参赛号码', type: 'text' as const, required: true },
+        { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: true },
+        { id: 'contact_phone', label: '联系电话', type: 'text' as const, required: true },
+        { id: 'id_photo', label: '证件照', type: 'image' as const, required: false }
+      ]
+    }
+
+    const newRoleId =
+      normalizedRoleName === '教练员'
+        ? 'coach'
+        : normalizedRoleName === '领队'
+          ? 'leader'
+          : `role_${Date.now()}`
+
+    const hasDuplicateRole = playerRequirements.roles.some(
+      (role) => role.id === newRoleId || role.name.trim() === normalizedRoleName
+    )
+    if (hasDuplicateRole) {
+      alert('角色已存在，请勿重复添加')
+      return
+    }
 
     const newRole: RoleConfig = {
-      id: `role_${Date.now()}`,
-      name: newRoleName,
+      id: newRoleId,
+      name: normalizedRoleName,
       commonFields: defaultCommonFields,
       customFields: [],
       allFields: defaultCommonFields.map(f => ({ ...f, isCommon: true })),
       minPlayers: 1,
-      maxPlayers: 10
+      maxPlayers: 10,
+      isDeletable: true
     }
 
     setPlayerRequirements(prev => ({
@@ -726,21 +887,41 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
       alert('默认队员角色不能删除')
       return
     }
-    
+
     if (playerRequirements.roles.length <= 1) {
       alert('至少需要保留一个角色')
       return
     }
-    
+
+    // 找到要删除的角色
+    const role = playerRequirements.roles.find(r => r.id === roleId)
+    if (!role) return
+
+    // 如果是教练员或领队，显示确认对话框
+    if (roleId === 'coach' || roleId === 'leader') {
+      setRoleToDelete({ id: roleId, name: role.name })
+      setShowDeleteRoleDialog(true)
+      return
+    }
+
+    // 其他角色直接删除
+    confirmRemoveRole(roleId)
+  }
+
+  const confirmRemoveRole = (roleId: string) => {
     setPlayerRequirements(prev => ({
       ...prev,
       roles: prev.roles.filter(r => r.id !== roleId)
     }))
-    
+
     // 如果删除的是当前选中的角色，切换到默认队员角色
     if (selectedRole === roleId) {
       setSelectedRole('player')
     }
+
+    // 关闭确认对话框
+    setShowDeleteRoleDialog(false)
+    setRoleToDelete(null)
   }
 
   const addCustomField = (type: 'team' | 'player') => {
@@ -894,9 +1075,33 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
   }
 
 
-  const removeField = (type: 'team' | 'player', fieldId: string, isCommon: boolean) => {
+  const removeField = (type: 'team' | 'player', fieldId: string, isCommon: boolean, roleId?: string) => {
+    // 找到要删除的字段
+    let fieldLabel = ''
     if (type === 'team') {
-      
+      const field = teamRequirements.allFields?.find(f => f.id === fieldId) ||
+                    teamRequirements.commonFields.find(f => f.id === fieldId) ||
+                    teamRequirements.customFields.find(f => f.id === fieldId)
+      fieldLabel = field?.label || '未知字段'
+    } else {
+      const role = playerRequirements.roles.find(r => r.id === roleId)
+      const field = role?.allFields?.find(f => f.id === fieldId) ||
+                    role?.commonFields?.find(f => f.id === fieldId) ||
+                    role?.customFields.find(f => f.id === fieldId)
+      fieldLabel = field?.label || '未知字段'
+    }
+
+    // 显示确认对话框
+    setFieldToDelete({ type, fieldId, fieldLabel, isCommon, roleId })
+    setShowDeleteFieldDialog(true)
+  }
+
+  const confirmRemoveField = () => {
+    if (!fieldToDelete) return
+
+    const { type, fieldId, isCommon, roleId } = fieldToDelete
+
+    if (type === 'team') {
       setTeamRequirements(prev => {
         // 更新allFields
         const updatedAllFields = prev.allFields
@@ -905,7 +1110,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
               ...prev.commonFields.map(f => ({ ...f, isCommon: true })),
               ...prev.customFields.map(f => ({ ...f, isCommon: false }))
             ].filter(f => f.id !== fieldId)
-        
+
         // 同时更新commonFields和customFields
         return {
           ...prev,
@@ -915,9 +1120,39 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         }
       })
     } else {
-      // For player, we don't have common fields anymore, only role-based fields
-      // This is handled directly in the UI now
+      // 处理人员字段删除
+      setPlayerRequirements(prev => ({
+        ...prev,
+        roles: prev.roles.map(r => {
+          if (r.id === roleId) {
+            // 更新allFields
+            const updatedAllFields = r.allFields
+              ? r.allFields.filter(f => f.id !== fieldId)
+              : [
+                  ...(r.commonFields || []).map(f => ({ ...f, isCommon: true })),
+                  ...r.customFields.map(f => ({ ...f, isCommon: false }))
+                ].filter(f => f.id !== fieldId)
+
+            // 同时更新commonFields和customFields
+            return {
+              ...r,
+              allFields: updatedAllFields,
+              commonFields: isCommon
+                ? r.commonFields?.filter(f => f.id !== fieldId)
+                : r.commonFields,
+              customFields: !isCommon
+                ? r.customFields.filter(f => f.id !== fieldId)
+                : r.customFields
+            }
+          }
+          return r
+        })
+      }))
     }
+
+    // 关闭确认对话框
+    setShowDeleteFieldDialog(false)
+    setFieldToDelete(null)
   }
 
   const toggleRequired = (type: 'team' | 'player', fieldId: string, isCommon: boolean) => {
@@ -1244,7 +1479,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                         onToggleRequired={() => toggleRequired('team', field.id, field.isCommon || false)}
                         onRemove={() => removeField('team', field.id, field.isCommon || false)}
                         onEditField={() => openFieldEditor('team', field, field.isCommon || false)}
-                        canRemove={true}
+                        canRemove={field.canRemove !== false}
                       />
                     ))}
                   </div>
@@ -1311,8 +1546,8 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                     >
                       {role.name}
                     </Button>
-                    {/* 只有非默认角色（非队员）可以删除 */}
-                    {role.id !== 'player' && (
+                    {/* 只有可删除的角色才显示删除按钮 */}
+                    {role.isDeletable !== false && (
                       <Button
                         size="sm"
                         variant="ghost"
@@ -1402,36 +1637,9 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                                     })
                                   }))
                                 }}
-                                onRemove={() => {
-                                  setPlayerRequirements(prev => ({
-                                    ...prev,
-                                    roles: prev.roles.map(r => {
-                                      if (r.id === role.id) {
-                                        // 更新allFields
-                                        const updatedAllFields = r.allFields
-                                          ? r.allFields.filter(f => f.id !== field.id)
-                                          : [
-                                              ...(r.commonFields || []).map(f => ({ ...f, isCommon: true })),
-                                              ...r.customFields.map(f => ({ ...f, isCommon: false }))
-                                            ].filter(f => f.id !== field.id)
-
-                                        // 同时更新commonFields和customFields
-                                        return {
-                                          ...r,
-                                          allFields: updatedAllFields,
-                                          commonFields: field.isCommon
-                                            ? r.commonFields?.filter(f => f.id !== field.id)
-                                            : r.commonFields,
-                                          customFields: !field.isCommon
-                                            ? r.customFields.filter(f => f.id !== field.id)
-                                            : r.customFields
-                                        }
-                                      }
-                                      return r
-                                    })
-                                  }))
-                                }}
+                                onRemove={() => removeField('player', field.id, field.isCommon || false, role.id)}
                                 onEditField={() => openFieldEditor('player', field, field.isCommon || false, role.id)}
+                                canRemove={field.canRemove !== false}
                               />
                             ))}
                           </div>
@@ -1575,6 +1783,27 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
 
         <div className="space-y-4">
           <div>
+            <Label>快速选择</Label>
+            <div className="flex gap-2 mt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setNewRoleName('教练员')}
+              >
+                教练员
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setNewRoleName('领队')}
+              >
+                领队
+              </Button>
+            </div>
+          </div>
+          <div>
             <Label htmlFor="roleName">角色名称</Label>
             <Input
               id="roleName"
@@ -1599,6 +1828,78 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           <Button onClick={addRole}>
             <UserPlus className="h-4 w-4 mr-2" />
             添加
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* 删除角色确认对话框 */}
+    <Dialog open={showDeleteRoleDialog} onOpenChange={setShowDeleteRoleDialog}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>确认删除角色</DialogTitle>
+          <DialogDescription>
+            你确定要删除"{roleToDelete?.name}"角色吗？
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="py-4">
+          <p className="text-sm text-muted-foreground">
+            删除后，该角色的所有字段配置将被移除。此操作不可恢复。
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setShowDeleteRoleDialog(false)
+              setRoleToDelete(null)
+            }}
+          >
+            取消
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => roleToDelete && confirmRemoveRole(roleToDelete.id)}
+          >
+            确认删除
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* 删除字段确认对话框 */}
+    <Dialog open={showDeleteFieldDialog} onOpenChange={setShowDeleteFieldDialog}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>确认删除字段</DialogTitle>
+          <DialogDescription>
+            你确定要删除"{fieldToDelete?.fieldLabel}"字段吗？
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="py-4">
+          <p className="text-sm text-muted-foreground">
+            删除后，该字段将从报名表单中移除。此操作不可恢复。
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setShowDeleteFieldDialog(false)
+              setFieldToDelete(null)
+            }}
+          >
+            取消
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={confirmRemoveField}
+          >
+            确认删除
           </Button>
         </DialogFooter>
       </DialogContent>

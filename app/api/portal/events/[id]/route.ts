@@ -2,6 +2,26 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSupabaseServer } from '@/lib/auth'
 import { pickEffectiveRegistrationSetting } from '@/lib/registration-settings'
 
+type TeamRequirementsShape = {
+  allFields?: unknown[]
+  commonFields?: unknown[]
+  customFields?: unknown[]
+}
+
+type RegistrationSettingShape = {
+  team_requirements?: TeamRequirementsShape
+  [key: string]: unknown
+}
+
+const toDivisionRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value) return null
+  if (Array.isArray(value)) {
+    const first = value[0]
+    return first && typeof first === 'object' ? (first as Record<string, unknown>) : null
+  }
+  return typeof value === 'object' ? (value as Record<string, unknown>) : null
+}
+
 // 获取单个赛事详情（报名端）
 export async function GET(
   request: NextRequest,
@@ -48,7 +68,8 @@ export async function GET(
     }
 
     // 获取报名设置（多组别时会有多条）
-    let settingsRows, settingsError
+    let settingsRows: RegistrationSettingShape[] | null = null
+    let settingsError: { code?: string } | null = null
     try {
       const result = await supabase
         .from('registration_settings')
@@ -73,7 +94,7 @@ export async function GET(
       : settingsRows
 
     // 获取赛事关联的组别信息（包含规则）
-    let divisions = []
+    let divisions: Record<string, unknown>[] = []
     try {
       const { data: divisionsData } = await supabase
         .from('event_divisions')
@@ -88,20 +109,22 @@ export async function GET(
         `)
         .eq('event_id', eventId)
 
-      if (divisionsData) {
-        divisions = divisionsData
-          .map((ed: { divisions: Record<string, unknown> | null }) => ed.divisions)
-          .filter((d): d is Record<string, unknown> => d !== null)
-      }
+	      if (divisionsData) {
+	        divisions = divisionsData
+	          .map((ed) => toDivisionRecord(ed.divisions))
+	          .filter((d): d is Record<string, unknown> => d !== null)
+	      }
     } catch (error) {
       console.warn('获取组别信息失败:', error)
     }
 
-    const settingsList = Array.isArray(settingsRows)
+    const settingsList: RegistrationSettingShape[] = Array.isArray(settingsRows)
       ? settingsRows
       : settingsRows
         ? [settingsRows]
         : []
+
+    const typedEffectiveSettings = effectiveSettings as RegistrationSettingShape | null
 
     const eventWithSettings = {
       ...event,
@@ -117,11 +140,11 @@ export async function GET(
       hasSettings: !!effectiveSettings,
       hasDivisionSettings: settingsList.length > 0,
       settingsType: typeof effectiveSettings,
-      teamRequirements: effectiveSettings?.team_requirements,
-      teamReqType: typeof effectiveSettings?.team_requirements,
-      allFields: effectiveSettings?.team_requirements?.allFields,
-      commonFields: effectiveSettings?.team_requirements?.commonFields,
-      customFields: effectiveSettings?.team_requirements?.customFields,
+      teamRequirements: typedEffectiveSettings?.team_requirements,
+      teamReqType: typeof typedEffectiveSettings?.team_requirements,
+      allFields: typedEffectiveSettings?.team_requirements?.allFields,
+      commonFields: typedEffectiveSettings?.team_requirements?.commonFields,
+      customFields: typedEffectiveSettings?.team_requirements?.customFields,
       rawSettings: effectiveSettings
     })
 

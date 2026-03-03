@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentAdminSession, createSupabaseServer } from '@/lib/auth'
+import { applyExportFieldFilters, parseExportRequest, resolveRoleForExport } from '@/lib/export/export-route-utils'
 import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
 
@@ -8,7 +9,7 @@ interface RouteParams {
 }
 
 const INVALID_SHEET_CHARS = /[:\\/?*\[\]]/g
-const INVALID_PATH_CHARS = /[\\\/?%*:|"<>]/g
+const INVALID_PATH_CHARS = /[\\/?%*:|"<>]/g
 
 const sanitizeSheetName = (name: string, fallback: string) => {
   const cleaned = (name || '').replace(INVALID_SHEET_CHARS, '-').trim()
@@ -50,14 +51,26 @@ const extractFileUrls = (value: unknown): string[] => {
   return []
 }
 
+const ensureUniqueFolderName = (baseName: string, used: Set<string>): string => {
+  let name = baseName
+  let counter = 2
+  while (used.has(name)) {
+    name = `${baseName}-${counter}`
+    counter += 1
+  }
+  used.add(name)
+  return name
+}
+
 export async function POST(
   request: NextRequest,
   context: RouteParams
 ) {
   console.log('Export route called')
   try {
-    const { id } = await context.params
-    console.log('Event ID:', id)
+    const { id: eventId } = await context.params
+    console.log('Event ID:', eventId)
+
     const session = await getCurrentAdminSession()
     console.log('Session:', session ? 'Valid' : 'Invalid')
     if (!session) {
@@ -67,24 +80,60 @@ export async function POST(
       )
     }
 
-    const { registrationIds } = await request.json()
-    console.log('Registration IDs:', registrationIds)
-
-    if (!registrationIds || registrationIds.length === 0) {
+    const rawBody: unknown = await request.json().catch(() => null)
+    const body = parseExportRequest(rawBody)
+    if (!body) {
       return NextResponse.json(
-        { success: false, error: '请选择要导出的报名信息' },
+        { success: false, error: '请求参数无效' },
         { status: 400 }
       )
     }
+    const { registrationIds, config } = body
+    console.log('Export config:', config)
 
     const supabase = await createSupabaseServer()
 
-    // 获取选中的报名信息
-    const { data: registrations, error } = await supabase
+    // 获取赛事信息
+    const { data: event, error: eventError } = await supabase
+      .from('events')
+      .select('name')
+      .eq('id', eventId)
+      .single()
+
+    if (eventError || !event) {
+      console.error('获取赛事信息失败:', eventError)
+      return NextResponse.json(
+        { success: false, error: '获取赛事信息失败' },
+        { status: 500 }
+      )
+    }
+
+    // 构建查询条件
+    let query = supabase
       .from('registrations')
       .select('*')
-      .in('id', registrationIds)
-      .eq('event_id', id)
+      .eq('event_id', eventId)
+
+    // 根据 exportScope 添加条件
+    if (config.exportScope === 'selected') {
+      if (!registrationIds || registrationIds.length === 0) {
+        return NextResponse.json(
+          { success: false, error: '请选择要导出的报名信息' },
+          { status: 400 }
+        )
+      }
+      query = query.in('id', registrationIds)
+    } else if (config.exportScope === 'approved') {
+      query = query.eq('status', 'approved')
+    } else if (config.exportScope === 'pending') {
+      query = query.in('status', ['pending', 'submitted'])
+    } else if (config.exportScope === 'all') {
+      query = query.neq('status', 'draft')
+    }
+
+    query = query.order('submitted_at', { ascending: true })
+
+    const { data: registrations, error } = await query
 
     if (error) {
       console.error('获取报名信息失败:', error)
@@ -101,237 +150,282 @@ export async function POST(
       )
     }
 
+    console.log(`Found ${registrations.length} registrations to export`)
+
+    // 获取组别信息（从 team_data.division_id）
+    const divisionIds = [...new Set(
+      registrations
+        .map(r => r.team_data?.division_id)
+        .filter(Boolean)
+    )]
+
+    let divisionMap = new Map()
+    if (divisionIds.length > 0) {
+      const { data: divisions } = await supabase
+        .from('divisions')
+        .select('id, name')
+        .in('id', divisionIds)
+      divisionMap = new Map(divisions?.map(d => [d.id, d]) || [])
+    }
+
+    // 将组别信息附加到报名数据
+    registrations.forEach((reg: any) => {
+      const divisionId = reg.team_data?.division_id
+      reg.division = divisionId ? divisionMap.get(divisionId) : null
+    })
+
+    // 根据 groupBy 排序
+    if (config.groupBy === 'division') {
+      registrations.sort((a, b) => {
+        const aDiv = a.division?.name || '未分组'
+        const bDiv = b.division?.name || '未分组'
+        return aDiv.localeCompare(bDiv, 'zh-CN')
+      })
+    } else if (config.groupBy === 'unit') {
+      registrations.sort((a, b) => {
+        const aUnit = a.team_data?.unit || a.team_data?.['参赛单位'] || '未知单位'
+        const bUnit = b.team_data?.unit || b.team_data?.['参赛单位'] || '未知单位'
+        return aUnit.localeCompare(bUnit, 'zh-CN')
+      })
+    } else if (config.groupBy === 'division_unit') {
+      registrations.sort((a, b) => {
+        const aDiv = a.division?.name || '未分组'
+        const bDiv = b.division?.name || '未分组'
+        if (aDiv !== bDiv) return aDiv.localeCompare(bDiv, 'zh-CN')
+
+        const aUnit = a.team_data?.unit || a.team_data?.['参赛单位'] || '未知单位'
+        const bUnit = b.team_data?.unit || b.team_data?.['参赛单位'] || '未知单位'
+        return aUnit.localeCompare(bUnit, 'zh-CN')
+      })
+    }
+
     // 获取报名设置以了解字段配置
     const { data: settings } = await supabase
       .from('registration_settings')
       .select('*')
-      .eq('event_id', id)
-      .single()
+      .eq('event_id', eventId)
 
-    // 获取配置的字段
-    let teamFields: any[] = []
-    let playerRoles: any[] = []
-    let hasAttachments = false
-    const attachmentFields: { team: any[], player: any[] } = { team: [], player: [] }
+    // 合并所有组别的字段配置
+    let allTeamFields: any[] = []
+    let allPlayerRoles: any[] = []
+    const teamFieldsSet = new Set<string>()
+    const playerFieldsSet = new Set<string>()
 
-    if (settings?.team_requirements) {
-      const teamReq = settings.team_requirements
-      // 获取队伍字段
-      teamFields = teamReq.allFields || [
-        ...(teamReq.commonFields || []),
-        ...(teamReq.customFields || [])
-      ]
-      attachmentFields.team = teamFields.filter(f => ['image', 'attachment', 'attachments'].includes(f.type))
-      if (attachmentFields.team.length > 0) hasAttachments = true
-    }
-
-    if (settings?.player_requirements?.roles) {
-      playerRoles = settings.player_requirements.roles
-    }
-
-    if (playerRoles.length === 0) {
-      playerRoles = [
-        {
-          id: 'player',
-          name: '队员信息',
-          commonFields: [],
-          customFields: [],
-          allFields: []
+    if (settings && settings.length > 0) {
+      settings.forEach(setting => {
+        if (setting.team_requirements) {
+          const teamReq = setting.team_requirements
+          const fields = teamReq.allFields || [
+            ...(teamReq.commonFields || []),
+            ...(teamReq.customFields || [])
+          ]
+          fields.forEach((f: any) => {
+            if (!teamFieldsSet.has(f.id)) {
+              teamFieldsSet.add(f.id)
+              allTeamFields.push(f)
+            }
+          })
         }
-      ]
+
+        if (setting.player_requirements?.roles) {
+          setting.player_requirements.roles.forEach((role: any) => {
+            const existingRole = allPlayerRoles.find(r => r.id === role.id)
+            if (!existingRole) {
+              allPlayerRoles.push(role)
+            } else {
+              // 合并字段
+              const fields = role.allFields || [
+                ...(role.commonFields || []),
+                ...(role.customFields || [])
+              ]
+              fields.forEach((f: any) => {
+                const roleFieldKey = `${role.id}:${f.id}`
+                if (!playerFieldsSet.has(roleFieldKey)) {
+                  playerFieldsSet.add(roleFieldKey)
+                  if (!existingRole.allFields) existingRole.allFields = []
+                  existingRole.allFields.push(f)
+                }
+              })
+            }
+          })
+        }
+      })
     }
 
-    const rolesById = new Map(playerRoles.map(role => [role.id, role]))
-    const defaultRole = rolesById.get('player') || playerRoles[0]
+    // 如果没有配置，使用默认
+    if (allTeamFields.length === 0) {
+      allTeamFields = []
+    }
 
-    // 为角色准备sheet名和路径名
-    const usedSheetNames = new Set<string>()
-    const roleSheetNames = new Map<string, string>()
-    const rolePathNames = new Map<string, string>()
-    playerRoles.forEach(role => {
-      const rawName = String(role?.name || role?.id || '角色')
-      const sheetName = ensureUniqueSheetName(rawName, usedSheetNames, '队员信息')
-      roleSheetNames.set(role.id, sheetName)
-      rolePathNames.set(role.id, sanitizePathSegment(rawName, '角色'))
-    })
+    if (allPlayerRoles.length === 0) {
+      allPlayerRoles = [{
+        id: 'player',
+        name: '队员信息',
+        allFields: []
+      }]
+    }
 
-    // 检查所有角色的附件字段
-    playerRoles.forEach(role => {
-      const roleFields = role.allFields || [
-        ...(role.commonFields || []),
-        ...(role.customFields || [])
-      ]
-      const roleAttachmentFields = roleFields.filter((f: any) => ['image', 'attachment', 'attachments'].includes(f.type))
-      if (roleAttachmentFields.length > 0) {
-        attachmentFields.player = [...attachmentFields.player, ...roleAttachmentFields]
-        hasAttachments = true
-      }
-    })
+    // 应用字段过滤
+    const filteredFields = applyExportFieldFilters(allTeamFields, allPlayerRoles, config)
+    allTeamFields = filteredFields.teamFields as any[]
+    allPlayerRoles = filteredFields.playerRoles as any[]
 
-    // 准备Excel数据 - 分为队伍信息和各角色信息的多个sheet
-    const teamSheetData: any[] = []
-    // 为每个角色创建独立的数据数组
-    const roleSheetData: Map<string, any[]> = new Map()
-    playerRoles.forEach(role => {
-      roleSheetData.set(role.id, [])
-    })
-
-    // 如果有附件，创建zip对象
-    let zip: JSZip | null = null
+    // 创建 zip 对象（统一使用 zip 格式）
+    const zip = new JSZip()
     const attachmentPromises: Promise<void>[] = []
 
-    if (hasAttachments) {
-      zip = new JSZip()
-    }
+    // 按分组处理报名数据
+    const groupedRegistrations = new Map<string, any[]>()
 
-    // 处理每个报名的数据
-    for (let index = 0; index < registrations.length; index++) {
-      const registration = registrations[index]
-      const teamData = registration.team_data || {}
-      const playersData = registration.players_data || []
+    registrations.forEach((reg: any) => {
+      let groupKey = ''
 
-      // 获取队伍名称
-      const teamName = teamData['队伍名称'] || teamData['name'] || teamData['团队名称'] || teamData['队名'] || `队伍${index + 1}`
+      if (config.groupBy === 'none') {
+        groupKey = 'root'
+      } else if (config.groupBy === 'division') {
+        const divisionName = reg.division?.name || '未分组'
+        groupKey = sanitizePathSegment(divisionName, '未分组')
+      } else if (config.groupBy === 'unit') {
+        const unitName = reg.team_data?.unit || reg.team_data?.['参赛单位'] || '未知单位'
+        groupKey = sanitizePathSegment(unitName, '未知单位')
+      } else if (config.groupBy === 'division_unit') {
+        const divisionName = reg.division?.name || '未分组'
+        const unitName = reg.team_data?.unit || reg.team_data?.['参赛单位'] || '未知单位'
+        groupKey = `${sanitizePathSegment(divisionName, '未分组')}/${sanitizePathSegment(unitName, '未知单位')}`
+      }
 
-      // 生成队伍文件夹名称（使用前三个字段的值）
-      let teamFolderName = teamName
-      if (registrations.length > 1) {
-        // 多个队伍时，使用前三个字段命名文件夹
-        const firstThreeFields = teamFields.slice(0, 3)
-        const folderNameParts: string[] = []
-        firstThreeFields.forEach(field => {
-          if (!['image', 'attachment', 'attachments'].includes(field.type)) {
-            const value = teamData[field.id]
-            if (value) {
-              folderNameParts.push(String(value).replace(/[/\\?%*:|"<>]/g, '-')) // 移除非法文件名字符
+      if (!groupedRegistrations.has(groupKey)) {
+        groupedRegistrations.set(groupKey, [])
+      }
+      groupedRegistrations.get(groupKey)!.push(reg)
+    })
+
+    console.log(`Grouped into ${groupedRegistrations.size} groups`)
+
+    // 处理每个分组
+    for (const [groupPath, groupRegs] of groupedRegistrations.entries()) {
+      const groupUsedFolderNames = new Set<string>()
+
+      for (let index = 0; index < groupRegs.length; index++) {
+        const registration = groupRegs[index]
+        const teamData = registration.team_data || {}
+        const playersData = registration.players_data || []
+
+        // 生成队伍文件夹名称
+        let teamFolderName = teamData['队伍名称']
+          || teamData['name']
+          || teamData['团队名称']
+          || teamData['队名']
+
+        if (!teamFolderName) {
+          // 使用前三个非附件字段
+          const firstThreeFields = allTeamFields.slice(0, 3)
+          const folderNameParts: string[] = []
+          firstThreeFields.forEach(field => {
+            if (!['image', 'attachment', 'attachments'].includes(field.type)) {
+              const value = teamData[field.id]
+              if (value) {
+                folderNameParts.push(String(value))
+              }
             }
+          })
+          teamFolderName = folderNameParts.length > 0 ? folderNameParts.join('-') : `队伍${index + 1}`
+        }
+
+        teamFolderName = sanitizePathSegment(teamFolderName, `队伍${index + 1}`)
+        teamFolderName = ensureUniqueFolderName(teamFolderName, groupUsedFolderNames)
+
+        const teamBasePath = groupPath === 'root' ? teamFolderName : `${groupPath}/${teamFolderName}`
+
+        // 生成队伍 Excel
+        const wb = XLSX.utils.book_new()
+        const usedSheetNames = new Set<string>()
+
+        // 队伍信息 sheet
+        const teamRow: any = { '序号': index + 1 }
+
+        allTeamFields.forEach(field => {
+          // Logo 字段特殊处理：前端保存时使用 team_logo 作为 key
+          let fieldKey = field.id
+          if (field.type === 'image' && (field.id === 'logo' || field.id === 'team_logo')) {
+            fieldKey = 'team_logo'
+          }
+
+          const fieldValue = teamData[fieldKey]
+
+          if (['image', 'attachment', 'attachments'].includes(field.type)) {
+            // 处理附件
+            const urls = extractFileUrls(fieldValue)
+            if (urls.length > 0) {
+              const fieldLabel = field.label || field.id
+              const safeFieldLabel = sanitizePathSegment(String(fieldLabel), '字段')
+              urls.forEach((url, urlIndex) => {
+                attachmentPromises.push(
+                  (async () => {
+                    try {
+                      const response = await fetch(url)
+                      if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+                      }
+                      const arrayBuffer = await response.arrayBuffer()
+                      let extension = url.match(/\.([a-zA-Z0-9]+)(?:\?|$)/)?.[1]?.toLowerCase()
+                      if (!extension) {
+                        const contentType = response.headers.get('content-type') || ''
+                        if (contentType.includes('jpeg') || contentType.includes('jpg')) extension = 'jpg'
+                        else if (contentType.includes('png')) extension = 'png'
+                        else if (contentType.includes('gif')) extension = 'gif'
+                        else if (contentType.includes('webp')) extension = 'webp'
+                        else if (contentType.includes('pdf')) extension = 'pdf'
+                        else extension = 'bin'
+                      }
+                      const fileName = urls.length > 1 ? `${safeFieldLabel}-${urlIndex + 1}.${extension}` : `${safeFieldLabel}.${extension}`
+                      const filePath = `${teamBasePath}/队伍附件/${fileName}`
+                      zip.file(filePath, arrayBuffer)
+                    } catch (err) {
+                      console.error(`Failed to download team attachment:`, err)
+                    }
+                  })()
+                )
+              })
+            }
+          } else {
+            teamRow[field.label] = fieldValue || ''
           }
         })
-        if (folderNameParts.length > 0) {
-          teamFolderName = folderNameParts.join('-')
-        }
-      }
 
-      // 准备队伍信息数据 - 只包含报名设置中的字段
-      const teamRow: any = {
-        '序号': index + 1
-      }
+        const teamSheet = XLSX.utils.json_to_sheet([teamRow])
+        XLSX.utils.book_append_sheet(wb, teamSheet, '队伍信息')
 
-      // 按照报名设置的字段顺序添加数据
-      teamFields.forEach(field => {
-        const value = teamData[field.id]
+        // 队员信息 sheets（按角色）
+        const rolesById = new Map(allPlayerRoles.map(role => [role.id, role]))
+        const roleSheetData: Map<string, any[]> = new Map()
+        allPlayerRoles.forEach(role => {
+          roleSheetData.set(role.id, [])
+        })
 
-        // 跳过附件字段（已经下载到文件夹）
-        if (['image', 'attachment', 'attachments'].includes(field.type)) {
-          const urls = extractFileUrls(value)
-          if (urls.length > 0 && zip) {
-            const fieldLabel = field.label || field.id
-            const safeTeamFieldLabel = sanitizePathSegment(String(fieldLabel), '字段')
-            urls.forEach((url, urlIndex) => {
-              attachmentPromises.push(
-                (async () => {
-                  try {
-                    const response = await fetch(url)
-
-                    if (!response.ok) {
-                      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-                    }
-
-                    const arrayBuffer = await response.arrayBuffer()
-
-                    let extension = url.match(/\.([a-zA-Z0-9]+)(?:\?|$)/)?.[1]?.toLowerCase()
-                    if (!extension) {
-                      const contentType = response.headers.get('content-type') || ''
-                      if (contentType.includes('jpeg') || contentType.includes('jpg')) extension = 'jpg'
-                      else if (contentType.includes('png')) extension = 'png'
-                      else if (contentType.includes('gif')) extension = 'gif'
-                      else if (contentType.includes('webp')) extension = 'webp'
-                      else if (contentType.includes('pdf')) extension = 'pdf'
-                      else if (contentType.includes('word')) extension = 'docx'
-                      else if (contentType.includes('excel') || contentType.includes('sheet')) extension = 'xlsx'
-                      else extension = 'bin'
-                    }
-
-                    const fileBaseName = urls.length > 1 ? `${safeTeamFieldLabel}-${urlIndex + 1}` : safeTeamFieldLabel
-                    let filePath = ''
-                    if (registrations.length === 1) {
-                      filePath = `${fileBaseName}.${extension}`
-                    } else {
-                      filePath = `${safeTeamFieldLabel}/${teamFolderName}/${fileBaseName}.${extension}`
-                    }
-
-                    zip.file(filePath, arrayBuffer)
-                  } catch (err) {
-                    console.error(`Failed to download team attachment:`, err)
-                  }
-                })()
-              )
-            })
-          }
-          return // 不在Excel中显示附件字段
-        }
-
-        // 添加非图片字段到Excel
-        teamRow[field.label] = value || ''
-      })
-
-      teamSheetData.push(teamRow)
-
-      // 准备人员信息数据（按角色分别处理）
-      if (playersData.length > 0) {
-        // 按角色统计人员序号
         const roleCounters: Map<string, number> = new Map()
 
-        for (let playerIndex = 0; playerIndex < playersData.length; playerIndex++) {
-          const player: any = playersData[playerIndex]
+        playersData.forEach((player: any) => {
+          const rawRoleId = player.role || player.roleId || 'player'
+          const { role: currentRole, effectiveRoleId } = resolveRoleForExport(rawRoleId, rolesById, allPlayerRoles[0])
+          if (!currentRole) return
 
-          // 获取该人员的角色配置
-          const roleIdCandidate = player.role || player.roleId
-          let currentRole = roleIdCandidate ? rolesById.get(roleIdCandidate) : undefined
-          if (!currentRole) {
-            const roleNameCandidate = player.roleName || player.role
-            if (roleNameCandidate) {
-              currentRole = playerRoles.find(r => r.name === roleNameCandidate)
-            }
-          }
-          if (!currentRole) {
-            currentRole = defaultRole
-            if (currentRole) {
-              console.warn(`未找到角色配置: ${roleIdCandidate || player.roleName || '未知'}，已回退到默认角色`)
-            }
-          }
-          if (!currentRole) {
-            console.warn('未找到角色配置且无默认角色，跳过该人员')
-            continue
-          }
-
-          // 获取该角色的字段配置
-          const playerFields = currentRole.allFields ||
-                              [...(currentRole.commonFields || []),
-                               ...(currentRole.customFields || [])] ||
-                              []
-
-          // 更新该角色的序号计数
-          const roleIdForSheet = currentRole.id
-          const currentCount = (roleCounters.get(roleIdForSheet) || 0) + 1
-          roleCounters.set(roleIdForSheet, currentCount)
+          const currentCount = (roleCounters.get(effectiveRoleId) || 0) + 1
+          roleCounters.set(effectiveRoleId, currentCount)
 
           const playerRow: any = {
             '序号': `${index + 1}-${currentCount}`,
-            '所属队伍': teamName
+            '所属队伍': teamFolderName
           }
 
-          // 按照该角色的字段顺序添加数据
+          const playerFields = currentRole.allFields || []
           playerFields.forEach((field: any) => {
-            const value = player[field.id]
-
-            // 跳过附件字段（已经下载到文件夹）
             if (['image', 'attachment', 'attachments'].includes(field.type)) {
-              const urls = extractFileUrls(value)
-              if (urls.length > 0 && zip) {
+              const urls = extractFileUrls(player[field.id])
+              if (urls.length > 0) {
                 const fieldLabel = field.label || field.id
-                const playerName = player['姓名'] || player['name'] || player['队员姓名'] || `${currentRole.name}${currentCount}`
-                const safeRoleSegment = rolePathNames.get(currentRole.id) || sanitizePathSegment(String(currentRole.name || currentRole.id), '角色')
+                const playerName = player['姓名'] || player['name'] || `${currentRole.name}${currentCount}`
+                const safeRoleName = sanitizePathSegment(String(currentRole.name || currentRole.id), '角色')
                 const safeFieldLabel = sanitizePathSegment(String(fieldLabel), '字段')
                 const safePlayerName = sanitizePathSegment(String(playerName), '队员')
                 urls.forEach((url, urlIndex) => {
@@ -339,13 +433,10 @@ export async function POST(
                     (async () => {
                       try {
                         const response = await fetch(url)
-
                         if (!response.ok) {
                           throw new Error(`HTTP ${response.status}: ${response.statusText}`)
                         }
-
                         const arrayBuffer = await response.arrayBuffer()
-
                         let extension = url.match(/\.([a-zA-Z0-9]+)(?:\?|$)/)?.[1]?.toLowerCase()
                         if (!extension) {
                           const contentType = response.headers.get('content-type') || ''
@@ -354,19 +445,10 @@ export async function POST(
                           else if (contentType.includes('gif')) extension = 'gif'
                           else if (contentType.includes('webp')) extension = 'webp'
                           else if (contentType.includes('pdf')) extension = 'pdf'
-                          else if (contentType.includes('word')) extension = 'docx'
-                          else if (contentType.includes('excel') || contentType.includes('sheet')) extension = 'xlsx'
                           else extension = 'bin'
                         }
-
-                        const playerFileName = urls.length > 1 ? `${safePlayerName}-${urlIndex + 1}` : safePlayerName
-                        let filePath = ''
-                        if (registrations.length === 1) {
-                          filePath = `${safeRoleSegment}-${safeFieldLabel}/${playerFileName}.${extension}`
-                        } else {
-                          filePath = `${safeRoleSegment}-${safeFieldLabel}/${teamFolderName}/${playerFileName}.${extension}`
-                        }
-
+                        const fileName = urls.length > 1 ? `${safePlayerName}-${urlIndex + 1}.${extension}` : `${safePlayerName}.${extension}`
+                        const filePath = `${teamBasePath}/人员附件/${safeRoleName}-${safeFieldLabel}/${fileName}`
                         zip.file(filePath, arrayBuffer)
                       } catch (err) {
                         console.error(`Failed to download player attachment:`, err)
@@ -375,22 +457,31 @@ export async function POST(
                   )
                 })
               }
-              return // 不在Excel中显示附件字段
+            } else {
+              playerRow[field.label] = player[field.id] || ''
             }
-
-            // 添加非图片字段到Excel
-            playerRow[field.label] = value || ''
           })
 
-          // 将数据添加到对应角色的sheet数据中
-          if (!roleSheetData.has(roleIdForSheet)) {
-            roleSheetData.set(roleIdForSheet, [])
+          if (!roleSheetData.has(effectiveRoleId)) {
+            roleSheetData.set(effectiveRoleId, [])
           }
-          const roleData = roleSheetData.get(roleIdForSheet)
-          if (roleData) {
-            roleData.push(playerRow)
+          roleSheetData.get(effectiveRoleId)!.push(playerRow)
+        })
+
+        // 添加角色 sheets
+        allPlayerRoles.forEach(role => {
+          const roleData = roleSheetData.get(role.id)
+          if (roleData && roleData.length > 0) {
+            const roleSheet = XLSX.utils.json_to_sheet(roleData)
+            const sheetName = ensureUniqueSheetName(String(role.name || role.id), usedSheetNames, '队员信息')
+            XLSX.utils.book_append_sheet(wb, roleSheet, sheetName)
           }
-        }
+        })
+
+        // 生成 Excel 文件
+        const excelBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+        const excelFileName = `${teamFolderName}_报名信息.xlsx`
+        zip.file(`${teamBasePath}/${excelFileName}`, excelBuffer)
       }
     }
 
@@ -401,75 +492,21 @@ export async function POST(
       console.log('All attachments processed')
     }
 
-    // 创建工作簿
-    const wb = XLSX.utils.book_new()
+    // 生成 zip 文件
+    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' })
 
-    // 创建队伍信息sheet
-    if (teamSheetData.length > 0) {
-      const teamSheet = XLSX.utils.json_to_sheet(teamSheetData)
-      const teamColWidths = Object.keys(teamSheetData[0] || {}).map(() => ({ wch: 15 }))
-      teamSheet['!cols'] = teamColWidths
-      XLSX.utils.book_append_sheet(wb, teamSheet, '队伍信息')
-    }
+    // 生成文件名
+    const dateStr = new Date().toISOString().split('T')[0]
+    const zipFileName = `${config.fileNamePrefix || event.name}_报名信息_${dateStr}.zip`
 
-    // 为每个角色创建独立的sheet
-    let hasAnyRoleData = false
-    playerRoles.forEach(role => {
-      const roleData = roleSheetData.get(role.id)
-      if (roleData && roleData.length > 0) {
-        hasAnyRoleData = true
-        const roleSheet = XLSX.utils.json_to_sheet(roleData)
-        const roleColWidths = Object.keys(roleData[0] || {}).map(() => ({ wch: 15 }))
-        roleSheet['!cols'] = roleColWidths
-        // 使用角色名称作为sheet名称（需保证合法且唯一）
-        const sheetName = roleSheetNames.get(role.id) || ensureUniqueSheetName(String(role.name || role.id), usedSheetNames, '队员信息')
-        XLSX.utils.book_append_sheet(wb, roleSheet, sheetName)
-      }
+    // 返回 zip 文件
+    return new NextResponse(zipBuffer as any, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="${encodeURIComponent(zipFileName)}"`,
+      },
     })
-
-    // 如果没有数据，创建一个空sheet
-    if (teamSheetData.length === 0 && !hasAnyRoleData) {
-      const emptySheet = XLSX.utils.json_to_sheet([{ '信息': '暂无数据' }])
-      XLSX.utils.book_append_sheet(wb, emptySheet, '报名信息')
-    }
-
-    // 生成Excel文件
-    const excelBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
-
-    // 决定文件名
-    let fileName = '报名信息导出'
-    if (registrations.length === 1) {
-      const teamData = registrations[0].team_data || {}
-      const teamName = teamData['队伍名称'] || teamData['name'] || teamData['团队名称'] || teamData['队名'] || '报名信息'
-      fileName = teamName
-    }
-
-    // 如果有附件，返回zip文件
-    if (zip && hasAttachments) {
-      // 添加Excel文件到zip
-      zip.file(`${fileName}.xlsx`, excelBuffer)
-
-      // 生成zip文件
-      const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' })
-
-      // 返回zip文件
-      return new NextResponse(zipBuffer as any, {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/zip',
-          'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}.zip"`,
-        },
-      })
-    } else {
-      // 没有附件，直接返回Excel
-      return new NextResponse(excelBuffer as any, {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}.xlsx"`,
-        },
-      })
-    }
   } catch (error: any) {
     console.error('导出失败:', error)
     console.error('Error details:', {

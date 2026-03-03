@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Eye, Download, Plus, X, CheckCircle, UserPlus } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import ExportConfigDialog, { ExportConfig } from './export-config-dialog'
 
 interface Registration {
   id: string
@@ -25,6 +26,15 @@ interface RegistrationListTabProps {
   eventId: string
 }
 
+const DEFAULT_TEAM_FIELDS = [
+  { id: 'participationGroup', label: '组别' },
+  { id: 'unit', label: '参赛单位' },
+  { id: 'name', label: '队伍名称' },
+  { id: 'contact', label: '联系人' },
+]
+
+const GROUP_FIELD_LABELS = ['组别', '队伍组别']
+
 export default function RegistrationListTab({ eventId }: RegistrationListTabProps) {
   const router = useRouter()
   const [registrations, setRegistrations] = useState<Registration[]>([])
@@ -33,6 +43,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [showRejectDialog, setShowRejectDialog] = useState(false)
   const [showAddDialog, setShowAddDialog] = useState(false)
+  const [showExportDialog, setShowExportDialog] = useState(false)
   const [rejectionReason, setRejectionReason] = useState('')
   const [processingId, setProcessingId] = useState<string | null>(null)
   const [teamFields, setTeamFields] = useState<any[]>([]) // 存储队伍报名要求字段（表格显示用）
@@ -85,37 +96,68 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
       const result = await response.json()
 
       if (result.success && result.data) {
-        // 获取队伍字段配置
-        if (result.data.team_requirements) {
-          const teamReq = result.data.team_requirements
+        const settings = Array.isArray(result.data)
+          ? (result.data.find((item: any) => item?.team_requirements) || result.data[0])
+          : result.data
+
+        if (settings?.team_requirements) {
+          const teamReq = settings.team_requirements
           const fields = teamReq.allFields || [
             ...(teamReq.commonFields || []),
             ...(teamReq.customFields || [])
           ]
-          // 用于表格显示的前3个字段
-          setTeamFields(fields.slice(0, 3).length > 0 ? fields.slice(0, 3) : [
-            { id: 'name', label: '队伍名称' },
-            { id: 'campus', label: '报名校区' },
-            { id: 'contact', label: '联系人' }
-          ])
+
+          if (fields.length === 0) {
+            setTeamFields(DEFAULT_TEAM_FIELDS)
+            return
+          }
+
+          const priorityFieldIds = ['group', 'unit', 'name', 'contact']
+          const priorityFields = priorityFieldIds
+            .map(id => {
+              let field = fields.find((field: any) => field.id === id)
+              if (!field && id === 'group') {
+                const groupField = fields.find((field: any) =>
+                  GROUP_FIELD_LABELS.includes(field.label)
+                )
+                if (groupField) {
+                  field = { ...groupField, id: 'participationGroup', label: '组别' }
+                } else {
+                  field = DEFAULT_TEAM_FIELDS[0]
+                }
+              }
+              return field
+            })
+            .filter((field: any) => field !== undefined)
+
+          if (priorityFields.length < 4) {
+            const otherFields = fields
+              .filter((field: any) =>
+                !priorityFieldIds.includes(field.id) &&
+                !['image', 'attachment', 'attachments'].includes(field.type || '')
+              )
+              .slice(0, 4 - priorityFields.length)
+            setTeamFields([...priorityFields, ...otherFields])
+          } else {
+            setTeamFields(priorityFields)
+          }
+        } else {
+          setTeamFields(DEFAULT_TEAM_FIELDS)
         }
       } else {
-        // 使用默认字段
-        setTeamFields([
-          { id: 'name', label: '队伍名称' },
-          { id: 'campus', label: '报名校区' },
-          { id: 'contact', label: '联系人' }
-        ])
+        setTeamFields(DEFAULT_TEAM_FIELDS)
       }
     } catch (error) {
       console.error('Error fetching registration settings:', error)
-      // 使用默认字段
-      setTeamFields([
-        { id: 'name', label: '队伍名称' },
-        { id: 'campus', label: '报名校区' },
-        { id: 'contact', label: '联系人' }
-      ])
+      setTeamFields(DEFAULT_TEAM_FIELDS)
     }
+  }
+
+  const getFieldValue = (teamData: Record<string, unknown>, field: { id: string; label: string }) => {
+    if (field.id === 'participationGroup' || GROUP_FIELD_LABELS.includes(field.label)) {
+      return teamData?.participationGroup ?? teamData?.group ?? teamData?.division_name ?? teamData?.divisionName ?? '-'
+    }
+    return teamData?.[field.id]
   }
 
   const fetchRegistrations = async () => {
@@ -245,12 +287,11 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
     }))
   }
 
-  const handleDownload = async () => {
-    if (selectedIds.length === 0) {
-      alert('请选择要下载的报名信息')
-      return
-    }
+  const handleDownload = () => {
+    setShowExportDialog(true)
+  }
 
+  const handleExport = async (config: ExportConfig) => {
     try {
       const response = await fetch(`/api/events/${eventId}/registrations/export`, {
         method: 'POST',
@@ -258,32 +299,23 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          registrationIds: selectedIds
+          registrationIds: config.exportScope === 'selected' ? selectedIds : undefined,
+          config
         }),
       })
 
       if (response.ok) {
-        const contentType = response.headers.get('content-type')
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
 
-        // 根据内容类型确定文件扩展名
-        let filename = '报名信息'
-        if (contentType?.includes('zip')) {
-          // 如果是zip文件（包含附件）
-          const contentDisposition = response.headers.get('content-disposition')
-          const filenameMatch = contentDisposition?.match(/filename="(.+?)"/)
-          if (filenameMatch) {
-            filename = decodeURIComponent(filenameMatch[1])
-          } else {
-            filename = `报名信息_${new Date().toISOString().split('T')[0]}.zip`
-          }
-        } else {
-          // 如果是Excel文件
-          filename = `报名信息_${new Date().toISOString().split('T')[0]}.xlsx`
-        }
+        // 从响应头获取文件名
+        const contentDisposition = response.headers.get('content-disposition')
+        const filenameMatch = contentDisposition?.match(/filename="(.+?)"/)
+        const filename = filenameMatch
+          ? decodeURIComponent(filenameMatch[1])
+          : `报名信息_${new Date().toISOString().split('T')[0]}.zip`
 
         a.download = filename
         document.body.appendChild(a)
@@ -292,10 +324,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
         window.URL.revokeObjectURL(url)
         setSelectedIds([])
 
-        // 提示用户下载成功
-        if (contentType?.includes('zip')) {
-          alert('已成功下载压缩包，其中包含Excel表格和附件文件')
-        }
+        alert('已成功下载压缩包')
       } else {
         const errorData = await response.json().catch(() => ({ error: '未知错误' }))
         console.error('Export failed with status:', response.status)
@@ -365,10 +394,9 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
               <Button
                 variant="outline"
                 onClick={handleDownload}
-                disabled={selectedIds.length === 0}
               >
                 <Download className="h-4 w-4 mr-2" />
-                下载 ({selectedIds.length})
+                下载 {selectedIds.length > 0 ? `(${selectedIds.length})` : ''}
               </Button>
               <Button 
                 className="bg-blue-600 hover:bg-blue-700"
@@ -395,12 +423,12 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                       onCheckedChange={toggleSelectAll}
                     />
                   </TableHead>
-                  {/* 动态显示队伍报名要求的前3个字段 */}
+                  {/* 动态显示队伍报名要求字段（组别-参赛单位-队伍名称-联系人） */}
                   {teamFields.map((field) => (
-                    <TableHead key={field.id} className="w-[16%] px-2">{field.label}</TableHead>
+                    <TableHead key={field.id} className="w-[14%] px-2">{field.label}</TableHead>
                   ))}
-                  <TableHead className="w-[20%] px-2">审核时间</TableHead>
-                  <TableHead className="w-[24%] px-2">操作</TableHead>
+                  <TableHead className="w-[18%] px-2">审核时间</TableHead>
+                  <TableHead className="w-[22%] px-2">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -414,7 +442,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                     </TableCell>
                     {/* 动态显示队伍数据的前3个字段 */}
                     {teamFields.map((field, index) => {
-                      const rawValue = registration.team_data?.[field.id]
+                      const rawValue = getFieldValue(registration.team_data || {}, field)
                       const value = rawValue === null || rawValue === undefined ? '-' : String(rawValue)
                       const displayValue = value.length > 8
                         ? value.substring(0, 8) + '\n' + value.substring(8)
@@ -671,6 +699,15 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 导出配置对话框 */}
+      <ExportConfigDialog
+        open={showExportDialog}
+        onOpenChange={setShowExportDialog}
+        eventId={eventId}
+        selectedCount={selectedIds.length}
+        onExport={handleExport}
+      />
 
     </>
   )

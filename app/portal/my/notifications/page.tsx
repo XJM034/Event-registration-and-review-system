@@ -41,6 +41,16 @@ interface Notification {
   eventName?: string
 }
 
+function mapNotificationType(type: unknown): Notification['type'] {
+  if (type === 'approval' || type === 'rejection') {
+    return 'registration'
+  }
+  if (type === 'reminder') {
+    return 'event'
+  }
+  return 'system'
+}
+
 export default function MyNotificationsPage() {
   const router = useRouter()
   const { unreadCount, refreshUnreadCount, setUnreadCount } = useNotification()
@@ -107,7 +117,7 @@ export default function MyNotificationsPage() {
           console.log(`Loaded ${notificationData.length} notifications`)
 
           // 转换类型以匹配前端接口
-          const formattedNotifications = notificationData.map(n => {
+          const formattedNotifications: Notification[] = notificationData.map((n: any) => {
             // 获取赛事名称
             const eventName = n.events?.short_name || n.events?.name || ''
 
@@ -126,9 +136,7 @@ export default function MyNotificationsPage() {
 
             return {
               id: n.id,
-              type: n.type === 'approval' ? 'registration' :
-                    n.type === 'rejection' ? 'registration' :
-                    n.type === 'reminder' ? 'event' : 'system',
+              type: mapNotificationType(n.type),
               title: enhancedTitle,
               originalTitle: n.title, // 保留原始标题
               message: n.message,
