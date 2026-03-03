@@ -75,9 +75,8 @@ export default function CreateEventPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [posterFile, setPosterFile] = useState<File | null>(null)
   const [posterPreview, setPosterPreview] = useState<string | null>(null)
-  const [referenceTemplates, setReferenceTemplates] = useState<EventReferenceTemplate[]>([])
+  const [referenceTemplateFiles, setReferenceTemplateFiles] = useState<File[]>([])
   const [uploadingTemplates, setUploadingTemplates] = useState(false)
-  const [deletingTemplatePath, setDeletingTemplatePath] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [dateError, setDateError] = useState('')
   const router = useRouter()
@@ -256,37 +255,28 @@ export default function CreateEventPage() {
     return `${(size / (1024 * 1024)).toFixed(1)} MB`
   }
 
-  const handleTemplateFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTemplateFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = e.target.files
     if (!fileList || fileList.length === 0) return
 
-    setUploadingTemplates(true)
-    try {
-      const uploadResults = await Promise.all(Array.from(fileList).map((file) => uploadReferenceTemplate(file)))
-      const successFiles = uploadResults.filter((item): item is EventReferenceTemplate => Boolean(item))
-
-      if (successFiles.length > 0) {
-        setReferenceTemplates((prev) => [...prev, ...successFiles])
-      }
-
-      if (successFiles.length !== fileList.length) {
-        setError('部分模板上传失败，请重试失败文件')
-      }
-    } finally {
-      setUploadingTemplates(false)
-      e.target.value = ''
-    }
+    setReferenceTemplateFiles((prev) => [...prev, ...Array.from(fileList)])
+    setError('')
+    e.target.value = ''
   }
 
-  const removeReferenceTemplate = async (file: EventReferenceTemplate, index: number) => {
-    setError('')
+  const removeReferenceTemplate = (index: number) => {
+    setReferenceTemplateFiles((prev) => prev.filter((_, fileIndex) => fileIndex !== index))
+  }
 
-    if (!file.path) {
-      setReferenceTemplates((prev) => prev.filter((_, fileIndex) => fileIndex !== index))
-      return
-    }
+  const previewReferenceTemplate = (file: File) => {
+    const fileUrl = URL.createObjectURL(file)
+    window.open(fileUrl, '_blank', 'noopener,noreferrer')
+    setTimeout(() => URL.revokeObjectURL(fileUrl), 60_000)
+  }
 
-    setDeletingTemplatePath(file.path)
+  const deleteReferenceTemplatePaths = async (paths: string[]) => {
+    if (paths.length === 0) return
+
     try {
       const response = await fetch('/api/upload', {
         method: 'DELETE',
@@ -295,21 +285,16 @@ export default function CreateEventPage() {
         },
         body: JSON.stringify({
           bucket: 'team-documents',
-          paths: [file.path],
+          paths,
         }),
       })
 
       const result = await response.json().catch(() => null)
       if (!response.ok || !result?.success) {
-        throw new Error(result?.error || '模板文件删除失败')
+        throw new Error(result?.error || '模板文件清理失败')
       }
-
-      setReferenceTemplates((prev) => prev.filter((_, fileIndex) => fileIndex !== index))
     } catch (deleteError) {
-      console.error('Delete template error:', deleteError)
-      setError(deleteError instanceof Error ? deleteError.message : '模板删除失败，请重试')
-    } finally {
-      setDeletingTemplatePath(null)
+      console.error('Cleanup template files error:', deleteError)
     }
   }
 
@@ -322,6 +307,7 @@ export default function CreateEventPage() {
 
     setIsSubmitting(true)
     setError('')
+    let uploadedReferenceTemplates: EventReferenceTemplate[] = []
 
     try {
       let poster_url = null
@@ -334,6 +320,17 @@ export default function CreateEventPage() {
         }
       }
 
+      if (referenceTemplateFiles.length > 0) {
+        setUploadingTemplates(true)
+        const uploadResults = await Promise.all(
+          referenceTemplateFiles.map((file) => uploadReferenceTemplate(file))
+        )
+        uploadedReferenceTemplates = uploadResults.filter((item): item is EventReferenceTemplate => Boolean(item))
+        if (uploadedReferenceTemplates.length !== referenceTemplateFiles.length) {
+          throw new Error('部分模板上传失败，请重试')
+        }
+      }
+
       // 创建赛事
       const response = await fetch('/api/events', {
         method: 'POST',
@@ -343,23 +340,31 @@ export default function CreateEventPage() {
         body: JSON.stringify({
           ...data,
           poster_url,
-          reference_templates: referenceTemplates,
+          reference_templates: uploadedReferenceTemplates,
           division_ids: selectedDivisionIds,
         }),
       })
 
       const result = await response.json()
 
-      if (result.success) {
-        router.push('/events')
-        router.refresh()
-      } else {
-        setError(result.error || '创建赛事失败')
+      if (!result.success) {
+        throw new Error(result.error || '创建赛事失败')
       }
+
+      router.push('/events')
+      router.refresh()
     } catch (error) {
+      if (uploadedReferenceTemplates.length > 0) {
+        await deleteReferenceTemplatePaths(
+          uploadedReferenceTemplates
+            .map((item) => item.path)
+            .filter((path): path is string => typeof path === 'string' && path.length > 0)
+        )
+      }
       console.error('Create event error:', error)
-      setError('网络错误，请稍后重试')
+      setError(error instanceof Error ? error.message : '网络错误，请稍后重试')
     } finally {
+      setUploadingTemplates(false)
       setIsSubmitting(false)
     }
   }
@@ -455,11 +460,11 @@ export default function CreateEventPage() {
                   参考模板
                 </Label>
                 <p className="text-xs text-gray-500 mt-1 mb-2">
-                  支持上传多个模板文件，教练端可在赛事详情下载（PDF、DOC、DOCX、XLS、XLSX、图片，单个不超过 20MB）
+                  支持选择多个模板文件，提交创建时自动上传（PDF、DOC、DOCX、XLS、XLSX、图片，单个不超过 20MB）
                 </p>
                 <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
                   <p className="text-sm text-gray-600 mb-1">
-                    {uploadingTemplates ? '上传中...' : '点击或拖拽上传模板文件（可多选）'}
+                    {uploadingTemplates ? '模板上传中...' : '点击或拖拽选择模板文件（可多选）'}
                   </p>
                   <input
                     type="file"
@@ -467,40 +472,41 @@ export default function CreateEventPage() {
                     multiple
                     onChange={handleTemplateFilesChange}
                     className="absolute inset-0 opacity-0 cursor-pointer"
-                    disabled={uploadingTemplates}
+                    disabled={isSubmitting || uploadingTemplates}
                   />
                 </div>
 
-                {referenceTemplates.length > 0 && (
+                {referenceTemplateFiles.length > 0 && (
                   <div className="mt-3 space-y-2">
-                    {referenceTemplates.map((file, index) => (
-                      <div key={`${file.path}-${index}`} className="flex items-center justify-between border rounded-md px-3 py-2">
+                    {referenceTemplateFiles.map((file, index) => (
+                      <div
+                        key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+                        className="flex items-center justify-between border rounded-md px-3 py-2"
+                      >
                         <div className="min-w-0">
                           <p className="text-sm font-medium truncate">{file.name}</p>
                           <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
                         </div>
                         <div className="flex items-center gap-2">
-                          <a
-                            href={file.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center text-xs text-blue-600 hover:text-blue-700"
-                          >
-                            <Download className="h-3 w-3 mr-1" />
-                            预览
-                          </a>
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            onClick={() => removeReferenceTemplate(file, index)}
-                            disabled={deletingTemplatePath === file.path}
+                            className="text-blue-600 hover:text-blue-700"
+                            onClick={() => previewReferenceTemplate(file)}
+                            disabled={isSubmitting}
                           >
-                            {deletingTemplatePath === file.path ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <X className="h-4 w-4" />
-                            )}
+                            <Download className="h-3 w-3 mr-1" />
+                            预览
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeReferenceTemplate(index)}
+                            disabled={isSubmitting}
+                          >
+                            <X className="h-4 w-4" />
                           </Button>
                         </div>
                       </div>
