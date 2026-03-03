@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Loader2 } from 'lucide-react'
+import { getDefaultExportScope } from '@/lib/export/export-scope-utils'
 
 interface ExportConfigDialogProps {
   open: boolean
@@ -39,7 +40,9 @@ export default function ExportConfigDialog({
   onExport
 }: ExportConfigDialogProps) {
   const [loading, setLoading] = useState(true)
-  const [exportScope, setExportScope] = useState<'selected' | 'approved' | 'pending' | 'all'>('selected')
+  const [exportScope, setExportScope] = useState<'selected' | 'approved' | 'pending' | 'all'>(
+    getDefaultExportScope(selectedCount)
+  )
   const [groupBy, setGroupBy] = useState<'none' | 'division' | 'unit' | 'division_unit'>('division_unit')
   const [teamFields, setTeamFields] = useState<FieldConfig[]>([])
   const [playerFields, setPlayerFields] = useState<FieldConfig[]>([])
@@ -49,9 +52,10 @@ export default function ExportConfigDialog({
 
   useEffect(() => {
     if (open) {
+      setExportScope(getDefaultExportScope(selectedCount))
       fetchFieldsConfig()
     }
-  }, [open, eventId])
+  }, [open, eventId, selectedCount])
 
   const fetchFieldsConfig = async () => {
     setLoading(true)
@@ -201,8 +205,11 @@ export default function ExportConfigDialog({
                 <Label className="text-base font-semibold">导出范围</Label>
                 <RadioGroup value={exportScope} onValueChange={(value: any) => setExportScope(value)}>
                   <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="selected" id="scope-selected" />
-                    <Label htmlFor="scope-selected" className="font-normal cursor-pointer">
+                    <RadioGroupItem value="selected" id="scope-selected" disabled={selectedCount === 0} />
+                    <Label
+                      htmlFor="scope-selected"
+                      className={`font-normal ${selectedCount === 0 ? 'cursor-not-allowed text-gray-400' : 'cursor-pointer'}`}
+                    >
                       仅导出选中的报名 ({selectedCount} 个)
                     </Label>
                   </div>

@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
       phone,
       poster_url,
       requirements,
+      reference_templates,
       division_ids,
     } = body
 
@@ -101,6 +102,7 @@ export async function POST(request: NextRequest) {
         phone,
         poster_url,
         requirements,
+        reference_templates: Array.isArray(reference_templates) ? reference_templates : [],
         is_visible: true,
       })
       .select()

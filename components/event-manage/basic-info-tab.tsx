@@ -11,8 +11,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Loader2, Upload, Calendar, MapPin, Phone, FileText, Link2, ExternalLink } from 'lucide-react'
+import { Loader2, Upload, Calendar, MapPin, Phone, FileText, Link2, ExternalLink, Paperclip, Download, X } from 'lucide-react'
 import Image from 'next/image'
+import { toSafeHttpUrl } from '@/lib/url-security'
 
 interface ProjectType {
   id: string
@@ -36,6 +37,51 @@ interface DivisionItem {
   description?: string
   display_order: number
   is_enabled: boolean
+}
+
+interface EventReferenceTemplate {
+  name: string
+  path: string
+  url: string
+  size: number
+  mimeType: string
+  uploadedAt: string
+}
+
+function parseReferenceTemplates(value: unknown): EventReferenceTemplate[] {
+  if (!value) return []
+  if (Array.isArray(value)) return value as EventReferenceTemplate[]
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed as EventReferenceTemplate[] : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+function resolveTemplateStoragePath(template: EventReferenceTemplate): string | null {
+  if (typeof template.path === 'string' && template.path.trim()) {
+    return template.path.trim()
+  }
+
+  const safeUrl = toSafeHttpUrl(template.url)
+  if (!safeUrl) return null
+
+  try {
+    const parsed = new URL(safeUrl)
+    const marker = '/storage/v1/object/public/team-documents/'
+    const markerIndex = parsed.pathname.indexOf(marker)
+    if (markerIndex === -1) return null
+
+    const rawPath = parsed.pathname.slice(markerIndex + marker.length)
+    const decodedPath = decodeURIComponent(rawPath).trim()
+    return decodedPath || null
+  } catch {
+    return null
+  }
 }
 
 function extractLinks(text: string): string[] {
@@ -69,7 +115,6 @@ function LinkPreview({ links }: { links: string[] }) {
 
 const updateEventSchema = z.object({
   name: z.string().min(1, '赛事名称不能为空').max(100, '赛事名称不能超过100个字符'),
-  short_name: z.string().max(50, '赛事简称不能超过50个字符').optional(),
   type: z.string().min(1, '请选择赛事类型'),
   start_date: z.string().min(1, '请选择开始时间'),
   end_date: z.string().min(1, '请选择结束时间'),
@@ -102,6 +147,7 @@ interface BasicInfoTabProps {
     details?: string
     requirements?: string
     phone?: string
+    reference_templates?: unknown
   }
   onUpdate: () => void
 }
@@ -110,6 +156,11 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [posterFile, setPosterFile] = useState<File | null>(null)
   const [posterPreview, setPosterPreview] = useState<string | null>(event.poster_url || null)
+  const [referenceTemplates, setReferenceTemplates] = useState<EventReferenceTemplate[]>(
+    parseReferenceTemplates(event.reference_templates)
+  )
+  const [uploadingTemplates, setUploadingTemplates] = useState(false)
+  const [pendingDeleteTemplatePaths, setPendingDeleteTemplatePaths] = useState<string[]>([])
   const [error, setError] = useState('')
   const [dateError, setDateError] = useState('')
 
@@ -132,7 +183,6 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
     resolver: zodResolver(updateEventSchema),
     defaultValues: {
       name: event.name,
-      short_name: event.short_name || '',
       type: event.type,
       start_date: event.start_date,
       end_date: event.end_date,
@@ -223,6 +273,11 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
     }
   }, [event.type, setValue])
 
+  useEffect(() => {
+    setReferenceTemplates(parseReferenceTemplates(event.reference_templates))
+    setPendingDeleteTemplatePaths([])
+  }, [event.reference_templates])
+
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr)
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -266,6 +321,89 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
     }
   }
 
+  const uploadReferenceTemplate = async (file: File): Promise<EventReferenceTemplate | null> => {
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('bucket', 'team-documents')
+      const response = await fetch('/api/upload', { method: 'POST', body: formData })
+      const result = await response.json()
+      if (!result.success) throw new Error(result.error || '模板上传失败')
+
+      return {
+        name: result.data.originalName || file.name,
+        path: result.data.path,
+        url: result.data.url,
+        size: Number(result.data.size || file.size || 0),
+        mimeType: result.data.mimeType || file.type || '',
+        uploadedAt: new Date().toISOString(),
+      }
+    } catch (uploadError) {
+      console.error('Upload template error:', uploadError)
+      return null
+    }
+  }
+
+  const formatFileSize = (size: number) => {
+    if (size <= 0) return '0 B'
+    if (size < 1024) return `${size} B`
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  const handleTemplateFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files
+    if (!fileList || fileList.length === 0) return
+
+    setUploadingTemplates(true)
+    try {
+      const uploadResults = await Promise.all(Array.from(fileList).map((file) => uploadReferenceTemplate(file)))
+      const successFiles = uploadResults.filter((item): item is EventReferenceTemplate => Boolean(item))
+
+      if (successFiles.length > 0) {
+        setReferenceTemplates((prev) => [...prev, ...successFiles])
+      }
+
+      if (successFiles.length !== fileList.length) {
+        setError('部分模板上传失败，请重试失败文件')
+      }
+    } finally {
+      setUploadingTemplates(false)
+      e.target.value = ''
+    }
+  }
+
+  const removeReferenceTemplate = (file: EventReferenceTemplate, index: number) => {
+    setReferenceTemplates((prev) => prev.filter((_, fileIndex) => fileIndex !== index))
+    const storagePath = resolveTemplateStoragePath(file)
+    if (storagePath) {
+      setPendingDeleteTemplatePaths((prev) =>
+        prev.includes(storagePath) ? prev : [...prev, storagePath]
+      )
+    }
+  }
+
+  const deleteReferenceTemplatePaths = async (paths: string[]): Promise<string | null> => {
+    try {
+      const response = await fetch('/api/upload', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bucket: 'team-documents',
+          paths,
+        }),
+      })
+      const result = await response.json().catch(() => null)
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || '模板文件删除失败')
+      }
+      return null
+    } catch (deleteError) {
+      console.error('Delete template files error:', deleteError)
+      return deleteError instanceof Error ? deleteError.message : '旧模板文件删除失败，请稍后重试'
+    }
+  }
+
   const onSubmit = async (data: EventFormData) => {
     setIsSubmitting(true)
     setError('')
@@ -282,7 +420,7 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
       const response = await fetch(`/api/events/${event.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...data, poster_url }),
+        body: JSON.stringify({ ...data, poster_url, reference_templates: referenceTemplates }),
       })
       const result = await response.json()
 
@@ -302,6 +440,16 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
       if (!divisionResponse.ok || !divisionResult.success) {
         setError(divisionResult.error || '更新赛事组别失败')
         return
+      }
+
+      const deletePaths = Array.from(new Set(pendingDeleteTemplatePaths))
+      if (deletePaths.length > 0) {
+        const deleteWarning = await deleteReferenceTemplatePaths(deletePaths)
+        if (!deleteWarning) {
+          setPendingDeleteTemplatePaths([])
+        } else {
+          setError(`赛事信息已保存，但旧模板清理失败：${deleteWarning}`)
+        }
       }
 
       alert('保存成功！')
@@ -331,17 +479,10 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           <input type="hidden" {...register('type')} />
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="name">赛事名称 *</Label>
-              <Input id="name" {...register('name')} placeholder="输入完整的赛事名称" className="mt-1" />
-              {errors.name && <p className="text-red-600 text-sm mt-1">{errors.name.message}</p>}
-            </div>
-            <div>
-              <Label htmlFor="short_name">赛事简称</Label>
-              <Input id="short_name" {...register('short_name')} placeholder="用于显示的简短名称" className="mt-1" />
-              {errors.short_name && <p className="text-red-600 text-sm mt-1">{errors.short_name.message}</p>}
-            </div>
+          <div>
+            <Label htmlFor="name">赛事名称 *</Label>
+            <Input id="name" {...register('name')} placeholder="输入完整的赛事名称" className="mt-1" />
+            {errors.name && <p className="text-red-600 text-sm mt-1">{errors.name.message}</p>}
           </div>
 
           <div>
@@ -365,6 +506,67 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
             </div>
           </div>
 
+          <div>
+            <Label className="flex items-center">
+              <Paperclip className="h-4 w-4 mr-1" />
+              参考模板
+            </Label>
+            <p className="text-xs text-gray-500 mt-1 mb-2">
+              支持多个模板，教练可在门户赛事详情下载（PDF、DOC、DOCX、XLS、XLSX、图片，单个不超过 20MB）
+            </p>
+            <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
+              <p className="text-sm text-gray-600 mb-1">
+                {uploadingTemplates ? '上传中...' : '点击或拖拽上传模板文件（可多选）'}
+              </p>
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp"
+                multiple
+                onChange={handleTemplateFilesChange}
+                className="absolute inset-0 opacity-0 cursor-pointer"
+                disabled={uploadingTemplates}
+              />
+            </div>
+
+            {referenceTemplates.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {referenceTemplates.map((file, index) => {
+                  const safePreviewUrl = toSafeHttpUrl(file.url)
+
+                  return (
+                    <div key={`${file.path}-${index}`} className="flex items-center justify-between border rounded-md px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{file.name}</p>
+                        <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {safePreviewUrl && (
+                          <a
+                            href={safePreviewUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center text-xs text-blue-600 hover:text-blue-700"
+                          >
+                            <Download className="h-3 w-3 mr-1" />
+                            预览
+                          </a>
+                        )}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeReferenceTemplate(file, index)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
           {/* 赛事类型 - 三级联动 */}
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -377,7 +579,6 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
                     setSelectedProjectId('')
                     setSelectedDivisionIds([])
                     setValue('type', pt?.name || '')
-                    setValue('short_name', '')
                   }}
                   value={selectedTypeId}
                   disabled={loadingConfig}
@@ -399,10 +600,8 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
                   <Label>具体项目 *</Label>
                   <Select
                     onValueChange={(value) => {
-                      const proj = allProjects.find(p => p.id === value)
                       setSelectedProjectId(value)
                       setSelectedDivisionIds([])
-                      setValue('short_name', proj?.name || '')
                     }}
                     value={selectedProjectId}
                   >
