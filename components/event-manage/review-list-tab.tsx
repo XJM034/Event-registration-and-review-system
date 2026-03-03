@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Clock, Eye } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Clock, Download, Eye } from 'lucide-react'
+import ExportConfigDialog, { ExportConfig } from './export-config-dialog'
 
 interface Registration {
   id: string
@@ -38,6 +40,8 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
   const [registrations, setRegistrations] = useState<Registration[]>([])
   const [teamFields, setTeamFields] = useState<RegistrationField[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [showExportDialog, setShowExportDialog] = useState(false)
 
   const fetchRegistrationSettings = useCallback(async () => {
     try {
@@ -155,6 +159,71 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
     return text.length > 12 ? `${text.slice(0, 12)}...` : text
   }
 
+  const handleDownload = () => {
+    setShowExportDialog(true)
+  }
+
+  const handleExport = async (config: ExportConfig) => {
+    try {
+      const response = await fetch(`/api/events/${eventId}/registrations/export`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          registrationIds: config.exportScope === 'selected' ? selectedIds : undefined,
+          config
+        }),
+      })
+
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+
+        const contentDisposition = response.headers.get('content-disposition')
+        const filenameMatch = contentDisposition?.match(/filename="(.+?)"/)
+        const filename = filenameMatch
+          ? decodeURIComponent(filenameMatch[1])
+          : `待审核报名_${new Date().toISOString().split('T')[0]}.zip`
+
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+        setSelectedIds([])
+
+        alert('已成功下载压缩包')
+      } else {
+        const errorData = await response.json().catch(() => ({ error: '未知错误' }))
+        console.error('Export failed with status:', response.status)
+        console.error('Error data:', errorData)
+        alert(`导出失败: ${errorData.error || '未知错误'}`)
+      }
+    } catch (error: any) {
+      console.error('Error downloading registrations:', error)
+      alert(`导出失败: ${error?.message || '网络错误'}`)
+    }
+  }
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds(prev =>
+      prev.includes(id)
+        ? prev.filter(i => i !== id)
+        : [...prev, id]
+    )
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === registrations.length) {
+      setSelectedIds([])
+    } else {
+      setSelectedIds(registrations.map(r => r.id))
+    }
+  }
+
   if (loading) {
     return (
       <Card>
@@ -169,63 +238,93 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center">
-          <Clock className="h-5 w-5 mr-2" />
-          审核列表
-        </CardTitle>
-        <CardDescription>等待审核的报名申请 ({registrations.length})</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {registrations.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">暂无待审核的报名</div>
-        ) : (
-          <Table className="table-fixed">
-            <TableHeader>
-              <TableRow>
-                {displayFields.map((field) => (
-                  <TableHead key={field.id} className="w-[16%] px-1">
-                    {field.label}
+    <>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center">
+                <Clock className="h-5 w-5 mr-2" />
+                审核列表
+              </CardTitle>
+              <CardDescription>等待审核的报名申请 ({registrations.length})</CardDescription>
+            </div>
+            <Button variant="outline" onClick={handleDownload}>
+              <Download className="h-4 w-4 mr-2" />
+              下载 {selectedIds.length > 0 ? `(${selectedIds.length})` : ''}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {registrations.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">暂无待审核的报名</div>
+          ) : (
+            <Table className="table-fixed">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8 px-1">
+                    <Checkbox
+                      checked={selectedIds.length === registrations.length && registrations.length > 0}
+                      onCheckedChange={toggleSelectAll}
+                    />
                   </TableHead>
-                ))}
-                <TableHead className="w-[20%] px-1">提交时间</TableHead>
-                <TableHead className="w-[16%] px-1">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {registrations.map((registration) => {
-                return (
-                  <TableRow key={registration.id}>
-                    {displayFields.map((field) => {
-                      const value = getFieldValue(registration.team_data || {}, field)
+                  {displayFields.map((field) => (
+                    <TableHead key={field.id} className="w-[14%] px-1">
+                      {field.label}
+                    </TableHead>
+                  ))}
+                  <TableHead className="w-[20%] px-1">提交时间</TableHead>
+                  <TableHead className="w-[18%] px-1">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {registrations.map((registration) => {
+                  return (
+                    <TableRow key={registration.id}>
+                      <TableCell className="px-1 py-2">
+                        <Checkbox
+                          checked={selectedIds.includes(registration.id)}
+                          onCheckedChange={() => toggleSelection(registration.id)}
+                        />
+                      </TableCell>
+                      {displayFields.map((field) => {
+                        const value = getFieldValue(registration.team_data || {}, field)
 
-                      return (
-                        <TableCell key={field.id} className="px-1 py-2">
-                          <div className="whitespace-pre-wrap break-words text-sm" style={{ maxWidth: '160px', wordBreak: 'break-all' }}>
-                            {renderCellValue(value)}
-                          </div>
-                        </TableCell>
-                      )
-                    })}
-                    <TableCell className="whitespace-nowrap px-1 py-2 text-xs">{formatDate(registration.submitted_at)}</TableCell>
-                    <TableCell className="px-1 py-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => router.push(`/events/${eventId}/registrations/${registration.id}/review`)}
-                      >
-                        <Eye className="h-4 w-4 mr-1" />
-                        审核
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
+                        return (
+                          <TableCell key={field.id} className="px-1 py-2">
+                            <div className="whitespace-pre-wrap break-words text-sm" style={{ maxWidth: '160px', wordBreak: 'break-all' }}>
+                              {renderCellValue(value)}
+                            </div>
+                          </TableCell>
+                        )
+                      })}
+                      <TableCell className="whitespace-nowrap px-1 py-2 text-xs">{formatDate(registration.submitted_at)}</TableCell>
+                      <TableCell className="px-1 py-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => router.push(`/events/${eventId}/registrations/${registration.id}/review`)}
+                        >
+                          <Eye className="h-4 w-4 mr-1" />
+                          审核
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <ExportConfigDialog
+        open={showExportDialog}
+        onOpenChange={setShowExportDialog}
+        eventId={eventId}
+        selectedCount={selectedIds.length}
+        onExport={handleExport}
+      />
+    </>
   )
 }

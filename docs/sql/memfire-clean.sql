@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS public.events (
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
     requirements text,
+    reference_templates jsonb DEFAULT '[]'::jsonb,
     CONSTRAINT events_pkey PRIMARY KEY (id)
 );
 

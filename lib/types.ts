@@ -23,6 +23,7 @@ export interface Event {
   address?: string;
   details?: string;
   phone?: string;
+  reference_templates?: EventReferenceTemplate[];
   is_visible: boolean;
   created_at: string;
   updated_at: string;
@@ -30,6 +31,15 @@ export interface Event {
     team_requirements?: any;
     player_requirements?: any;
   };
+}
+
+export interface EventReferenceTemplate {
+  name: string;
+  path: string;
+  url: string;
+  size: number;
+  mimeType: string;
+  uploadedAt: string;
 }
 
 export interface RegistrationSettings {

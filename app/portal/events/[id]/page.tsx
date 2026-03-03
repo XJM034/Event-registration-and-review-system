@@ -6,8 +6,9 @@ import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Calendar, MapPin, Phone, Clock, Users, ArrowLeft, FileText, AlertCircle } from 'lucide-react'
+import { Calendar, MapPin, Phone, Clock, Users, ArrowLeft, FileText, AlertCircle, Paperclip, Download } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { toSafeHttpUrl } from '@/lib/url-security'
 
 // 工具函数：将文本中的 URL 转换为可点击的链接
 function LinkifyText({ text }: { text: string }) {
@@ -52,6 +53,7 @@ interface Event {
   address?: string
   details?: string
   requirements?: string
+  reference_templates?: EventReferenceTemplate[] | string
   phone?: string
   is_visible: boolean
   registration_settings?: {
@@ -65,6 +67,15 @@ interface Event {
       maxCount?: number
     }
   }
+}
+
+interface EventReferenceTemplate {
+  name?: string
+  path?: string
+  url?: string
+  size?: number
+  mimeType?: string
+  uploadedAt?: string
 }
 
 interface TeamField {
@@ -114,6 +125,21 @@ function parseTeamRequirements(
     }
   }
   return value
+}
+
+function parseReferenceTemplates(value?: EventReferenceTemplate[] | string | null): EventReferenceTemplate[] {
+  if (!value) return []
+  if (Array.isArray(value)) return value
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    } catch (e) {
+      console.error('解析 reference_templates 失败:', e)
+      return []
+    }
+  }
+  return []
 }
 
 function getRegistrationPriority(status: unknown): number {
@@ -726,6 +752,16 @@ export default function EventDetailPage() {
 
   const eventStatus = getEventStatus()
   const newRegStatus = getNewRegistrationStatus()
+  const referenceTemplates = parseReferenceTemplates(event.reference_templates)
+    .map((file) => {
+      const safeUrl = toSafeHttpUrl(file.url)
+      if (!safeUrl) return null
+      return {
+        ...file,
+        url: safeUrl,
+      }
+    })
+    .filter((file): file is EventReferenceTemplate & { url: string } => Boolean(file))
 
   // 调试日志
   console.log('Event Details Page - Review Period Check:', {
@@ -890,6 +926,35 @@ export default function EventDetailPage() {
                   <h3 className="font-semibold mb-2">报名要求</h3>
                   <div className="text-sm text-gray-600 whitespace-pre-wrap">
                     <LinkifyText text={event.requirements} />
+                  </div>
+                </div>
+              )}
+
+              {/* 参考模板 */}
+              {referenceTemplates.length > 0 && (
+                <div className="border-t pt-4 mt-4">
+                  <h3 className="font-semibold mb-2 flex items-center">
+                    <Paperclip className="h-4 w-4 mr-1" />
+                    参考模板
+                  </h3>
+                  <div className="space-y-2">
+                    {referenceTemplates.map((file, index) => (
+                      <div key={`${file.path || file.url || 'file'}-${index}`} className="flex items-center justify-between border rounded-md px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{file.name || `模板${index + 1}`}</p>
+                        </div>
+                        <a
+                          href={file.url}
+                          download={file.name || `模板${index + 1}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center text-sm text-blue-600 hover:text-blue-700"
+                        >
+                          <Download className="h-4 w-4 mr-1" />
+                          下载
+                        </a>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
