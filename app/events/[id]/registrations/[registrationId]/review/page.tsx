@@ -81,6 +81,8 @@ interface RenderableEntry {
 }
 
 const IMAGE_URL_REGEX = /^(https?:\/\/|\/).+\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const DIVISION_FIELD_IDS = ['division_id', 'division', 'division_name', 'participationGroup'] as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -144,6 +146,33 @@ function getPlayerDisplayName(player: PlayerData, fallback: string): string {
   const chineseName = typeof player['姓名'] === 'string' ? player['姓名'] : ''
   const englishName = typeof player['name'] === 'string' ? player['name'] : ''
   return chineseName || englishName || fallback
+}
+
+function toNonEmptyString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+  return text ? text : null
+}
+
+function isDivisionField(fieldId: string): boolean {
+  return DIVISION_FIELD_IDS.includes(fieldId as (typeof DIVISION_FIELD_IDS)[number])
+}
+
+function getReadableDivisionValue(source: Record<string, unknown>): string | null {
+  const candidates = [
+    toNonEmptyString(source.participationGroup),
+    toNonEmptyString(source.division_name),
+    toNonEmptyString(source.division),
+  ].filter((value): value is string => Boolean(value))
+
+  const meaningfulValue = candidates.find((value) => !UUID_REGEX.test(value))
+  if (meaningfulValue) return meaningfulValue
+  if (candidates[0]) return candidates[0]
+
+  const rawDivisionId = toNonEmptyString(source.division_id)
+  if (!rawDivisionId) return null
+
+  return UUID_REGEX.test(rawDivisionId) ? '未匹配组别' : rawDivisionId
 }
 
 function getDivisionIdFromRegistration(registrationData?: Registration): string | undefined {
@@ -263,7 +292,20 @@ export default function ReviewRegistrationPage() {
 
   const getRoleName = (roleId: string): string => {
     const role = playerRoles.find((item) => item.id === roleId)
-    return role?.name || roleId
+    if (role?.name) return role.name
+
+    // 如果找不到角色配置，显示友好的文本而不是 UUID
+    if (UUID_REGEX.test(roleId)) {
+      return '未知角色（配置缺失）'
+    }
+
+    // 如果是 role_ 开头的时间戳格式
+    if (roleId.startsWith('role_')) {
+      return '未知角色'
+    }
+
+    // 默认返回 roleId（可能是有意义的字符串）
+    return roleId
   }
 
   const getRoleFields = (roleId: string): RegistrationField[] => {
@@ -346,9 +388,11 @@ export default function ReviewRegistrationPage() {
   ): RenderableEntry[] => {
     const entries: RenderableEntry[] = []
     const usedKeys = new Set<string>()
+    const divisionValue = getReadableDivisionValue(source)
+    let hasDivisionEntry = false
 
     configuredFields.forEach((field) => {
-      const value = source[field.id]
+      const value = isDivisionField(field.id) && divisionValue ? divisionValue : source[field.id]
       if (value !== undefined && value !== null && value !== '' && field.id !== 'role') {
         entries.push({
           key: field.id,
@@ -357,13 +401,33 @@ export default function ReviewRegistrationPage() {
           type: field.type,
         })
         usedKeys.add(field.id)
+
+        if (isDivisionField(field.id)) {
+          hasDivisionEntry = true
+          if (divisionValue) {
+            DIVISION_FIELD_IDS.forEach((divisionFieldId) => usedKeys.add(divisionFieldId))
+          }
+        }
       }
     })
+
+    if (!hasDivisionEntry && divisionValue) {
+      entries.push({
+        key: 'participationGroup',
+        label: resolveFieldLabel('participationGroup', divisionValue, configuredFields),
+        value: divisionValue,
+      })
+      hasDivisionEntry = true
+      DIVISION_FIELD_IDS.forEach((divisionFieldId) => usedKeys.add(divisionFieldId))
+    }
 
     const unusedFields = configuredFields.filter((field) => !usedKeys.has(field.id))
 
     Object.entries(source).forEach(([key, value]) => {
       if (usedKeys.has(key) || key === 'id' || key === 'role' || value === undefined || value === null || value === '') {
+        return
+      }
+      if (hasDivisionEntry && isDivisionField(key)) {
         return
       }
 

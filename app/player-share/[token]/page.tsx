@@ -204,7 +204,7 @@ export default function PlayerSharePage() {
   }
 
   const updatePlayerData = (field: string, value: any) => {
-    setPlayerData(prev => ({
+    setPlayerData((prev: any) => ({
       ...prev,
       [field]: value
     }))

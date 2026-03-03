@@ -55,13 +55,7 @@ interface Event {
   phone?: string
   is_visible: boolean
   registration_settings?: {
-    team_requirements?: {
-      registrationStartDate?: string
-      registrationEndDate?: string
-      reviewEndDate?: string  // 新增：审核结束时间
-      commonFields?: any[]
-      customFields?: any[]
-    }
+    team_requirements?: TeamRequirementsConfig | string
     player_requirements?: {
       roles?: any[]
       genderRequirement?: string
@@ -73,10 +67,28 @@ interface Event {
   }
 }
 
+interface TeamField {
+  id: string
+  label?: string
+  required?: boolean
+  [key: string]: unknown
+}
+
+interface TeamRequirementsConfig {
+      registrationStartDate?: string
+      registrationEndDate?: string
+      reviewEndDate?: string  // 新增：审核结束时间
+      commonFields?: TeamField[]
+      customFields?: TeamField[]
+      allFields?: TeamField[]
+}
+
+type RegistrationStatus = 'draft' | 'submitted' | 'pending' | 'approved' | 'rejected' | 'cancelled'
+
 interface Registration {
   id: string
   event_id: string
-  status: 'pending' | 'approved' | 'rejected' | 'cancelled'
+  status: RegistrationStatus
   team_data: any
   players_data: any
   submitted_at: string
@@ -86,6 +98,40 @@ interface Registration {
   last_status_read_at?: string
   last_status_change?: string  // 状态变更时间
   cancelled_at?: string
+}
+
+function parseTeamRequirements(
+  value?: TeamRequirementsConfig | string | null
+): TeamRequirementsConfig | undefined {
+  if (!value) return undefined
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return parsed && typeof parsed === 'object' ? parsed as TeamRequirementsConfig : undefined
+    } catch (e) {
+      console.error('解析 team_requirements 失败:', e)
+      return undefined
+    }
+  }
+  return value
+}
+
+function getRegistrationPriority(status: unknown): number {
+  switch (status) {
+    case 'approved':
+      return 0
+    case 'pending':
+    case 'submitted':
+      return 1
+    case 'rejected':
+      return 2
+    case 'draft':
+      return 3
+    case 'cancelled':
+      return 4
+    default:
+      return 99
+  }
 }
 
 export default function EventDetailPage() {
@@ -277,17 +323,17 @@ export default function EventDetailPage() {
             return
           }
 
-          if (allRegistrations && allRegistrations.length > 0) {
+          const registrationRows = (allRegistrations ?? []) as Registration[]
+
+          if (registrationRows.length > 0) {
             // 优先显示已通过的，然后是待审核的，然后是被驳回的，最后是草稿
-            const sortedRegistrations = allRegistrations.sort((a, b) => {
-              const statusOrder = { 'approved': 0, 'pending': 1, 'rejected': 2 }
-              // 按状态排序
-              return (statusOrder[a.status] || 3) - (statusOrder[b.status] || 3)
-            })
+            const sortedRegistrations = [...registrationRows].sort(
+              (a, b) => getRegistrationPriority(a.status) - getRegistrationPriority(b.status)
+            )
 
             const primaryReg = sortedRegistrations[0]
             console.log('获取到的报名信息:', {
-              total: allRegistrations.length,
+              total: registrationRows.length,
               primary: {
                 id: primaryReg.id,
                 status: primaryReg.status,
@@ -295,14 +341,14 @@ export default function EventDetailPage() {
                 last_status_read_at: primaryReg.last_status_read_at,
                 last_status_change: primaryReg.last_status_change
               },
-              allRegistrations: allRegistrations
+              allRegistrations: registrationRows
             })
 
             // 设置主要显示的报名（用于显示状态）
             setRegistration(primaryReg)
 
             // 存储所有报名记录
-            setAllRegistrations(allRegistrations)
+            setAllRegistrations(registrationRows)
           } else {
             setRegistration(null)
             setAllRegistrations([])
@@ -336,14 +382,7 @@ export default function EventDetailPage() {
     const now = new Date()
 
     // 获取报名相关时间
-    let teamReq = event.registration_settings?.team_requirements
-    if (typeof teamReq === 'string') {
-      try {
-        teamReq = JSON.parse(teamReq)
-      } catch (e) {
-        console.error('解析 team_requirements 失败:', e)
-      }
-    }
+    const teamReq = parseTeamRequirements(event.registration_settings?.team_requirements)
 
     const regEndDate = teamReq?.registrationEndDate
     const reviewEndDate = teamReq?.reviewEndDate
@@ -375,7 +414,8 @@ export default function EventDetailPage() {
       return { canRegister: false, text: '未设置报名时间', variant: 'secondary' as const, inReviewPeriod: false }
     }
 
-    let teamReq = event.registration_settings.team_requirements
+    const teamReqRaw = event.registration_settings.team_requirements
+    let teamReq: TeamRequirementsConfig | undefined
 
     // 调试：打印原始数据
     console.log('Team Requirements Raw Data:', {
@@ -384,20 +424,22 @@ export default function EventDetailPage() {
     })
 
     // 处理各种可能的数据格式
-    if (typeof teamReq === 'string') {
+    if (typeof teamReqRaw === 'string') {
       // 处理空字符串情况
-      if (!teamReq.trim()) {
+      if (!teamReqRaw.trim()) {
         console.warn('Empty team_requirements string for event:', event.id)
         return { canRegister: false, text: '未设置报名时间', variant: 'secondary' as const, inReviewPeriod: false }
       }
 
       try {
-        teamReq = JSON.parse(teamReq)
+        teamReq = JSON.parse(teamReqRaw) as TeamRequirementsConfig
         console.log('Team Requirements After Parse:', teamReq)
       } catch (e) {
-        console.error('解析 team_requirements 失败:', e, 'Raw data:', teamReq)
+        console.error('解析 team_requirements 失败:', e, 'Raw data:', teamReqRaw)
         return { canRegister: false, text: '报名设置格式错误', variant: 'secondary' as const, inReviewPeriod: false }
       }
+    } else {
+      teamReq = parseTeamRequirements(teamReqRaw)
     }
 
     // 确保 teamReq 是对象类型
@@ -499,14 +541,7 @@ export default function EventDetailPage() {
   const getMyRegistrationStatus = () => {
     if (!event || !registration) return null
 
-    let teamReq = event.registration_settings?.team_requirements
-    if (typeof teamReq === 'string') {
-      try {
-        teamReq = JSON.parse(teamReq)
-      } catch (e) {
-        console.error('解析 team_requirements 失败:', e)
-      }
-    }
+    const teamReq = parseTeamRequirements(event.registration_settings?.team_requirements)
 
     const regEndDate = teamReq?.registrationEndDate
     const reviewEndDate = teamReq?.reviewEndDate  // 新增：审核结束时间
@@ -527,45 +562,44 @@ export default function EventDetailPage() {
         showDelete: true,
         inReviewPeriod
       }
-    } else if (registration.status === 'pending') {
-      // 再检查审核状态
-      switch (registration.status) {
-        case 'pending':
-          return {
-            canContinue: false,
-            text: '待审核',
-            variant: 'default' as const,
-            showDelete: false,
-            inReviewPeriod
-          }
-        case 'approved':
-          return {
-            canContinue: false,
-            text: '已通过',
-            variant: 'success' as const,
-            showDelete: false,
-            inReviewPeriod
-          }
-        case 'rejected':
-          // 被驳回的报名：在报名期内或审核期内都可以重新提交
-          return {
-            canContinue: isRegistrationOpen || inReviewPeriod,
-            text: '重新报名',
-            variant: 'destructive' as const,
-            showDelete: false,
-            inReviewPeriod
-          }
-        default:
-          return {
-            canContinue: false,
-            text: '待审核',
-            variant: 'default' as const,
-            showDelete: false,
-            inReviewPeriod
-          }
-      }
     }
-    return null
+
+    switch (registration.status) {
+      case 'pending':
+      case 'submitted':
+        return {
+          canContinue: false,
+          text: '待审核',
+          variant: 'default' as const,
+          showDelete: false,
+          inReviewPeriod
+        }
+      case 'approved':
+        return {
+          canContinue: false,
+          text: '已通过',
+          variant: 'success' as const,
+          showDelete: false,
+          inReviewPeriod
+        }
+      case 'rejected':
+        // 被驳回的报名：在报名期内或审核期内都可以重新提交
+        return {
+          canContinue: isRegistrationOpen || inReviewPeriod,
+          text: '重新报名',
+          variant: 'destructive' as const,
+          showDelete: false,
+          inReviewPeriod
+        }
+      default:
+        return {
+          canContinue: false,
+          text: '待审核',
+          variant: 'default' as const,
+          showDelete: false,
+          inReviewPeriod
+        }
+    }
   }
 
   const handleDeleteRegistration = async (registrationId: string) => {
@@ -598,7 +632,7 @@ export default function EventDetailPage() {
     // 判断当前是否在"报名中"期间（未到审核期）
     const isInRegistrationPeriod = () => {
       const now = new Date()
-      const teamReq = event?.registration_settings?.team_requirements
+      const teamReq = parseTeamRequirements(event?.registration_settings?.team_requirements)
       if (!teamReq) return true // 没有设置时间，默认为报名中
 
       const regEndDate = teamReq.registrationEndDate
@@ -747,14 +781,7 @@ export default function EventDetailPage() {
                   {(() => {
                     // 获取报名阶段
                     const now = new Date()
-                    let teamReq = event.registration_settings?.team_requirements
-                    if (typeof teamReq === 'string') {
-                      try {
-                        teamReq = JSON.parse(teamReq)
-                      } catch (e) {
-                        return null
-                      }
-                    }
+                    const teamReq = parseTeamRequirements(event.registration_settings?.team_requirements)
 
                     const regStartDate = teamReq?.registrationStartDate
                     const regEndDate = teamReq?.registrationEndDate
@@ -790,14 +817,7 @@ export default function EventDetailPage() {
                     </div>
 
                     {(() => {
-                      let teamReq = event.registration_settings?.team_requirements
-                      if (typeof teamReq === 'string') {
-                        try {
-                          teamReq = JSON.parse(teamReq)
-                        } catch (e) {
-                          return null
-                        }
-                      }
+                    const teamReq = parseTeamRequirements(event.registration_settings?.team_requirements)
 
                       if (teamReq?.registrationStartDate && teamReq?.registrationEndDate) {
                         return (
@@ -936,8 +956,8 @@ export default function EventDetailPage() {
                   {allRegistrations
                     .sort((a, b) => {
                       // 优先按审核时间排序
-                      const timeA = a.last_status_change || a.reviewed_at || a.created_at
-                      const timeB = b.last_status_change || b.reviewed_at || b.created_at
+                      const timeA = a.last_status_change || a.reviewed_at || a.created_at || ''
+                      const timeB = b.last_status_change || b.reviewed_at || b.created_at || ''
                       return new Date(timeB).getTime() - new Date(timeA).getTime()
                     })
                     .map((reg, index) => (
@@ -1148,13 +1168,14 @@ export default function EventDetailPage() {
                           <div className="flex items-center gap-2 text-gray-500">
                             {(() => {
                               const teamData = reg.team_data
-                              const fields = []
+                              const fields: string[] = []
 
                               // 根据配置的字段顺序显示
-                              if (event?.registration_settings?.team_requirements) {
-                                const allFields = event.registration_settings.team_requirements.allFields ||
-                                                [...(event.registration_settings.team_requirements.commonFields || []),
-                                                 ...(event.registration_settings.team_requirements.customFields || [])]
+                              const teamReq = parseTeamRequirements(event?.registration_settings?.team_requirements)
+                              if (teamReq) {
+                                const allFields = teamReq.allFields ||
+                                                [...(teamReq.commonFields || []),
+                                                 ...(teamReq.customFields || [])]
 
                                 // 取前三个字段的值
                                 for (let i = 0; i < Math.min(3, allFields.length); i++) {
@@ -1185,7 +1206,7 @@ export default function EventDetailPage() {
                               // 如果还是没有，按照对象键的顺序取前三个
                               if (fields.length === 0) {
                                 const allValues = Object.values(teamData)
-                                  .filter(value => value && typeof value === 'string' && value.trim())
+                                  .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
                                   .slice(0, 3)
                                 fields.push(...allValues)
                               }

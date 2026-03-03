@@ -45,6 +45,8 @@ interface Registration {
   }
 }
 
+type RegistrationStatus = Registration['status']
+
 function MyRegistrationsContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -192,7 +194,11 @@ function MyRegistrationsContent() {
   }
 
   const getStatusBadge = (status: string) => {
-    const statusConfig = {
+    const statusConfig: Record<RegistrationStatus, {
+      label: string
+      variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success'
+      icon: typeof FileText
+    }> = {
       draft: { label: '草稿', variant: 'secondary' as const, icon: FileText },
       submitted: { label: '待审核', variant: 'default' as const, icon: Clock },
       pending: { label: '待审核', variant: 'default' as const, icon: Clock }, // 处理 pending 状态
@@ -201,11 +207,14 @@ function MyRegistrationsContent() {
       cancelled: { label: '已取消', variant: 'outline' as const, icon: AlertCircle }
     }
 
-    const config = statusConfig[status] || statusConfig.draft
+    const statusKey: RegistrationStatus = status in statusConfig
+      ? status as RegistrationStatus
+      : 'draft'
+    const config = statusConfig[statusKey]
     const Icon = config.icon
 
     return (
-      <Badge variant={config.variant} className="flex items-center gap-1">
+      <Badge variant={config.variant as any} className="flex items-center gap-1">
         <Icon className="h-3 w-3" />
         {config.label}
       </Badge>

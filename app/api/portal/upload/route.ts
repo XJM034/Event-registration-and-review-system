@@ -135,6 +135,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    if (!uploadData) {
+      return NextResponse.json(
+        { error: '上传结果为空', success: false },
+        { status: 500 }
+      )
+    }
+
     // 获取公共 URL
     const { data: urlData } = supabase.storage
       .from(bucket)

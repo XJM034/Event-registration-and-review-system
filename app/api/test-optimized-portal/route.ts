@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServer } from '@/lib/auth'
 
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error)
+
 // 测试优化后的 Portal Events API 逻辑（无需认证）
 export async function GET() {
   const startTime = Date.now()
@@ -11,7 +14,8 @@ export async function GET() {
     console.log('Optimized Portal Test API - Supabase client created in:', Date.now() - startTime, 'ms')
 
     // 使用单个JOIN查询获取所有数据，避免N+1查询问题
-    let eventsWithSettings, error
+    let eventsWithSettings: Record<string, unknown>[] = []
+    let error: { message?: string } | null = null
     const queryStartTime = Date.now()
     try {
       console.log('Optimized Portal Test API - Starting optimized join query...')
@@ -24,7 +28,7 @@ export async function GET() {
         .eq('is_visible', true)
         .order('created_at', { ascending: false })
 
-      eventsWithSettings = result.data
+      eventsWithSettings = result.data || []
       error = result.error
       console.log('Optimized Portal Test API - Optimized query completed in:', Date.now() - queryStartTime, 'ms')
       console.log('Optimized Portal Test API - Found events count:', eventsWithSettings?.length || 0)
@@ -47,7 +51,7 @@ export async function GET() {
 
     // 处理JOIN结果，确保registration_settings是单个对象而不是数组
     const processingStartTime = Date.now()
-    const processedEvents = eventsWithSettings.map(event => ({
+    const processedEvents = eventsWithSettings.map((event) => ({
       ...event,
       registration_settings: Array.isArray(event.registration_settings)
         ? (event.registration_settings.length > 0 ? event.registration_settings[0] : null)
@@ -70,14 +74,14 @@ export async function GET() {
         timestamp: new Date().toISOString()
       }
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Optimized Portal Test API - API错误:', error)
     console.error('Optimized Portal Test API - Total duration before error:', Date.now() - startTime, 'ms')
     return NextResponse.json(
       {
         success: false,
         error: '服务器错误',
-        errorDetails: error.message,
+        errorDetails: getErrorMessage(error),
         duration: Date.now() - startTime
       },
       { status: 500 }

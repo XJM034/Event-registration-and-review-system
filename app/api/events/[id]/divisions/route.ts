@@ -5,6 +5,17 @@ interface RouteParams {
   params: Promise<{ id: string }>
 }
 
+type DivisionItem = Record<string, unknown>
+
+const toDivisionItem = (value: unknown): DivisionItem | null => {
+  if (!value) return null
+  if (Array.isArray(value)) {
+    const first = value[0]
+    return first && typeof first === 'object' ? (first as DivisionItem) : null
+  }
+  return typeof value === 'object' ? (value as DivisionItem) : null
+}
+
 // 获取赛事关联的组别
 export async function GET(request: NextRequest, context: RouteParams) {
   try {
@@ -55,13 +66,16 @@ export async function GET(request: NextRequest, context: RouteParams) {
     }
 
     // 扁平化返回结构
-    const divisions = (data || []).map((ed: {
-      id: string
-      divisions: Record<string, unknown> | null
-    }) => ({
-      ...(ed.divisions || {}),
-      event_division_id: ed.id,
-    }))
+    const divisions = (data || [])
+      .map((ed) => {
+        const division = toDivisionItem(ed.divisions)
+        if (!division) return null
+        return {
+          ...division,
+          event_division_id: ed.id,
+        }
+      })
+      .filter((item): item is DivisionItem & { event_division_id: string } => item !== null)
 
     return NextResponse.json({
       success: true,

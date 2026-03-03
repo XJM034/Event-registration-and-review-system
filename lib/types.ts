@@ -62,22 +62,48 @@ export interface CustomField {
   options?: string[]; // 用于 select 和 multiselect
 }
 
+export interface FieldConfig {
+  id: string;
+  label: string;
+  type: 'text' | 'image' | 'select' | 'multiselect' | 'date' | 'attachment' | 'attachments';
+  required: boolean;
+  options?: string[];
+  isCommon?: boolean;
+  conditionalRequired?: {
+    dependsOn: string;
+    values: string[];
+  };
+}
+
 export interface TeamRequirements {
-  logo: { required: boolean };
-  name: { required: boolean };
-  contact_person: { required: boolean };
-  contact_phone: { required: boolean };
-  school_area: { required: boolean }; // 报名校区，默认必填
-  custom_fields: CustomField[];
+  commonFields: FieldConfig[];
+  customFields: FieldConfig[];
+  allFields?: FieldConfig[];
+  registrationStartDate?: string;
+  registrationEndDate?: string;
+  reviewEndDate?: string;
+}
+
+export interface RoleConfig {
+  id: string;
+  name: string;
+  commonFields?: FieldConfig[];
+  customFields: FieldConfig[];
+  allFields?: FieldConfig[];
+  minPlayers?: number;
+  maxPlayers?: number;
+  isDeletable?: boolean;
 }
 
 export interface PlayerRequirements {
-  name: { required: boolean };
-  gender: { required: boolean; options: string[] };
-  age: { required: boolean; min?: number; max?: number };
-  count: { min: number; max: number };
-  roles: PlayerRole[];
-  custom_fields: CustomField[];
+  roles: RoleConfig[];
+  genderRequirement: 'none' | 'male' | 'female';
+  ageRequirementEnabled: boolean;
+  minAgeDate?: string;
+  maxAgeDate?: string;
+  countRequirementEnabled: boolean;
+  minCount?: number;
+  maxCount?: number;
 }
 
 export interface PlayerRole {

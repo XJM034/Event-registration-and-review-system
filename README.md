@@ -1,105 +1,175 @@
-<a href="https://demo-nextjs-with-supabase.vercel.app/">
-  <img alt="Next.js and Supabase Starter Kit - the fastest way to build apps with Next.js and Supabase" src="https://demo-nextjs-with-supabase.vercel.app/opengraph-image.png">
-  <h1 align="center">Next.js and Supabase Starter Kit</h1>
-</a>
+# 体育赛事报名与审核系统
 
-<p align="center">
- The fastest way to build apps with Next.js and Supabase
-</p>
+基于 Next.js 15 + Supabase/MemFire 的体育赛事报名与审核管理系统。
 
-<p align="center">
-  <a href="#features"><strong>Features</strong></a> ·
-  <a href="#demo"><strong>Demo</strong></a> ·
-  <a href="#deploy-to-vercel"><strong>Deploy to Vercel</strong></a> ·
-  <a href="#clone-and-run-locally"><strong>Clone and run locally</strong></a> ·
-  <a href="#feedback-and-issues"><strong>Feedback and issues</strong></a>
-  <a href="#more-supabase-examples"><strong>More Examples</strong></a>
-</p>
-<br/>
+## 功能特性
 
-## Features
+- **管理端**：赛事管理、动态表单配置、报名审核、数据导出
+- **门户端**：赛事浏览、在线报名、通知系统、个人中心
+- **队员分享**：无需登录的队员信息填写页面
 
-- Works across the entire [Next.js](https://nextjs.org) stack
-  - App Router
-  - Pages Router
-  - Middleware
-  - Client
-  - Server
-  - It just works!
-- supabase-ssr. A package to configure Supabase Auth to use cookies
-- Password-based authentication block installed via the [Supabase UI Library](https://supabase.com/ui/docs/nextjs/password-based-auth)
-- Styling with [Tailwind CSS](https://tailwindcss.com)
-- Components with [shadcn/ui](https://ui.shadcn.com/)
-- Optional deployment with [Supabase Vercel Integration and Vercel deploy](#deploy-your-own)
-  - Environment variables automatically assigned to Vercel project
+## 技术栈
 
-## Demo
+- **框架**：Next.js 15 (App Router) + React 19 + TypeScript
+- **数据库**：Supabase/MemFire (PostgreSQL)
+- **UI**：Tailwind CSS + shadcn/ui + Radix UI
+- **表单**：react-hook-form + zod
+- **其他**：@dnd-kit (拖拽排序)、xlsx (数据导出)
 
-You can view a fully working demo at [demo-nextjs-with-supabase.vercel.app](https://demo-nextjs-with-supabase.vercel.app/).
+## 快速开始
 
-## Deploy to Vercel
+### 1. 克隆项目
 
-Vercel deployment will guide you through creating a Supabase account and project.
+```bash
+git clone <repository-url>
+cd dubai
+```
 
-After installation of the Supabase integration, all relevant environment variables will be assigned to the project so the deployment is fully functioning.
+### 2. 安装依赖
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fnext.js%2Ftree%2Fcanary%2Fexamples%2Fwith-supabase&project-name=nextjs-with-supabase&repository-name=nextjs-with-supabase&demo-title=nextjs-with-supabase&demo-description=This+starter+configures+Supabase+Auth+to+use+cookies%2C+making+the+user%27s+session+available+throughout+the+entire+Next.js+app+-+Client+Components%2C+Server+Components%2C+Route+Handlers%2C+Server+Actions+and+Middleware.&demo-url=https%3A%2F%2Fdemo-nextjs-with-supabase.vercel.app%2F&external-id=https%3A%2F%2Fgithub.com%2Fvercel%2Fnext.js%2Ftree%2Fcanary%2Fexamples%2Fwith-supabase&demo-image=https%3A%2F%2Fdemo-nextjs-with-supabase.vercel.app%2Fopengraph-image.png)
+项目使用 pnpm 作为包管理器：
 
-The above will also clone the Starter kit to your GitHub, you can clone that locally and develop locally.
+```bash
+pnpm install
+```
 
-If you wish to just develop locally and not deploy to Vercel, [follow the steps below](#clone-and-run-locally).
+### 3. 配置环境变量
 
-## Clone and run locally
+复制环境变量模板并填入真实值：
 
-1. You'll first need a Supabase project which can be made [via the Supabase dashboard](https://database.new)
+```bash
+cp .env.example .env.local
+```
 
-2. Create a Next.js app using the Supabase Starter template npx command
+编辑 `.env.local` 文件，填入以下必需的环境变量：
 
-   ```bash
-   npx create-next-app --example with-supabase with-supabase-app
-   ```
+```bash
+# Supabase/MemFire 配置
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.baseapi.memfiredb.com
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY=your_anon_key_here
 
-   ```bash
-   yarn create next-app --example with-supabase with-supabase-app
-   ```
+# Service Role Key（用于文件上传和审核操作）
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 
-   ```bash
-   pnpm create next-app --example with-supabase with-supabase-app
-   ```
+# JWT Secret（用于管理员会话加密）
+JWT_SECRET=your_jwt_secret_here
+```
 
-3. Use `cd` to change into the app's directory
+**获取 Supabase/MemFire 配置：**
 
-   ```bash
-   cd with-supabase-app
-   ```
+1. 登录 [MemFire 控制台](https://memfiredb.com)
+2. 选择你的项目
+3. 进入 Settings > API
+4. 复制 URL、anon key 和 service_role key
 
-4. Rename `.env.example` to `.env.local` and update the following:
+**生成 JWT Secret：**
 
-   ```
-   NEXT_PUBLIC_SUPABASE_URL=[INSERT SUPABASE PROJECT URL]
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=[INSERT SUPABASE PROJECT API ANON KEY]
-   ```
+```bash
+node -e "console.log(require('crypto').randomBytes(64).toString('base64'))"
+```
 
-   Both `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` can be found in [your Supabase project's API settings](https://supabase.com/dashboard/project/_?showConnect=true)
+### 4. 启动开发服务器
 
-5. You can now run the Next.js local development server:
+```bash
+pnpm dev
+```
 
-   ```bash
-   npm run dev
-   ```
+访问 http://localhost:3000
 
-   The starter kit should now be running on [localhost:3000](http://localhost:3000/).
+## 测试账号
 
-6. This template comes with the default shadcn/ui style initialized. If you instead want other ui.shadcn styles, delete `components.json` and [re-install shadcn/ui](https://ui.shadcn.com/docs/installation/next)
+根据 `CLAUDE.md` 文档，系统已预置以下测试账号：
 
-> Check out [the docs for Local Development](https://supabase.com/docs/guides/getting-started/local-development) to also run Supabase locally.
+**超级管理员**：
+- 手机号：`18140044662` 或 `13164550100`
+- 密码：`admin123`
 
-## Feedback and issues
+**教练账号**：
+- 手机号：`13800000001` ~ `13800000005`
+- 密码：`user123`
 
-Please file feedback and issues over on the [Supabase GitHub org](https://github.com/supabase/supabase/issues/new/choose).
+## 项目结构
 
-## More Supabase examples
+```
+app/
+├── auth/              # 认证相关页面（登录、注册等）
+├── events/            # 管理端赛事管理
+├── portal/            # 门户端（教练）
+├── player-share/      # 队员分享填写页
+└── api/               # API 路由
 
-- [Next.js Subscription Payments Starter](https://github.com/vercel/nextjs-subscription-payments)
-- [Cookie-based Auth and the Next.js 13 App Router (free course)](https://youtube.com/playlist?list=PL5S4mPUpp4OtMhpnp93EFSo42iQ40XjbF)
-- [Supabase Auth and the Next.js App Router](https://github.com/supabase/supabase/tree/master/examples/auth/nextjs)
+components/
+├── event-manage/      # 赛事管理组件
+├── ui/                # shadcn/ui 组件
+└── ...
+
+lib/
+├── auth.ts            # 认证工具函数
+├── supabase/          # Supabase 客户端配置
+└── types.ts           # TypeScript 类型定义
+
+docs/
+├── CLAUDE.md          # 详细的项目文档
+├── STORAGE_SETUP.md   # Storage 配置说明
+└── sql/               # 数据库脚本
+```
+
+## 常用命令
+
+```bash
+# 开发
+pnpm dev
+
+# 构建
+pnpm build
+
+# 生产运行
+pnpm start
+
+# 代码检查
+pnpm lint
+```
+
+## 数据库设置
+
+首次部署需要执行以下 SQL 脚本：
+
+1. **创建数据库结构**：`docs/sql/actual-supabase-schema.sql`
+2. **创建 Storage Buckets**：`docs/sql/create-buckets-simple.sql`
+3. **配置 Storage 策略**：`docs/sql/storage-policies.sql`（可选）
+
+## 详细文档
+
+完整的项目文档请参考：
+- **CLAUDE.md**：项目架构、功能说明、开发指南
+- **STORAGE_SETUP.md**：文件存储配置说明
+
+## 故障排查
+
+### Bucket not found
+
+执行 `docs/sql/create-buckets-simple.sql` 创建必需的 Storage buckets。
+
+### 上传失败 / 500 错误
+
+检查 `.env.local` 中的 `SUPABASE_SERVICE_ROLE_KEY` 是否正确配置。
+
+### 页面重定向到登录
+
+检查 `middleware.ts` 中的路由保护规则，确认路径是否在白名单中。
+
+## 环境变量说明
+
+| 变量名 | 说明 | 必需 |
+|--------|------|------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase/MemFire 项目 URL | ✅ |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key | ✅ |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY` | Supabase anon key（代码主要使用此变量） | ✅ |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role key（服务端操作） | ✅ |
+| `JWT_SECRET` | JWT 加密密钥 | ✅ |
+| `NEXT_PUBLIC_API_URL` | API 基础 URL | ❌ |
+
+## License
+
+[MIT](LICENSE)
