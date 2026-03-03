@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -172,6 +172,7 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [selectedDivisionIds, setSelectedDivisionIds] = useState<string[]>([])
   const [loadingConfig, setLoadingConfig] = useState(true)
+  const previousEventIdRef = useRef(event.id)
 
   const {
     register,
@@ -275,8 +276,11 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
 
   useEffect(() => {
     setReferenceTemplates(parseReferenceTemplates(event.reference_templates))
-    setPendingDeleteTemplatePaths([])
-  }, [event.reference_templates])
+    if (previousEventIdRef.current !== event.id) {
+      setPendingDeleteTemplatePaths([])
+      previousEventIdRef.current = event.id
+    }
+  }, [event.id, event.reference_templates])
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr)
@@ -449,6 +453,7 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
           setPendingDeleteTemplatePaths([])
         } else {
           setError(`赛事信息已保存，但旧模板清理失败：${deleteWarning}`)
+          return
         }
       }
 

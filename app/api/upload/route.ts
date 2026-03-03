@@ -9,6 +9,18 @@ import {
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024
 
+const sanitizeFileName = (name: string) =>
+  name
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const withValidatedExtension = (fileName: string, extension: string) => {
+  const safeName = sanitizeFileName(fileName)
+  const baseName = safeName.replace(/\.[^.]+$/, '') || 'file'
+  return `${baseName}.${extension}`
+}
+
 const createStorageAdminClient = () => {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -97,29 +109,32 @@ export async function POST(request: NextRequest) {
     // 使用服务密钥创建 Supabase 客户端，绕过 RLS
     const supabase = createStorageAdminClient()
 
-    // 生成唯一的文件名
-    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${signatureCheck.extension}`
+    // 生成“唯一目录/原始文件名”路径，既避免重名，也保留下载时的原文件名
+    const uniqueDir = `${Date.now()}-${Math.random().toString(36).substring(2)}`
+    const preservedName = withValidatedExtension(file.name, signatureCheck.extension)
+    const fileName = `${uniqueDir}/${preservedName}`
 
     // 上传到 Supabase Storage
-    const uploadContentType = mimeType || 'application/octet-stream'
+    let finalContentType = mimeType || 'application/octet-stream'
 
     let { data: uploadData, error: uploadError } = await supabase.storage
       .from(bucket)
       .upload(fileName, uint8Array, {
-        contentType: uploadContentType,
+        contentType: finalContentType,
         upsert: false,
       })
 
     // 部分存储配置对 MIME 较严格时，降级为 octet-stream 再重试
     if (
       uploadError &&
-      uploadContentType !== 'application/octet-stream' &&
+      finalContentType !== 'application/octet-stream' &&
       /mime type .* is not supported/i.test(uploadError.message || '')
     ) {
+      finalContentType = 'application/octet-stream'
       const fallback = await supabase.storage
         .from(bucket)
         .upload(fileName, uint8Array, {
-          contentType: 'application/octet-stream',
+          contentType: finalContentType,
           upsert: false,
         })
       uploadData = fallback.data
@@ -153,7 +168,7 @@ export async function POST(request: NextRequest) {
         url: urlData.publicUrl,
         fileName,
         originalName: file.name,
-        mimeType: uploadContentType,
+        mimeType: finalContentType,
         size: file.size,
       },
     })
