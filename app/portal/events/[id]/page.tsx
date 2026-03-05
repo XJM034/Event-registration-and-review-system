@@ -870,17 +870,6 @@ export default function EventDetailPage() {
                                 </div>
                               </div>
                             </div>
-                            {teamReq?.reviewEndDate && (
-                              <div className="flex items-start gap-2">
-                                <Clock className="h-4 w-4 flex-shrink-0 text-gray-400 mt-0.5" />
-                                <div>
-                                  <div>审核结束时间</div>
-                                  <div className="text-gray-600">
-                                    {formatDateTime(teamReq.reviewEndDate)}
-                                  </div>
-                                </div>
-                              </div>
-                            )}
                           </>
                         )
                       }
