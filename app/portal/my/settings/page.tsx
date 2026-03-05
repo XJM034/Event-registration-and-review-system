@@ -3,26 +3,22 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { getSessionUserWithRetry } from '@/lib/supabase/client-auth'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import {
   User,
-  Mail,
-  Phone,
-  Building,
   Lock,
   Shield,
   Eye,
   EyeOff,
   LogOut,
   Trash2,
-  Save,
-  AlertCircle
+  Save
 } from 'lucide-react'
 
 export default function AccountSettingsPage() {
@@ -30,6 +26,7 @@ export default function AccountSettingsPage() {
   const [user, setUser] = useState<any>(null)
   const [coach, setCoach] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   // 个人信息表单
   const [profileForm, setProfileForm] = useState({
@@ -57,13 +54,28 @@ export default function AccountSettingsPage() {
   }, [])
 
   const loadUserData = async () => {
+    setLoadError(null)
+
     try {
       const supabase = createClient()
 
       // 获取当前用户
-      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser()
+      const { user: authUser, error: authError, isNetworkError } = await getSessionUserWithRetry(supabase, {
+        maxRetries: 2,
+        baseDelayMs: 500,
+      })
 
-      if (authError || !authUser) {
+      if (authError && !isNetworkError) {
+        console.error('获取会话失败:', authError)
+      }
+
+      if (authError && isNetworkError) {
+        console.error('会话请求网络异常（已重试）:', authError)
+        setLoadError('网络连接异常，无法获取登录状态，请检查网络后重试。')
+        return
+      }
+
+      if (!authUser) {
         router.push('/auth/login')
         return
       }
@@ -177,6 +189,19 @@ export default function AccountSettingsPage() {
     )
   }
 
+  if (loadError) {
+    return (
+      <div className="container mx-auto px-4 py-8 max-w-4xl">
+        <Card>
+          <CardContent className="space-y-4 py-10 text-center">
+            <p className="text-muted-foreground">{loadError}</p>
+            <Button onClick={loadUserData}>重试</Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       {/* 页面标题 */}
@@ -204,18 +229,6 @@ export default function AccountSettingsPage() {
                 onChange={(e) => setProfileForm(prev => ({ ...prev, name: e.target.value }))}
                 placeholder="请输入您的姓名"
               />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="email">邮箱</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="email"
-                  value={user?.email || ''}
-                  disabled
-                  className="flex-1"
-                />
-                <Badge variant="secondary">已验证</Badge>
-              </div>
             </div>
             <div className="grid gap-2">
               <Label htmlFor="phone">手机号</Label>
@@ -264,17 +277,6 @@ export default function AccountSettingsPage() {
               </div>
             </div>
             <Button onClick={() => setIsPasswordDialogOpen(true)}>修改</Button>
-          </div>
-
-          <div className="flex items-center justify-between p-4 border rounded-lg">
-            <div className="flex items-center gap-3">
-              <Mail className="h-5 w-5 text-muted-foreground" />
-              <div>
-                <p className="font-medium">邮箱地址</p>
-                <p className="text-sm text-muted-foreground">{user?.email}</p>
-              </div>
-            </div>
-            <Badge variant="secondary">已验证</Badge>
           </div>
         </CardContent>
       </Card>

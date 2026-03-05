@@ -30,6 +30,7 @@ import {
   Clock
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { getSessionUser } from '@/lib/supabase/client-auth'
 import Image from 'next/image'
 import { parseIdCard, validateAgainstDivisionRules } from '@/lib/id-card-validator'
 
@@ -515,7 +516,7 @@ export default function RegisterPage() {
       const supabase = createClient()
       
       // 获取当前用户
-      const { data: { user } } = await supabase.auth.getUser()
+      const { user } = await getSessionUser(supabase)
       if (!user) {
         router.push('/auth/login')
         return

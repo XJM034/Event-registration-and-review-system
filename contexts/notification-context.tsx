@@ -1,7 +1,8 @@
 'use client'
 
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getSessionUser, withTimeout } from '@/lib/supabase/client-auth'
 
 interface NotificationContextType {
   unreadCount: number
@@ -17,56 +18,79 @@ const NotificationContext = createContext<NotificationContextType>({
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const [unreadCount, setUnreadCount] = useState(0)
+  const inFlightRefreshRef = useRef<Promise<void> | null>(null)
 
   const refreshUnreadCount = useCallback(async () => {
-    try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-
-      if (!user) {
-        setUnreadCount(0)
-        return
-      }
-
-      if (user.user_metadata?.role === 'admin') {
-        setUnreadCount(0)
-        return
-      }
-
-      const { data: coach, error: coachError } = await supabase
-        .from('coaches')
-        .select('id')
-        .eq('auth_id', user.id)
-        .maybeSingle()
-
-      if (coachError) {
-        setUnreadCount(0)
-        return
-      }
-
-      if (!coach) {
-        setUnreadCount(0)
-        return
-      }
-
-      const { count, error: countError } = await supabase
-        .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('coach_id', coach.id)
-        .eq('is_read', false)
-
-      if (countError) {
-        console.error('Error fetching unread count:', countError)
-        setUnreadCount(0)
-        return
-      }
-
-      console.log('Refreshed unread count:', count, 'for coach:', coach.id)
-      setUnreadCount(count || 0)
-    } catch (error) {
-      console.error('Error refreshing unread count:', error)
-      setUnreadCount(0)
+    if (inFlightRefreshRef.current) {
+      return inFlightRefreshRef.current
     }
+
+    const refreshTask = (async () => {
+      try {
+        const supabase = createClient()
+        const { user, error: sessionError, isNetworkError } = await getSessionUser(supabase)
+
+        if (sessionError && !isNetworkError) {
+          console.error('获取会话失败:', sessionError)
+        }
+
+        if (!user) {
+          setUnreadCount(0)
+          return
+        }
+
+        if (user.user_metadata?.role === 'admin') {
+          setUnreadCount(0)
+          return
+        }
+
+        const { data: coach, error: coachError } = await withTimeout(
+          supabase
+            .from('coaches')
+            .select('id')
+            .eq('auth_id', user.id)
+            .maybeSingle(),
+          4000,
+          'Unread-count coach lookup timed out'
+        )
+
+        if (coachError) {
+          setUnreadCount(0)
+          return
+        }
+
+        if (!coach) {
+          setUnreadCount(0)
+          return
+        }
+
+        const { count, error: countError } = await withTimeout(
+          supabase
+            .from('notifications')
+            .select('*', { count: 'exact', head: true })
+            .eq('coach_id', coach.id)
+            .eq('is_read', false),
+          4000,
+          'Unread-count notifications lookup timed out'
+        )
+
+        if (countError) {
+          console.error('Error fetching unread count:', countError)
+          setUnreadCount(0)
+          return
+        }
+
+        setUnreadCount(count || 0)
+      } catch (error) {
+        console.error('Error refreshing unread count:', error)
+        setUnreadCount(0)
+      }
+    })().finally(() => {
+      inFlightRefreshRef.current = null
+    })
+
+    inFlightRefreshRef.current = refreshTask
+    return refreshTask
   }, [])
 
   useEffect(() => {

@@ -1,21 +1,19 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { getSessionUserWithRetry } from '@/lib/supabase/client-auth'
 import { useNotification } from '@/contexts/notification-context'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Bell,
   BellOff,
-  CheckCircle,
-  XCircle,
-  AlertCircle,
   Info,
-  Clock,
   Eye,
   Trash2,
   CheckCheck,
@@ -41,6 +39,15 @@ interface Notification {
   eventName?: string
 }
 
+type NotificationTab = 'all' | 'unread' | 'read'
+
+function normalizeNotificationTab(tab: string | null): NotificationTab {
+  if (tab === 'unread' || tab === 'read') {
+    return tab
+  }
+  return 'all'
+}
+
 function mapNotificationType(type: unknown): Notification['type'] {
   if (type === 'approval' || type === 'rejection') {
     return 'registration'
@@ -53,34 +60,62 @@ function mapNotificationType(type: unknown): Notification['type'] {
 
 export default function MyNotificationsPage() {
   const router = useRouter()
-  const { unreadCount, refreshUnreadCount, setUnreadCount } = useNotification()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const { unreadCount, refreshUnreadCount } = useNotification()
   const [notifications, setNotifications] = useState<Notification[]>([])
-  const [activeTab, setActiveTab] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [hasLoaded, setHasLoaded] = useState(false)
+  const activeTab = normalizeNotificationTab(searchParams.get('tab'))
 
   useEffect(() => {
-    // 只在第一次加载或没有数据时加载
     if (!hasLoaded || notifications.length === 0) {
       loadNotifications()
-      // 页面加载时刷新未读数量
       refreshUnreadCount()
     }
   }, [])
+
+  const handleTabChange = (value: string) => {
+    const nextTab = normalizeNotificationTab(value)
+    const params = new URLSearchParams(searchParams.toString())
+
+    if (nextTab === 'all') {
+      params.delete('tab')
+    } else {
+      params.set('tab', nextTab)
+    }
+
+    const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname
+    router.replace(nextUrl, { scroll: false })
+  }
 
   const loadNotifications = async (showLoading = true) => {
     if (showLoading) {
       setIsLoading(true)
     }
+    setLoadError(null)
 
     try {
       const supabase = createClient()
 
       // 获取当前用户
-      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      const { user, error: authError, isNetworkError } = await getSessionUserWithRetry(supabase, {
+        maxRetries: 2,
+        baseDelayMs: 500,
+      })
 
-      if (authError || !user) {
+      if (authError && !isNetworkError) {
         console.error('Auth error:', authError)
+      }
+
+      if (authError && isNetworkError) {
+        console.error('会话请求网络异常（已重试）:', authError)
+        setLoadError('网络连接异常，无法获取登录状态，请检查网络后重试。')
+        return
+      }
+
+      if (!user) {
         router.push('/auth/login')
         return
       }
@@ -212,15 +247,6 @@ export default function MyNotificationsPage() {
       }
 
       console.log(`Marking ${unreadNotifications.length} notifications as read`)
-
-      // 先尝试获取用户信息
-      let user = null
-      try {
-        const { data: { user: authUser } } = await supabase.auth.getUser()
-        user = authUser
-      } catch (authError) {
-        console.error('Auth error, trying alternative method:', authError)
-      }
 
       // 方法1：尝试使用简单的RPC函数
       try {
@@ -392,16 +418,30 @@ export default function MyNotificationsPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center">加载中...</div>
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-48" />
+        <Skeleton className="h-4 w-72" />
+        <Skeleton className="h-10 w-56" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-24 w-full" />
       </div>
     )
   }
 
+  if (loadError) {
+    return (
+      <Card>
+        <CardContent className="space-y-4 py-10 text-center">
+          <p className="text-muted-foreground">{loadError}</p>
+          <Button onClick={() => loadNotifications(true)}>重试</Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
-      {/* 页面标题 */}
-      <div className="mb-6 flex items-center justify-between">
+    <div className="mx-auto max-w-4xl space-y-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold">我的通知</h1>
           <p className="text-muted-foreground">
@@ -429,9 +469,8 @@ export default function MyNotificationsPage() {
         </div>
       </div>
 
-      {/* 标签页 */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="mb-4">
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
+        <TabsList className="mb-2">
           <TabsTrigger value="all">
             全部
             {notifications.length > 0 && (
@@ -451,7 +490,7 @@ export default function MyNotificationsPage() {
           <TabsTrigger value="read">已读</TabsTrigger>
         </TabsList>
 
-        <TabsContent value={activeTab}>
+        <TabsContent value={activeTab} className="animate-in fade-in-0 duration-200">
           {filteredNotifications.length === 0 ? (
             <Card>
               <CardContent className="text-center py-12">

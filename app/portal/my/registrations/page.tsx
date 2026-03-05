@@ -1,23 +1,23 @@
 'use client'
 
 import { useState, useEffect, useRef, Suspense } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { getSessionUserWithRetry } from '@/lib/supabase/client-auth'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Calendar,
-  MapPin,
   FileText,
   Clock,
   CheckCircle,
   XCircle,
   AlertCircle,
   Search,
-  Filter
 } from 'lucide-react'
 
 interface Registration {
@@ -46,34 +46,52 @@ interface Registration {
 }
 
 type RegistrationStatus = Registration['status']
+type RegistrationFilterTab = 'all' | 'pending' | 'approved' | 'rejected'
+
+const REGISTRATION_TABS: Array<{ value: RegistrationFilterTab; label: string }> = [
+  { value: 'all', label: '全部' },
+  { value: 'pending', label: '待审核' },
+  { value: 'approved', label: '已通过' },
+  { value: 'rejected', label: '已拒绝' },
+]
+
+function normalizeRegistrationTab(tab: string | null): RegistrationFilterTab {
+  if (tab === 'pending' || tab === 'approved' || tab === 'rejected') {
+    return tab
+  }
+  return 'all'
+}
 
 function MyRegistrationsContent() {
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const [registrations, setRegistrations] = useState<Registration[]>([])
   const [filteredRegistrations, setFilteredRegistrations] = useState<Registration[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
+  const activeTab = normalizeRegistrationTab(searchParams.get('tab'))
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const highlightRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    // 获取URL中的highlight参数
+    loadRegistrations(true)
+  }, [])
+
+  useEffect(() => {
     const highlight = searchParams.get('highlight')
     if (highlight) {
       setHighlightId(highlight)
-      // 3秒后清除高亮效果，但不改变URL
       setTimeout(() => {
         setHighlightId(null)
-        // 使用 window.history.replaceState 静默更新URL，不触发页面刷新
         const url = new URL(window.location.href)
         url.searchParams.delete('highlight')
         window.history.replaceState({}, '', url.pathname + url.search)
       }, 3000)
     }
-    loadRegistrations()
-  }, [])
+
+  }, [searchParams])
 
   useEffect(() => {
     // 当高亮元素加载后滚动到该位置
@@ -84,16 +102,48 @@ function MyRegistrationsContent() {
 
   useEffect(() => {
     filterRegistrations()
-  }, [registrations, searchTerm, statusFilter])
+  }, [registrations, searchTerm, activeTab])
 
-  const loadRegistrations = async () => {
+  const handleTabChange = (value: string) => {
+    const nextTab = normalizeRegistrationTab(value)
+    const params = new URLSearchParams(searchParams.toString())
+
+    if (nextTab === 'all') {
+      params.delete('tab')
+    } else {
+      params.set('tab', nextTab)
+    }
+
+    const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname
+    router.replace(nextUrl, { scroll: false })
+  }
+
+  const loadRegistrations = async (showLoading = false) => {
+    if (showLoading) {
+      setIsLoading(true)
+    }
+    setLoadError(null)
+
     try {
       const supabase = createClient()
 
       // 获取当前用户
-      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      const { user, error: authError, isNetworkError } = await getSessionUserWithRetry(supabase, {
+        maxRetries: 2,
+        baseDelayMs: 500,
+      })
 
-      if (authError || !user) {
+      if (authError && !isNetworkError) {
+        console.error('获取会话失败:', authError)
+      }
+
+      if (authError && isNetworkError) {
+        console.error('会话请求网络异常（已重试）:', authError)
+        setLoadError('网络连接异常，无法获取登录状态，请检查网络后重试。')
+        return
+      }
+
+      if (!user) {
         router.push('/auth/login')
         return
       }
@@ -180,13 +230,11 @@ function MyRegistrationsContent() {
       )
     }
 
-    // 状态过滤 - 处理 pending 和 submitted 作为同一种状态
-    if (statusFilter !== 'all') {
-      if (statusFilter === 'submitted') {
-        // 如果筛选"待审核"，同时匹配 submitted 和 pending
+    if (activeTab !== 'all') {
+      if (activeTab === 'pending') {
         filtered = filtered.filter(reg => reg.status === 'submitted' || reg.status === 'pending')
       } else {
-        filtered = filtered.filter(reg => reg.status === statusFilter)
+        filtered = filtered.filter(reg => reg.status === activeTab)
       }
     }
 
@@ -196,15 +244,16 @@ function MyRegistrationsContent() {
   const getStatusBadge = (status: string) => {
     const statusConfig: Record<RegistrationStatus, {
       label: string
-      variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success'
+      variant: 'default' | 'secondary' | 'destructive' | 'outline'
       icon: typeof FileText
+      className?: string
     }> = {
-      draft: { label: '草稿', variant: 'secondary' as const, icon: FileText },
-      submitted: { label: '待审核', variant: 'default' as const, icon: Clock },
-      pending: { label: '待审核', variant: 'default' as const, icon: Clock }, // 处理 pending 状态
-      approved: { label: '已通过', variant: 'success' as const, icon: CheckCircle },
-      rejected: { label: '已驳回', variant: 'destructive' as const, icon: XCircle },
-      cancelled: { label: '已取消', variant: 'outline' as const, icon: AlertCircle }
+      draft: { label: '草稿', variant: 'secondary', icon: FileText, className: 'bg-gray-100 text-gray-700 border-gray-200' },
+      submitted: { label: '待审核', variant: 'default', icon: Clock, className: 'bg-yellow-100 text-yellow-700 border-yellow-200 hover:bg-yellow-100' },
+      pending: { label: '待审核', variant: 'default', icon: Clock, className: 'bg-yellow-100 text-yellow-700 border-yellow-200 hover:bg-yellow-100' },
+      approved: { label: '已通过', variant: 'default', icon: CheckCircle, className: 'bg-green-100 text-green-700 border-green-200 hover:bg-green-100' },
+      rejected: { label: '已拒绝', variant: 'outline', icon: XCircle, className: 'bg-gray-100 text-gray-700 border-gray-200' },
+      cancelled: { label: '已取消', variant: 'outline', icon: AlertCircle, className: 'bg-gray-100 text-gray-600 border-gray-200' }
     }
 
     const statusKey: RegistrationStatus = status in statusConfig
@@ -214,7 +263,7 @@ function MyRegistrationsContent() {
     const Icon = config.icon
 
     return (
-      <Badge variant={config.variant as any} className="flex items-center gap-1">
+      <Badge variant={config.variant} className={`flex items-center gap-1 ${config.className || ''}`}>
         <Icon className="h-3 w-3" />
         {config.label}
       </Badge>
@@ -376,26 +425,50 @@ function MyRegistrationsContent() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center">加载中...</div>
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-56" />
+        <Skeleton className="h-4 w-72" />
+        <Skeleton className="h-10 w-full md:w-[360px]" />
+        <Skeleton className="h-12 w-full md:w-[420px]" />
+        <Skeleton className="h-36 w-full" />
+        <Skeleton className="h-36 w-full" />
       </div>
     )
   }
 
+  if (loadError) {
+    return (
+      <Card>
+        <CardContent className="space-y-4 py-10 text-center">
+          <p className="text-muted-foreground">{loadError}</p>
+          <Button onClick={() => loadRegistrations(true)}>重试</Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl">
-      {/* 页面标题 */}
-      <div className="mb-6">
+    <div className="mx-auto max-w-6xl space-y-4">
+      <div>
         <h1 className="text-2xl font-bold">我的报名</h1>
         <p className="text-muted-foreground">查看和管理您的所有报名记录</p>
       </div>
 
-      {/* 搜索和筛选 */}
-      <Card className="mb-6">
+      <Card>
         <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <div className="space-y-4">
+            <Tabs value={activeTab} onValueChange={handleTabChange}>
+              <TabsList className="grid w-full grid-cols-4 md:w-[420px]">
+                {REGISTRATION_TABS.map((tab) => (
+                  <TabsTrigger key={tab.value} value={tab.value}>
+                    {tab.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+
+            <div className="relative w-full md:w-[360px]">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="搜索赛事名称或队伍名称..."
                 value={searchTerm}
@@ -403,41 +476,22 @@ function MyRegistrationsContent() {
                 className="pl-10"
               />
             </div>
-            <div className="w-full md:w-48">
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger>
-                  <div className="flex items-center gap-2">
-                    <Filter className="h-4 w-4" />
-                    <SelectValue placeholder="筛选状态" />
-                  </div>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部状态</SelectItem>
-                  <SelectItem value="draft">草稿</SelectItem>
-                  <SelectItem value="submitted">待审核</SelectItem>
-                  <SelectItem value="approved">已通过</SelectItem>
-                  <SelectItem value="rejected">已驳回</SelectItem>
-                  <SelectItem value="cancelled">已取消</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* 报名列表 */}
       {filteredRegistrations.length === 0 ? (
         <Card>
           <CardContent className="text-center py-12">
             <p className="text-muted-foreground">
-              {searchTerm || statusFilter !== 'all'
+              {searchTerm || activeTab !== 'all'
                 ? '没有找到符合条件的报名记录'
                 : '暂无报名记录'}
             </p>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4">
+        <div key={activeTab} className="grid gap-4 animate-in fade-in-0 duration-200">
           {filteredRegistrations.map((reg) => {
             const isHighlighted = highlightId === reg.id
             return (
@@ -646,7 +700,7 @@ function MyRegistrationsContent() {
 
 export default function MyRegistrationsPage() {
   return (
-    <Suspense fallback={<div>加载中...</div>}>
+    <Suspense fallback={<div className="space-y-3"><Skeleton className="h-10 w-48" /><Skeleton className="h-32 w-full" /></div>}>
       <MyRegistrationsContent />
     </Suspense>
   )

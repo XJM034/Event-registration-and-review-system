@@ -8,6 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Calendar, MapPin, Phone, Clock, Users, ArrowLeft, FileText, AlertCircle, Paperclip, Download } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { getSessionUser } from '@/lib/supabase/client-auth'
+import { MY_REGISTRATION_SCROLL_TARGET, resolveEventDetailScrollTarget } from '@/lib/portal/event-detail-navigation'
 import { toSafeHttpUrl } from '@/lib/url-security'
 
 // 工具函数：将文本中的 URL 转换为可点击的链接
@@ -185,8 +187,9 @@ export default function EventDetailPage() {
 
   // 处理滚动到"我的报名"部分
   useEffect(() => {
-    const scrollTo = searchParams.get('scrollTo')
-    if (scrollTo === 'my-registration' && !isLoading && event) {
+    const scrollTarget = resolveEventDetailScrollTarget(searchParams)
+
+    if (scrollTarget === MY_REGISTRATION_SCROLL_TARGET && !isLoading && event) {
       // 等待页面渲染完成后再滚动
       const scrollTimer = setTimeout(() => {
         const element = document.getElementById('my-registration-section')
@@ -325,7 +328,7 @@ export default function EventDetailPage() {
   const checkRegistration = async () => {
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
+      const { user } = await getSessionUser(supabase)
 
       if (user) {
         // 获取教练信息
