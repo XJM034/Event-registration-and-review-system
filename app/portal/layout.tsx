@@ -1,10 +1,19 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { NotificationProvider, useNotification } from '@/contexts/notification-context'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,55 +29,144 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { 
-  Calendar, 
-  User, 
-  Bell, 
+import {
+  Calendar,
   ClipboardList,
-  ChevronLeft,
-  ChevronRight,
+  Bell,
+  Menu,
   LogOut,
-  Settings
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings,
+  UserCircle2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
+import { getSessionUser, withTimeout } from '@/lib/supabase/client-auth'
 
 interface PortalLayoutProps {
   children: React.ReactNode
 }
 
+const SIDEBAR_COLLAPSE_KEY = 'portal_sidebar_collapsed'
+
+type PortalTabId = 'events' | 'my-registrations' | 'my-notifications'
+
 function PortalLayoutContent({ children }: PortalLayoutProps) {
   const router = useRouter()
   const pathname = usePathname()
-  const [isCollapsed, setIsCollapsed] = useState(false)
+  const [desktopCollapsed, setDesktopCollapsed] = useState(false)
+  const [tabletPinnedExpanded, setTabletPinnedExpanded] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [viewportWidth, setViewportWidth] = useState(1280)
+  const [hydrated, setHydrated] = useState(false)
+  const [isSidebarAnimating, setIsSidebarAnimating] = useState(false)
   const [user, setUser] = useState<any>(null)
-  const { unreadCount, refreshUnreadCount } = useNotification()
+  const { unreadCount } = useNotification()
   const [showLogoutDialog, setShowLogoutDialog] = useState(false)
+  const sidebarAnimationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const authRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const authRetryCountRef = useRef(0)
 
   useEffect(() => {
+    setHydrated(true)
+    const handleResize = () => setViewportWidth(window.innerWidth)
+    handleResize()
+    window.addEventListener('resize', handleResize)
+
+    const savedPreference = window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY)
+    if (savedPreference !== null) {
+      setDesktopCollapsed(savedPreference === 'true')
+    }
+
     checkUser()
-    refreshUnreadCount()
+    return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  const checkUser = async () => {
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    
-    if (!user) {
-      router.push('/(auth)/login')
+  useEffect(() => {
+    if (!hydrated) {
       return
     }
 
-    // 获取教练信息
-    const { data: coach } = await supabase
-      .from('coaches')
-      .select('*')
-      .eq('auth_id', user.id)
-      .single()
+    window.localStorage.setItem(SIDEBAR_COLLAPSE_KEY, String(desktopCollapsed))
+  }, [desktopCollapsed, hydrated])
 
-    setUser(coach || user)
+  useEffect(() => {
+    setMobileMenuOpen(false)
+  }, [pathname])
+
+  useEffect(() => {
+    if (viewportWidth < 768 || viewportWidth > 1023) {
+      setTabletPinnedExpanded(false)
+    }
+  }, [viewportWidth])
+
+  useEffect(() => {
+    return () => {
+      if (sidebarAnimationTimerRef.current) {
+        clearTimeout(sidebarAnimationTimerRef.current)
+      }
+      if (authRetryTimerRef.current) {
+        clearTimeout(authRetryTimerRef.current)
+      }
+    }
+  }, [])
+
+  const scheduleUserRecheck = () => {
+    if (authRetryCountRef.current >= 1) {
+      router.push('/auth/login')
+      return
+    }
+
+    authRetryCountRef.current += 1
+    if (authRetryTimerRef.current) {
+      clearTimeout(authRetryTimerRef.current)
+    }
+    authRetryTimerRef.current = setTimeout(() => {
+      checkUser()
+    }, 350)
   }
 
+  const checkUser = async () => {
+    try {
+      const supabase = createClient()
+      const { user: sessionUser, error: sessionError, isNetworkError } = await getSessionUser(supabase)
+
+      if (sessionError) {
+        if (isNetworkError) {
+          return
+        }
+        scheduleUserRecheck()
+        return
+      }
+
+      if (!sessionUser) {
+        scheduleUserRecheck()
+        return
+      }
+      authRetryCountRef.current = 0
+
+      // 获取教练信息
+      const { data: coach, error: coachError } = await withTimeout(
+        supabase
+          .from('coaches')
+          .select('*')
+          .eq('auth_id', sessionUser.id)
+          .single(),
+        4000,
+        'Coach profile lookup timed out'
+      )
+
+      if (coachError) {
+        setUser(sessionUser)
+        return
+      }
+
+      setUser(coach || sessionUser)
+    } catch (error) {
+      console.error('获取用户信息失败:', error)
+    }
+  }
 
   const handleLogout = async () => {
     const supabase = createClient()
@@ -76,20 +174,39 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
     router.push('/auth/login')
   }
 
-  const menuItems = [
+  const effectiveViewportWidth = hydrated ? viewportWidth : 1280
+  const effectiveDesktopCollapsed = hydrated ? desktopCollapsed : false
+  const effectiveTabletPinnedExpanded = hydrated ? tabletPinnedExpanded : false
+
+  const isMobile = effectiveViewportWidth < 768
+  const isTablet = effectiveViewportWidth >= 768 && effectiveViewportWidth <= 1023
+  const isCollapsed = !isMobile && (isTablet ? !effectiveTabletPinnedExpanded : effectiveDesktopCollapsed)
+  const sidebarWidthClass = isCollapsed ? 'w-16' : 'w-[200px]'
+
+  const pageTitle = useMemo(() => {
+    if (pathname === '/portal') return '赛事活动'
+    if (pathname === '/portal/my/registrations') return '我的报名'
+    if (pathname === '/portal/my/notifications') return '我的通知'
+    if (pathname === '/portal/my/settings') return '账号设置'
+    if (pathname.startsWith('/portal/events/') && pathname.includes('/register')) return '赛事报名'
+    if (pathname.startsWith('/portal/events/')) return '赛事详情'
+    return '教练端主页'
+  }, [pathname])
+
+  const menuItems: Array<{
+    id: PortalTabId
+    label: string
+    icon: typeof Calendar
+    href: string
+    active: boolean
+    badge?: number | null
+  }> = [
     {
       id: 'events',
       label: '赛事活动',
       icon: Calendar,
       href: '/portal',
       active: pathname === '/portal' || pathname.startsWith('/portal/events')
-    },
-    {
-      id: 'my-profile',
-      label: '个人信息',
-      icon: User,
-      href: '/portal/my',
-      active: pathname === '/portal/my'
     },
     {
       id: 'my-registrations',
@@ -104,146 +221,260 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
       icon: Bell,
       href: '/portal/my/notifications',
       active: pathname === '/portal/my/notifications',
-      badge: unreadCount > 0 ? unreadCount : null
-    },
-    {
-      id: 'account-settings',
-      label: '账号设置',
-      icon: Settings,
-      href: '/portal/my/settings',
-      active: pathname === '/portal/my/settings'
+      badge: unreadCount > 0 ? unreadCount : null,
     }
   ]
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* 左侧导航栏 */}
-      <aside className={cn(
-        "bg-white shadow-lg transition-all duration-300 flex flex-col",
-        isCollapsed ? "w-16" : "w-52"
-      )}>
-        {/* Logo区域和折叠按钮 */}
-        <div className="border-b">
-          <div className="h-[52px] px-6 flex items-center justify-between">
-            <h1 className={cn(
-              "font-bold text-gray-800 transition-all whitespace-nowrap overflow-hidden",
-              isCollapsed ? "text-center text-sm" : "text-lg"
-            )}>
-              {isCollapsed ? "报名" : "棍网球报名系统"}
-            </h1>
-            {isCollapsed ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={() => setIsCollapsed(!isCollapsed)}
-                    className="p-2 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0 mx-auto"
-                  >
-                    <ChevronRight className="h-5 w-5 text-gray-600" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="right" sideOffset={10}>
-                  <p>展开侧边栏</p>
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <button
-                onClick={() => setIsCollapsed(!isCollapsed)}
-                className="p-2 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0"
-              >
-                <ChevronLeft className="h-5 w-5 text-gray-600" />
-              </button>
-            )}
+  const userInitial = (user?.name || user?.email || 'U').slice(0, 1).toUpperCase()
+
+  const toggleSidebar = () => {
+    setIsSidebarAnimating(true)
+    if (sidebarAnimationTimerRef.current) {
+      clearTimeout(sidebarAnimationTimerRef.current)
+    }
+    sidebarAnimationTimerRef.current = setTimeout(() => {
+      setIsSidebarAnimating(false)
+    }, 320)
+
+    if (isMobile) {
+      setMobileMenuOpen((current) => !current)
+      return
+    }
+
+    if (isTablet) {
+      setTabletPinnedExpanded((current) => !current)
+      return
+    }
+
+    setDesktopCollapsed((current) => !current)
+  }
+
+  // Keep the first paint deterministic between SSR and CSR to avoid hydration mismatch.
+  if (!hydrated) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex overflow-hidden">
+        <aside className="bg-white border-r shadow-sm shrink-0 w-16" />
+        <main className="min-w-0 flex-1 flex flex-col">
+          <header className="h-14 border-b bg-white/95 backdrop-blur" />
+          <div className="flex-1 p-4 md:p-6" />
+        </main>
+      </div>
+    )
+  }
+
+  const sidebarMenu = (
+    <>
+      <div
+        className={cn(
+          'h-14 border-b flex items-center',
+          isCollapsed ? 'px-2 justify-center' : 'px-3 justify-between'
+        )}
+      >
+        {!isCollapsed ? (
+          <div className="min-w-0 ml-2">
+            <p className="truncate whitespace-nowrap text-base font-semibold text-gray-900">赛事报名工作台</p>
           </div>
-        </div>
+        ) : null}
 
-        {/* 菜单区域 */}
-        <nav className="flex-1 p-3">
-          <ul className="space-y-1">
-            {menuItems.map((item) => (
-              <li key={item.id}>
-                {isCollapsed ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Link
-                        href={item.href}
-                        className={cn(
-                          "flex items-center rounded-lg transition-colors justify-center px-3 py-2",
-                          "hover:bg-gray-100",
-                          item.active && "bg-blue-50 text-blue-600"
-                        )}
-                      >
-                        <item.icon className="h-5 w-5 flex-shrink-0" />
-                      </Link>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" sideOffset={10}>
-                      <p>{item.label}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      "flex items-center rounded-lg transition-colors justify-between px-3 py-2",
-                      "hover:bg-gray-100",
-                      item.active && "bg-blue-50 text-blue-600"
-                    )}
-                  >
-                    <div className="flex items-center space-x-2">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={toggleSidebar}
+              className={cn(
+                'rounded-lg transition-colors hover:bg-gray-100',
+                isCollapsed
+                  ? 'relative flex w-full items-center justify-center px-3 py-2'
+                  : 'p-2'
+              )}
+              disabled={isSidebarAnimating}
+              aria-label={isCollapsed ? '展开菜单' : '收起菜单'}
+            >
+              {isCollapsed ? (
+                <PanelLeftOpen className="h-5 w-5 text-gray-700" />
+              ) : (
+                <PanelLeftClose className="h-5 w-5 text-gray-700" />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={10}>
+            <p>{isCollapsed ? '展开菜单' : '收起菜单'}</p>
+          </TooltipContent>
+        </Tooltip>
+      </div>
+
+      <nav className={cn('flex-1 px-2 py-3', isSidebarAnimating && 'pointer-events-none')}>
+        <ul className="space-y-1">
+          {menuItems.map((item) => (
+            <li key={item.id}>
+              {isCollapsed ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href={item.href}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={cn(
+                        'relative flex items-center justify-center rounded-lg px-3 py-2 transition-colors hover:bg-gray-100',
+                        item.active && 'bg-blue-50 text-blue-600'
+                      )}
+                    >
                       <item.icon className="h-5 w-5 flex-shrink-0" />
-                      <span className="text-base">{item.label}</span>
-                    </div>
-                    {item.badge && (
-                      <span className="bg-red-500 text-white text-xs rounded-full px-2 py-0.5">
-                        {item.badge}
-                      </span>
-                    )}
-                  </Link>
-                )}
-              </li>
-            ))}
-          </ul>
-        </nav>
+                      {item.badge ? (
+                        <span className="absolute right-1 top-1 min-w-4 rounded-full bg-red-500 px-1 text-[10px] leading-4 text-white">
+                          {item.badge > 99 ? '99+' : item.badge}
+                        </span>
+                      ) : null}
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" sideOffset={10}>
+                    <p>{item.label}</p>
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <Link
+                  href={item.href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={cn(
+                    'flex items-center justify-between gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-gray-100',
+                    item.active && 'bg-blue-50 text-blue-600'
+                  )}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <item.icon className="h-5 w-5 flex-shrink-0" />
+                    <span className="truncate whitespace-nowrap text-base">{item.label}</span>
+                  </div>
+                  {item.badge ? (
+                    <span className="ml-2 shrink-0 rounded-full bg-red-500 px-2 py-0.5 text-xs text-white">{item.badge}</span>
+                  ) : null}
+                </Link>
+              )}
+            </li>
+          ))}
+        </ul>
+      </nav>
 
+      <div className={cn('border-t p-2', isSidebarAnimating && 'pointer-events-none')}>
+        {isCollapsed ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setShowLogoutDialog(true)}
+                className="relative flex items-center justify-center rounded-lg px-3 py-2 transition-colors hover:bg-gray-100 w-full"
+                aria-label="退出登录"
+              >
+                <LogOut className="h-5 w-5 flex-shrink-0 text-gray-700" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={10}>
+              <p>退出登录</p>
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <Button
+            variant="ghost"
+            className="h-10 w-full justify-start text-gray-700 hover:bg-gray-100 transition-colors"
+            onClick={() => setShowLogoutDialog(true)}
+          >
+            <LogOut className="mr-2 h-4 w-4" />
+            退出登录
+          </Button>
+        )}
+      </div>
+    </>
+  )
+
+  return (
+    <div className="min-h-screen bg-gray-100 flex overflow-hidden">
+      {isMobile && mobileMenuOpen ? (
+        <button
+          aria-label="关闭侧边栏"
+          className="fixed inset-0 z-40 bg-black/30"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      ) : null}
+
+      <aside
+        className={cn(
+          'bg-white border-r shadow-sm shrink-0 flex flex-col transition-[width,transform] duration-300 ease-in-out',
+          isMobile
+            ? cn(
+                'fixed inset-y-0 left-0 z-50 w-[240px] transform',
+                mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+              )
+            : cn('relative', sidebarWidthClass)
+        )}
+      >
+        {sidebarMenu}
       </aside>
 
-      {/* 右侧内容区 */}
-      <main className="flex-1 flex flex-col">
-        {/* 顶部栏 */}
-        <header className="bg-white shadow-sm border-b">
-          <div className="h-[52px] px-6 flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              {/* 页面标题会由各个页面提供 */}
+      <main className="min-w-0 flex-1 flex flex-col">
+        <header className="h-14 border-b bg-white/95 backdrop-blur">
+          <div className="h-full px-4 md:px-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {isMobile ? (
+                <button
+                  aria-label="打开侧边栏"
+                  onClick={() => setMobileMenuOpen(true)}
+                  className="rounded-md p-2 transition-colors hover:bg-gray-100"
+                >
+                  <Menu className="h-5 w-5" />
+                </button>
+              ) : null}
+              <h1 className="text-lg font-semibold text-gray-900">{pageTitle}</h1>
             </div>
-            
-            <div className="flex items-center space-x-4">
-              {/* 用户信息 */}
-              {user && (
-                <span className="text-sm text-gray-600">
-                  欢迎，{user.name || user.email}
-                </span>
-              )}
-              
-              {/* 设置按钮 */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowLogoutDialog(true)}
-                className="flex items-center space-x-2"
-              >
-                <LogOut className="h-4 w-4" />
-                <span>退出登录</span>
+
+            <div className="flex items-center gap-2 md:gap-3">
+              <Button variant="ghost" size="icon" asChild className="relative">
+                <Link href="/portal/my/notifications" aria-label="通知">
+                  <Bell className="h-5 w-5" />
+                  {unreadCount > 0 ? (
+                    <span className="absolute right-1 top-1 min-w-4 rounded-full bg-red-500 px-1 text-[10px] leading-4 text-white">
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  ) : null}
+                </Link>
               </Button>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 rounded-full p-1 transition-colors hover:bg-gray-100"
+                  >
+                    <Avatar className="h-8 w-8">
+                      <AvatarFallback className="text-xs bg-blue-100 text-blue-700">
+                        {userInitial}
+                      </AvatarFallback>
+                    </Avatar>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>{user?.name || user?.email || '教练用户'}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/portal/my/settings" className="flex items-center">
+                      <Settings className="mr-2 h-4 w-4" />
+                      账号设置
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-red-600 focus:text-red-600"
+                    onClick={() => setShowLogoutDialog(true)}
+                  >
+                    <LogOut className="mr-2 h-4 w-4" />
+                    退出登录
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </header>
 
-        {/* 页面内容 */}
-        <div className="flex-1 p-6">
+        <div className="flex-1 overflow-auto p-4 md:p-6">
           {children}
         </div>
       </main>
 
-      {/* 退出登录确认对话框 */}
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>

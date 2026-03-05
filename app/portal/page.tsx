@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { createClient } from '@/lib/supabase/client'
+import { getSessionUser, withTimeout } from '@/lib/supabase/client-auth'
+import type { User } from '@supabase/supabase-js'
 import {
   Table,
   TableBody,
@@ -16,7 +16,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Search, Calendar, MapPin, Clock, FileText } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Calendar, Filter } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 interface Event {
   id: string
@@ -27,598 +35,615 @@ interface Event {
   start_date: string
   end_date: string
   address?: string
-  details?: string
-  phone?: string
   is_visible: boolean
   registration_settings?: {
     team_requirements?: {
       registrationStartDate?: string
       registrationEndDate?: string
+      reviewEndDate?: string
       [key: string]: any
     }
     [key: string]: any
   }
 }
 
-export default function PortalHomePage() {
-  const router = useRouter()
-  const [events, setEvents] = useState<Event[]>([])
-  const [filteredEvents, setFilteredEvents] = useState<Event[]>([])
-  const [searchKeyword, setSearchKeyword] = useState('')
-  const [isLoading, setIsLoading] = useState(true)
-  const [showNoRegistrationDialog, setShowNoRegistrationDialog] = useState(false)
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
+type HomeTab = 'all' | 'registering' | 'ended' | 'mine'
+type EventPhaseKey = 'upcoming' | 'registering' | 'reviewing' | 'ended'
 
-  useEffect(() => {
-    // 延迟一点时间确保认证完成
-    const timer = setTimeout(() => {
-      fetchEvents()
-    }, 300)
+const HOME_TABS: Array<{ value: HomeTab; label: string }> = [
+  { value: 'all', label: '全部' },
+  { value: 'registering', label: '报名中' },
+  { value: 'ended', label: '已结束' },
+  { value: 'mine', label: '我的报名' },
+]
 
-    return () => clearTimeout(timer)
-  }, [])
+const PHASE_STYLE_MAP: Record<EventPhaseKey, string> = {
+  upcoming: 'border border-gray-200 bg-gray-100 text-gray-700',
+  registering: 'border border-green-200 bg-green-100 text-green-700',
+  reviewing: 'border border-yellow-200 bg-yellow-100 text-yellow-700',
+  ended: 'border border-gray-200 bg-gray-100 text-gray-600',
+}
 
-  useEffect(() => {
-    // 搜索过滤
-    let processedEvents = [...events]
+function normalizeHomeTab(tab: string | null): HomeTab {
+  if (tab === 'registering' || tab === 'ended' || tab === 'mine') {
+    return tab
+  }
+  return 'all'
+}
 
-    if (searchKeyword) {
-      processedEvents = processedEvents.filter(event =>
-        event.name.toLowerCase().includes(searchKeyword.toLowerCase()) ||
-        event.short_name?.toLowerCase().includes(searchKeyword.toLowerCase())
-      )
+function parseTeamRequirements(event: Event) {
+  let teamReq = event.registration_settings?.team_requirements
+
+  if (typeof teamReq === 'string') {
+    try {
+      teamReq = JSON.parse(teamReq)
+    } catch {
+      return null
+    }
+  }
+
+  return teamReq || null
+}
+
+function getEventPhase(event: Event) {
+  const now = new Date()
+  const teamReq = parseTeamRequirements(event)
+  const eventStart = new Date(event.start_date)
+  const eventEnd = new Date(event.end_date)
+
+  if (teamReq?.registrationStartDate && teamReq?.registrationEndDate) {
+    const regStart = new Date(teamReq.registrationStartDate)
+    const regEnd = new Date(teamReq.registrationEndDate)
+    const reviewEnd = teamReq.reviewEndDate ? new Date(teamReq.reviewEndDate) : null
+
+    if (now < regStart) {
+      return { key: 'upcoming' as const, label: '未开始' }
     }
 
-    // 排序逻辑：未开始 > 报名中 > 审核中 > 已截止
-    processedEvents.sort((a, b) => {
-      const now = new Date()
+    if (now <= regEnd) {
+      return { key: 'registering' as const, label: '报名中' }
+    }
 
-      // 获取报名阶段的函数
-      const getPhaseOrder = (event: Event) => {
-        // 获取报名相关时间
-        let teamReq = event.registration_settings?.team_requirements
-        if (typeof teamReq === 'string') {
-          try {
-            teamReq = JSON.parse(teamReq)
-          } catch (e) {
-            return 4 // 解析失败，归类为已截止
-          }
-        }
+    if (reviewEnd && now <= reviewEnd) {
+      return { key: 'reviewing' as const, label: '审核中' }
+    }
 
-        const regStartDate = teamReq?.registrationStartDate
-        const regEndDate = teamReq?.registrationEndDate
-        const reviewEndDate = teamReq?.reviewEndDate
+    return { key: 'ended' as const, label: '已结束' }
+  }
 
-        if (regStartDate && regEndDate) {
-          const regStart = new Date(regStartDate)
-          const regEnd = new Date(regEndDate)
-          const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
+  if (now < eventStart) {
+    return { key: 'upcoming' as const, label: '未开始' }
+  }
 
-          // 未开始 - 优先级1（报名还未开始）
-          if (now < regStart) {
-            return 1
-          }
-          // 报名中 - 优先级2
-          else if (now >= regStart && now <= regEnd) {
-            return 2
-          }
-          // 审核中 - 优先级3
-          else if (reviewEnd && now > regEnd && now <= reviewEnd) {
-            return 3
-          }
-          // 已截止 - 优先级4
-          else {
-            return 4
-          }
-        }
+  if (now <= eventEnd) {
+    return { key: 'reviewing' as const, label: '进行中' }
+  }
 
-        // 没有报名时间配置，按赛事时间判断
-        const eventStart = new Date(event.start_date)
-        const eventEnd = new Date(event.end_date)
+  return { key: 'ended' as const, label: '已结束' }
+}
 
-        if (now < eventStart) {
-          return 1 // 未开始
-        } else if (now <= eventEnd) {
-          return 4 // 进行中，归类为已截止
-        } else {
-          return 4 // 已结束，归类为已截止
-        }
+type ActionVariant = 'default' | 'outline' | 'secondary'
+const EVENTS_API_TIMEOUT_MS = 5000
+const COACH_QUERY_TIMEOUT_MS = 4000
+
+export default function PortalHomePage() {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+
+  const [events, setEvents] = useState<Event[]>([])
+  const [myRegisteredEventIds, setMyRegisteredEventIds] = useState<string[]>([])
+  const [selectedEventTypes, setSelectedEventTypes] = useState<string[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const hasFetchedRef = useRef(false)
+  const activeTab = normalizeHomeTab(searchParams.get('tab'))
+
+  useEffect(() => {
+    if (hasFetchedRef.current) {
+      return
+    }
+    hasFetchedRef.current = true
+    fetchEvents()
+  }, [])
+
+  const handleTabChange = (value: string) => {
+    const nextTab = normalizeHomeTab(value)
+    const params = new URLSearchParams(searchParams.toString())
+
+    if (nextTab === 'all') {
+      params.delete('tab')
+    } else {
+      params.set('tab', nextTab)
+    }
+
+    const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname
+    router.replace(nextUrl, { scroll: false })
+  }
+
+  const fetchMyRegisteredEventIds = async (supabase: ReturnType<typeof createClient>, user: User | null) => {
+    if (!user) {
+      return []
+    }
+
+    try {
+      const { data: coach } = await withTimeout(
+        supabase
+          .from('coaches')
+          .select('id')
+          .eq('auth_id', user.id)
+          .maybeSingle(),
+        COACH_QUERY_TIMEOUT_MS,
+        'Coach lookup timed out'
+      )
+
+      if (!coach) {
+        return []
       }
 
-      const orderA = getPhaseOrder(a)
-      const orderB = getPhaseOrder(b)
+      const { data: registrations } = await withTimeout(
+        supabase
+          .from('registrations')
+          .select('event_id')
+          .eq('coach_id', coach.id)
+          .neq('status', 'cancelled'),
+        COACH_QUERY_TIMEOUT_MS,
+        'Coach registration lookup timed out'
+      )
 
-      // 如果在同一阶段，按开始时间排序（最近的在前）
-      if (orderA === orderB) {
-        return new Date(b.start_date).getTime() - new Date(a.start_date).getTime()
-      }
-
-      return orderA - orderB
-    })
-
-    setFilteredEvents(processedEvents)
-  }, [searchKeyword, events])
+      const eventIds = (registrations || []).map((registration) => registration.event_id)
+      return Array.from(new Set(eventIds))
+    } catch {
+      return []
+    }
+  }
 
   const fetchEvents = async (retryCount = 0) => {
     try {
-      console.log('Fetching events, attempt:', retryCount + 1)
-
-      // 在发起请求前先确保认证状态
       const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
+      const { user, error: sessionError, isNetworkError } = await getSessionUser(supabase)
 
-      if (!session && retryCount < 1) {
-        console.log('No session yet, retrying in 500ms...')
-        setTimeout(() => fetchEvents(retryCount + 1), 500)
+      if (sessionError && isNetworkError && retryCount < 2) {
+        setTimeout(() => fetchEvents(retryCount + 1), (retryCount + 1) * 700)
         return
       }
 
-      const response = await fetch('/api/portal/events', {
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include'
-      })
-
-      if (!response.ok) {
-        // 处理503服务不可用
-        if (response.status === 503) {
-          console.error('Service temporarily unavailable')
-          if (retryCount < 2) {
-            console.log(`Service unavailable, retrying in ${(retryCount + 1) * 2} seconds...`)
-            setTimeout(() => fetchEvents(retryCount + 1), (retryCount + 1) * 2000)
-            return
-          }
-        }
-        // 处理500内部服务器错误
-        if (response.status === 500) {
-          console.error('Server error, attempting retry')
-          if (retryCount < 2) {
-            console.log(`Server error, retrying in ${(retryCount + 1) * 1.5} seconds...`)
-            setTimeout(() => fetchEvents(retryCount + 1), (retryCount + 1) * 1500)
-            return
-          }
-          // 重试失败后，设置为空数组，避免崩溃
-          console.error('Server error persists after retries')
-          setEvents([])
-          setFilteredEvents([])
-          setIsLoading(false)
-          return
-        }
-        // 处理401未授权
-        if (response.status === 401) {
-          console.error('Unauthorized, redirecting to login')
-          window.location.href = '/auth/login'
-          return
-        }
-        // 其他错误
-        console.error(`HTTP error! status: ${response.status}`)
-      }
-
-      const result = await response.json()
-
-      console.log('Events API response:', result)
-
-      if (result.success) {
-        // 只显示可见的赛事
-        const visibleEvents = result.data.filter((event: Event) => event.is_visible)
-        console.log('Visible events found:', visibleEvents.length)
-        setEvents(visibleEvents)
-        setFilteredEvents(visibleEvents)
-      } else {
-        console.error('API returned error:', result.error)
-        // 如果 API 返回失败，但不是第一次尝试，可以重试
-        if (retryCount < 1) {
-          console.log('Retrying events fetch...')
-          setTimeout(() => fetchEvents(retryCount + 1), 1000)
-          return
-        }
-      }
-    } catch (error) {
-      console.error('获取赛事列表失败:', error)
-
-      // 网络错误时重试
-      if (retryCount < 1) {
-        console.log('Network error, retrying in 2 seconds...')
-        setTimeout(() => fetchEvents(retryCount + 1), 2000)
-        return
-      }
-    } finally {
-      // 确保加载状态结束
-      setIsLoading(false)
-    }
-  }
-
-  const getEventStatus = (startDate: string, endDate: string) => {
-    const now = new Date()
-    const start = new Date(startDate)
-    const end = new Date(endDate)
-
-    if (now < start) {
-      return { text: '未开始', variant: 'secondary' as const }
-    } else if (now <= end) {
-      return { text: '进行中', variant: 'default' as const }
-    } else {
-      return { text: '已结束', variant: 'destructive' as const }
-    }
-  }
-
-  const getRegistrationStatus = (event: any) => {
-    const now = new Date()
-    const eventEnd = new Date(event.end_date)
-
-    // 从 registration_settings 中获取报名时间
-    let teamReq = event.registration_settings?.team_requirements
-
-    // 如果 team_requirements 是字符串（JSON格式），需要解析
-    if (typeof teamReq === 'string') {
-      try {
-        teamReq = JSON.parse(teamReq)
-      } catch (e) {
-        console.error('解析 team_requirements 失败:', e)
-      }
-    }
-
-    const regStartDate = teamReq?.registrationStartDate
-    const regEndDate = teamReq?.registrationEndDate
-    const reviewEndDate = teamReq?.reviewEndDate
-
-    // 优先检查报名时间配置
-    if (regStartDate && regEndDate) {
-      const regStart = new Date(regStartDate)
-      const regEnd = new Date(regEndDate)
-      const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
-
-      if (now < regStart) {
-        return { canRegister: false, text: '报名未开始', isEventEnded: false, inReviewPeriod: false }
-      } else if (now <= regEnd) {
-        return { canRegister: true, text: '去报名', isEventEnded: false, inReviewPeriod: false }
-      } else if (reviewEnd && now <= reviewEnd) {
-        // 报名已结束但在审核期内
-        return { canRegister: false, text: '去报名', isEventEnded: false, inReviewPeriod: true }
-      } else {
-        // 报名和审核都结束了
-        return { canRegister: false, text: '报名已截止', isEventEnded: false, inReviewPeriod: false }
-      }
-    }
-
-    // 没有报名时间配置时，检查赛事是否结束
-    if (now > eventEnd) {
-      return { canRegister: false, text: '赛事已结束', isEventEnded: true, inReviewPeriod: false }
-    }
-
-    return { canRegister: false, text: '未设置报名时间', isEventEnded: false, inReviewPeriod: false }
-  }
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('zh-CN')
-  }
-
-  const handleEventClick = (event: Event) => {
-    // 获取报名阶段
-    const now = new Date()
-    let teamReq = event.registration_settings?.team_requirements
-    if (typeof teamReq === 'string') {
-      try {
-        teamReq = JSON.parse(teamReq)
-      } catch (e) {
-        console.error('解析 team_requirements 失败:', e)
-      }
-    }
-
-    const regStartDate = teamReq?.registrationStartDate
-    const regEndDate = teamReq?.registrationEndDate
-    const reviewEndDate = teamReq?.reviewEndDate
-
-    // 检查是否报名未开始
-    if (regStartDate) {
-      const regStart = new Date(regStartDate)
-      if (now < regStart) {
-        alert(`该赛事报名尚未开始\n\n报名开始时间：${regStart.toLocaleString('zh-CN')}\n请到时间后再来报名`)
-        return
-      }
-    }
-
-    // 检查是否报名截止
-    const isRegistrationClosed = () => {
-      if (!regEndDate) return true
-      const regEnd = new Date(regEndDate)
-      if (reviewEndDate) {
-        const reviewEnd = new Date(reviewEndDate)
-        return now > reviewEnd
-      }
-      return now > regEnd
-    }
-
-    // 报名截止状态
-    if (isRegistrationClosed()) {
-      if (window.confirm('该比赛报名已截止\n\n您只能查看赛事详情及报名信息，不能再次提交或修改。\n\n点击确认进入赛事详情页')) {
-        router.push(`/portal/events/${event.id}`)
-      }
-      return
-    }
-
-    // 检查是否在审核期
-    const regStatus = getRegistrationStatus(event)
-
-    if (regStatus.inReviewPeriod && !regStatus.canRegister) {
-      // 在审核期且不能报名，显示提醒
-      if (window.confirm('该比赛报名已结束\n\n现在处于审核期，您可以：\n• 重新提交被驳回的报名\n• 查看已有的报名信息\n\n点击确认进入赛事详情页')) {
-        router.push(`/portal/events/${event.id}`)
-      }
-    } else {
-      // 其他情况直接跳转
-      router.push(`/portal/events/${event.id}`)
-    }
-  }
-
-  const handleMyRegistrations = async (eventId: string, e: React.MouseEvent) => {
-    e.stopPropagation() // 阻止事件冒泡
-
-    try {
-      const supabase = createClient()
-
-      // 获取当前用户
-      const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
+        if (retryCount < 2) {
+          setTimeout(() => fetchEvents(retryCount + 1), (retryCount + 1) * 500)
+          return
+        }
+
         router.push('/auth/login')
         return
       }
 
-      // 获取教练信息
-      const { data: coach } = await supabase
-        .from('coaches')
-        .select('id')
-        .eq('auth_id', user.id)
-        .single()
+      const myEventIdsPromise = fetchMyRegisteredEventIds(supabase, user).catch(() => [])
 
-      if (!coach) {
-        alert('未找到教练信息')
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => {
+        controller.abort()
+      }, EVENTS_API_TIMEOUT_MS)
+
+      let response: Response
+      try {
+        response = await fetch('/api/portal/events', {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          signal: controller.signal,
+        })
+      } finally {
+        clearTimeout(timeoutId)
+      }
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          const { user: verifiedUser } = await getSessionUser(supabase)
+
+          if (!verifiedUser) {
+            router.push('/auth/login')
+            return
+          }
+
+          if (retryCount < 2) {
+            setTimeout(() => fetchEvents(retryCount + 1), (retryCount + 1) * 700)
+            return
+          }
+
+          return
+        }
+
+        if (retryCount < 2 && (response.status === 500 || response.status === 503)) {
+          setTimeout(() => fetchEvents(retryCount + 1), (retryCount + 1) * 1500)
+          return
+        }
+      }
+
+      const result = await response.json()
+
+      if (result.success) {
+        const visibleEvents = result.data.filter((event: Event) => event.is_visible)
+        setEvents(visibleEvents)
+        const myEventIds = await withTimeout(
+          myEventIdsPromise,
+          COACH_QUERY_TIMEOUT_MS,
+          'My registration ids lookup timed out'
+        ).catch(() => [])
+        setMyRegisteredEventIds(myEventIds)
+      } else if (retryCount < 1) {
+        setTimeout(() => fetchEvents(retryCount + 1), 1000)
         return
       }
-
-      // 检查是否有报名记录
-      const { data: registrations } = await supabase
-        .from('registrations')
-        .select('id')
-        .eq('event_id', eventId)
-        .eq('coach_id', coach.id)
-        .limit(1)
-
-      if (!registrations || registrations.length === 0) {
-        // 没有报名记录，显示提醒弹窗
-        setSelectedEventId(eventId)
-        setShowNoRegistrationDialog(true)
-      } else {
-        // 有报名记录，跳转到详情页的"我的报名"标签
-        router.push(`/portal/events/${eventId}?tab=status`)
-      }
     } catch (error) {
-      console.error('检查报名记录失败:', error)
-      alert('操作失败，请重试')
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        if (retryCount < 1) {
+          setTimeout(() => fetchEvents(retryCount + 1), 800)
+          return
+        }
+      }
+
+      if (retryCount < 1) {
+        setTimeout(() => fetchEvents(retryCount + 1), 1500)
+        return
+      }
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  const handleNewRegistration = () => {
-    if (selectedEventId) {
-      router.push(`/portal/events/${selectedEventId}/register?new=true`)
+  const myRegisteredEventSet = useMemo(
+    () => new Set(myRegisteredEventIds),
+    [myRegisteredEventIds]
+  )
+
+  const eventTypes = useMemo(() => {
+    const types = new Set<string>()
+    events.forEach((event) => {
+      if (event.type) {
+        types.add(event.type)
+      }
+    })
+    return Array.from(types).sort()
+  }, [events])
+
+  const handleEventTypeToggle = (type: string) => {
+    setSelectedEventTypes((prev) =>
+      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
+    )
+  }
+
+  const tabCounts = useMemo(() => {
+    const counts = {
+      all: events.length,
+      registering: 0,
+      ended: 0,
+      mine: 0,
     }
-    setShowNoRegistrationDialog(false)
+
+    events.forEach((event) => {
+      const phase = getEventPhase(event)
+
+      if (phase.key === 'registering') {
+        counts.registering += 1
+      }
+
+      if (phase.key === 'ended') {
+        counts.ended += 1
+      }
+
+      if (myRegisteredEventSet.has(event.id)) {
+        counts.mine += 1
+      }
+    })
+
+    return counts
+  }, [events, myRegisteredEventSet])
+
+  const filteredEvents = useMemo(() => {
+    let nextEvents = [...events]
+
+    if (selectedEventTypes.length > 0) {
+      nextEvents = nextEvents.filter((event) => selectedEventTypes.includes(event.type))
+    }
+
+    if (activeTab === 'registering') {
+      nextEvents = nextEvents.filter((event) => getEventPhase(event).key === 'registering')
+    }
+
+    if (activeTab === 'ended') {
+      nextEvents = nextEvents.filter((event) => getEventPhase(event).key === 'ended')
+    }
+
+    if (activeTab === 'mine') {
+      nextEvents = nextEvents.filter((event) => myRegisteredEventSet.has(event.id))
+    }
+
+    const sortPriority: Record<EventPhaseKey, number> = {
+      registering: 1,
+      reviewing: 2,
+      upcoming: 3,
+      ended: 4,
+    }
+
+    nextEvents.sort((a, b) => {
+      const phaseA = getEventPhase(a)
+      const phaseB = getEventPhase(b)
+      if (phaseA.key !== phaseB.key) {
+        return sortPriority[phaseA.key] - sortPriority[phaseB.key]
+      }
+      return new Date(b.start_date).getTime() - new Date(a.start_date).getTime()
+    })
+
+    return nextEvents
+  }, [activeTab, events, myRegisteredEventSet, selectedEventTypes])
+
+  const formatDate = (dateString: string) => new Date(dateString).toLocaleDateString('zh-CN')
+
+  const handleEventClick = (eventId: string) => {
+    router.push(`/portal/events/${eventId}`)
+  }
+
+  const getActionConfig = (event: Event) => {
+    const phase = getEventPhase(event)
+    const hasMyRegistration = myRegisteredEventSet.has(event.id)
+
+    if (hasMyRegistration) {
+      return {
+        label: '查看我的报名',
+        variant: 'outline' as ActionVariant,
+        disabled: false,
+        className: 'border border-blue-200 bg-white text-blue-700 hover:bg-blue-50 hover:text-blue-700',
+        onClick: () => router.push(`/portal/events/${event.id}?scrollTo=my-registration`),
+      }
+    }
+
+    if (phase.key === 'registering') {
+      return {
+        label: '去报名',
+        variant: 'default' as ActionVariant,
+        disabled: false,
+        className: 'bg-blue-600 text-white hover:bg-blue-700',
+        onClick: () => router.push(`/portal/events/${event.id}?scrollTo=my-registration`),
+      }
+    }
+
+    if (phase.key === 'reviewing') {
+      return {
+        label: '查看详情',
+        variant: 'outline' as ActionVariant,
+        disabled: false,
+        className: 'border border-yellow-300 bg-yellow-50 text-yellow-800 hover:bg-yellow-100 hover:text-yellow-900',
+        onClick: () => router.push(`/portal/events/${event.id}`),
+      }
+    }
+
+    if (phase.key === 'upcoming') {
+      return {
+        label: '报名未开始',
+        variant: 'secondary' as ActionVariant,
+        disabled: true,
+        className: 'bg-gray-100 text-gray-500',
+        onClick: () => undefined,
+      }
+    }
+
+    return {
+      label: '已结束',
+      variant: 'secondary' as ActionVariant,
+      disabled: true,
+      className: 'bg-gray-100 text-gray-500',
+      onClick: () => undefined,
+    }
   }
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">加载中...</p>
+      <div className="space-y-4">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <Skeleton className="h-10 w-full md:w-96" />
+          <Skeleton className="h-10 w-full md:w-64" />
+        </div>
+        <Skeleton className="h-12 w-full md:w-[460px]" />
+        <div className="space-y-3">
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-20 w-full" />
         </div>
       </div>
     )
   }
 
   return (
-    <div className="space-y-6">
-      {/* 页面标题和搜索栏 */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">赛事活动</h1>
-        
-        <div className="flex items-center space-x-4">
-          <div className="relative w-80">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              type="text"
-              placeholder="请输入赛事名称"
-              className="pl-10"
-              value={searchKeyword}
-              onChange={(e) => setSearchKeyword(e.target.value)}
-            />
-          </div>
-        </div>
+    <div className="min-w-0 space-y-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
+          <TabsList className="grid w-full grid-cols-4 md:w-[460px]">
+            {HOME_TABS.map((tab) => (
+              <TabsTrigger key={tab.value} value={tab.value}>
+                {tab.label}
+                <span className="ml-1 text-xs text-gray-500">{tabCounts[tab.value]}</span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="w-full md:w-auto">
+              <Filter className="mr-2 h-4 w-4" />
+              赛事类型
+              {selectedEventTypes.length > 0 && (
+                <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
+                  {selectedEventTypes.length}
+                </span>
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            {eventTypes.length === 0 ? (
+              <div className="px-2 py-1.5 text-sm text-gray-500">暂无赛事类型</div>
+            ) : (
+              eventTypes.map((type) => (
+                <DropdownMenuCheckboxItem
+                  key={type}
+                  checked={selectedEventTypes.includes(type)}
+                  onCheckedChange={() => handleEventTypeToggle(type)}
+                >
+                  {type}
+                </DropdownMenuCheckboxItem>
+              ))
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      {/* 赛事列表 */}
-      {filteredEvents.length === 0 ? (
-        <div className="bg-white rounded-lg shadow p-12">
-          <div className="text-center text-gray-500">
-            <Calendar className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-            <p className="text-lg">暂无赛事活动</p>
-            <p className="text-sm mt-2">请稍后再来查看</p>
+      <div key={activeTab} className="animate-in fade-in-0 duration-200">
+        {filteredEvents.length === 0 ? (
+          <div className="rounded-lg border bg-white p-12">
+            <div className="text-center text-gray-500">
+              <Calendar className="mx-auto mb-3 h-10 w-10 text-gray-300" />
+              <p className="text-lg">暂无赛事活动</p>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead></TableHead>
-                <TableHead>名称</TableHead>
-                <TableHead>类型</TableHead>
-                <TableHead>比赛时间</TableHead>
-                <TableHead>比赛地点</TableHead>
-                <TableHead>报名阶段</TableHead>
-                <TableHead>报名状态</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+        ) : (
+          <>
+            <div className="space-y-3 md:hidden">
               {filteredEvents.map((event) => {
-                const status = getEventStatus(event.start_date, event.end_date)
-                const regStatus = getRegistrationStatus(event)
+                const phase = getEventPhase(event)
+                const action = getActionConfig(event)
 
-                // 获取报名阶段
-                const getEventPhase = () => {
-                  const now = new Date()
-
-                  // 获取报名时间
-                  let teamReq = event.registration_settings?.team_requirements
-                  if (typeof teamReq === 'string') {
-                    try {
-                      teamReq = JSON.parse(teamReq)
-                    } catch (e) {
-                      console.error('解析 team_requirements 失败:', e)
-                    }
-                  }
-
-                  const regStartDate = teamReq?.registrationStartDate
-                  const regEndDate = teamReq?.registrationEndDate
-                  const reviewEndDate = teamReq?.reviewEndDate
-
-                  if (regStartDate && regEndDate) {
-                    const regStart = new Date(regStartDate)
-                    const regEnd = new Date(regEndDate)
-                    const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
-
-                    // 未开始
-                    if (now < regStart) {
-                      return { text: '未开始', variant: 'secondary' as const }
-                    }
-                    // 报名中
-                    else if (now >= regStart && now <= regEnd) {
-                      return { text: '报名中', variant: 'default' as const }
-                    }
-                    // 审核中
-                    else if (reviewEnd && now > regEnd && now <= reviewEnd) {
-                      return { text: '审核中', variant: 'secondary' as const }
-                    }
-                    // 已截止（超过审核结束时间）
-                    else if (reviewEnd && now > reviewEnd) {
-                      return { text: '已截止', variant: 'destructive' as const }
-                    }
-                    // 已截止（没有设置审核结束时间但超过报名结束时间）
-                    else if (!reviewEnd && now > regEnd) {
-                      return { text: '已截止', variant: 'destructive' as const }
-                    }
-                  }
-
-                  // 其他所有情况都显示为已截止
-                  return { text: '已截止', variant: 'destructive' as const }
-                }
-
-                const eventPhase = getEventPhase()
-                
                 return (
-                  <TableRow 
+                  <div
                     key={event.id}
-                    className="cursor-pointer hover:bg-gray-50"
-                    onClick={() => handleEventClick(event)}
+                    className="rounded-lg border bg-white p-4 shadow-sm transition-all duration-200 hover:shadow-md"
                   >
-                    <TableCell>
-                      <div className="w-16 h-16 relative bg-gray-100 rounded-lg overflow-hidden">
+                    <button
+                      className="mb-3 flex w-full items-start gap-3 text-left"
+                      onClick={() => handleEventClick(event.id)}
+                    >
+                      <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-md bg-gray-100">
                         {event.poster_url ? (
                           <Image
                             src={event.poster_url}
-                            alt={event.name}
+                            alt="赛事海报"
                             fill
+                            sizes="64px"
+                            unoptimized
                             className="object-cover"
                           />
                         ) : (
-                          <div className="w-full h-full flex items-center justify-center text-gray-400">
-                            <Calendar className="h-6 w-6" />
+                          <div className="flex h-full w-full items-center justify-center text-gray-400">
+                            <Calendar className="h-5 w-5" />
                           </div>
                         )}
                       </div>
-                    </TableCell>
-                    
-                    <TableCell>
-                      <div className="font-medium">{event.name}</div>
-                    </TableCell>
-
-                    <TableCell>{event.type}</TableCell>
-
-                    <TableCell>
-                      <div className="text-sm">
-                        {formatDate(event.start_date)} ~ {formatDate(event.end_date)}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-gray-900">{event.name}</p>
+                        <p className="mt-1 text-xs text-gray-500">{formatDate(event.start_date)} - {formatDate(event.end_date)}</p>
+                        <p className="mt-1 truncate text-xs text-gray-500">{event.address || '地点待更新'}</p>
                       </div>
-                    </TableCell>
-
-                    <TableCell>
-                      {event.address || '-'}
-                    </TableCell>
-
-                    <TableCell>
-                      <span>{eventPhase.text}</span>
-                    </TableCell>
-
-                    <TableCell>
-                      {eventPhase.text !== '已截止' && eventPhase.text !== '未开始' && (
-                        <Button
-                          size="sm"
-                          variant="default"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            if (regStatus.canRegister) {
-                              // 点击"去报名"时，跳转并滚动到"我的报名"部分
-                              router.push(`/portal/events/${event.id}?scrollTo=my-registration`)
-                            } else if (regStatus.text === '去报名' && !regStatus.canRegister) {
-                              if (regStatus.inReviewPeriod) {
-                                if (window.confirm('该比赛报名已结束\n\n现在处于审核期，您可以：\n• 重新提交被驳回的报名\n• 查看已有的报名信息\n\n点击确认进入赛事详情页')) {
-                                  router.push(`/portal/events/${event.id}`)
-                                }
-                              } else {
-                                if (window.confirm('该比赛报名已结束\n\n报名和审核期均已结束，不能再提交新的报名\n\n点击确认进入赛事详情页')) {
-                                  router.push(`/portal/events/${event.id}`)
-                                }
-                              }
-                            } else if (regStatus.text === '报名未开始') {
-                              alert('该比赛报名还未开始')
-                            } else {
-                              alert('暂时无法报名')
-                            }
-                          }}
-                          disabled={false}
-                          className="font-semibold"
-                        >
-                          {regStatus.text}
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
+                    </button>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className={cn('rounded-full px-2.5 py-1 text-xs font-medium', PHASE_STYLE_MAP[phase.key])}>
+                        {phase.label}
+                      </span>
+                      <Button
+                        variant={action.variant}
+                        size="sm"
+                        disabled={action.disabled}
+                        className={cn('h-8 px-3 transition-all active:scale-95', action.className)}
+                        onClick={action.onClick}
+                      >
+                        {action.label}
+                      </Button>
+                    </div>
+                  </div>
                 )
               })}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+            </div>
 
-      {/* 未报名提醒弹窗 */}
-      <Dialog open={showNoRegistrationDialog} onOpenChange={setShowNoRegistrationDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>提示</DialogTitle>
-            <DialogDescription>
-              您还没有报名该赛事，请先创建报名信息。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowNoRegistrationDialog(false)}>
-              取消
-            </Button>
-            <Button onClick={handleNewRegistration}>
-              新建报名
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <div className="hidden min-w-0 overflow-hidden rounded-lg border bg-white md:block">
+              <div className="max-h-[calc(100vh-220px)] w-full overflow-auto">
+                <Table className="min-w-[800px]">
+                  <TableHeader>
+                    <TableRow className="bg-gray-50">
+                      <TableHead className="sticky top-0 z-10 bg-gray-50">封面</TableHead>
+                      <TableHead className="sticky top-0 z-10 bg-gray-50">名称</TableHead>
+                      <TableHead className="sticky top-0 z-10 bg-gray-50">类型</TableHead>
+                      <TableHead className="sticky top-0 z-10 bg-gray-50">比赛地点</TableHead>
+                      <TableHead className="sticky top-0 z-10 bg-gray-50">报名阶段</TableHead>
+                      <TableHead className="sticky top-0 z-10 bg-gray-50">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredEvents.map((event, index) => {
+                      const phase = getEventPhase(event)
+                      const action = getActionConfig(event)
+
+                      return (
+                        <TableRow
+                          key={event.id}
+                          className={cn(
+                            index % 2 === 0 ? 'bg-[#ffffff]' : 'bg-[#f9f9f9]',
+                            'cursor-pointer transition-colors hover:bg-blue-50'
+                          )}
+                          onClick={() => handleEventClick(event.id)}
+                        >
+                          <TableCell>
+                            <div className="relative h-14 w-14 overflow-hidden rounded-md bg-gray-100">
+                              {event.poster_url ? (
+                                <Image
+                                  src={event.poster_url}
+                                  alt="赛事海报"
+                                  fill
+                                  sizes="56px"
+                                  unoptimized
+                                  className="object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-gray-400">
+                                  <Calendar className="h-5 w-5" />
+                                </div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="max-w-[280px] truncate font-medium text-gray-900">{event.name}</div>
+                          </TableCell>
+                          <TableCell>{event.type}</TableCell>
+                          <TableCell>
+                            <div className="max-w-[260px] truncate text-gray-600">{event.address || '-'}</div>
+                          </TableCell>
+                          <TableCell>
+                            <span className={cn('rounded-full px-2.5 py-1 text-xs font-medium', PHASE_STYLE_MAP[phase.key])}>
+                              {phase.label}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant={action.variant}
+                              size="sm"
+                              disabled={action.disabled}
+                              className={cn('h-8 px-3 transition-all active:scale-95', action.className)}
+                              onClick={(eventObject) => {
+                                eventObject.stopPropagation()
+                                action.onClick()
+                              }}
+                            >
+                              {action.label}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }

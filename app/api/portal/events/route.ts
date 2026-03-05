@@ -2,6 +2,30 @@ import { NextResponse } from 'next/server'
 import { createSupabaseServer } from '@/lib/auth'
 import { pickEffectiveRegistrationSetting } from '@/lib/registration-settings'
 
+const EVENTS_QUERY_TIMEOUT_MS = 5000
+
+async function withServerTimeout<T>(
+  promise: PromiseLike<T>,
+  timeoutMs = EVENTS_QUERY_TIMEOUT_MS,
+  timeoutMessage = 'Server request timed out'
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(timeoutMessage))
+    }, timeoutMs)
+  })
+
+  try {
+    return await Promise.race([Promise.resolve(promise), timeoutPromise])
+  } finally {
+    if (timer) {
+      clearTimeout(timer)
+    }
+  }
+}
+
 // 获取赛事列表（报名端）
 export async function GET() {
   const startTime = Date.now()
@@ -16,14 +40,18 @@ export async function GET() {
     const queryStartTime = Date.now()
     try {
       console.log('Portal Events API - Starting optimized join query...')
-      const result = await supabase
-        .from('events')
-        .select(`
-          *,
-          registration_settings (*)
-        `)
-        .eq('is_visible', true)
-        .order('created_at', { ascending: false })
+      const result = await withServerTimeout(
+        supabase
+          .from('events')
+          .select(`
+            *,
+            registration_settings (*)
+          `)
+          .eq('is_visible', true)
+          .order('created_at', { ascending: false }),
+        EVENTS_QUERY_TIMEOUT_MS,
+        'Portal events query timed out'
+      )
 
       eventsWithSettings = result.data
       error = result.error
@@ -51,7 +79,6 @@ export async function GET() {
       const settings = Array.isArray(event.registration_settings)
         ? pickEffectiveRegistrationSetting(event.registration_settings)
         : event.registration_settings
-      console.log('Event:', event.name, 'registration_settings:', settings)
       return {
         ...event,
         registration_settings: settings
