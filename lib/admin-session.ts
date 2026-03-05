@@ -1,4 +1,5 @@
 export const ADMIN_SESSION_COOKIE_NAME = 'admin-session'
+export const ADMIN_TAB_SESSION_COOKIE_NAME = 'admin-session-tab'
 
 const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 

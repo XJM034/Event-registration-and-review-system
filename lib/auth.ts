@@ -1,6 +1,37 @@
 import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
-import { ADMIN_SESSION_COOKIE_NAME, verifyAdminSessionToken } from './admin-session'
+import { cookies, headers } from 'next/headers'
+import {
+  ADMIN_SESSION_COOKIE_NAME,
+  ADMIN_TAB_SESSION_COOKIE_NAME,
+  verifyAdminSessionToken,
+} from './admin-session'
+
+const cookieBaseOptions = {
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/',
+}
+
+function tryClearAdminSessionCookies(cookieStore: Awaited<ReturnType<typeof cookies>>) {
+  try {
+    cookieStore.set({
+      name: ADMIN_TAB_SESSION_COOKIE_NAME,
+      value: '',
+      httpOnly: false,
+      ...cookieBaseOptions,
+      maxAge: 0,
+    })
+    cookieStore.set({
+      name: ADMIN_SESSION_COOKIE_NAME,
+      value: '',
+      httpOnly: true,
+      ...cookieBaseOptions,
+      maxAge: 0,
+    })
+  } catch {
+    // 在 Server Component 中调用时 cookies 可能是只读的；忽略清理失败。
+  }
+}
 
 export async function createSupabaseServer() {
   const cookieStore = await cookies()
@@ -33,20 +64,50 @@ export async function createSupabaseServer() {
 export async function getCurrentAdminSession() {
   const supabase = await createSupabaseServer()
   const { data: { session } } = await supabase.auth.getSession()
+  const headerStore = await headers()
   const cookieStore = await cookies()
+  const adminSessionTokenFromHeader = headerStore.get('x-admin-session-token')
   const adminSessionToken = cookieStore.get(ADMIN_SESSION_COOKIE_NAME)?.value
-  const adminSession = await verifyAdminSessionToken(adminSessionToken)
+  const adminTabSessionToken = cookieStore.get(ADMIN_TAB_SESSION_COOKIE_NAME)?.value
+  const adminHeaderSession = await verifyAdminSessionToken(adminSessionTokenFromHeader)
+  const adminTabSession = await verifyAdminSessionToken(adminTabSessionToken)
+  const adminSession = adminHeaderSession || adminTabSession || await verifyAdminSessionToken(adminSessionToken)
 
   // 优先使用独立管理端会话（允许与教练端会话并存）
   if (adminSession) {
-    return {
-      user: {
-        id: adminSession.adminId,
-        auth_id: adminSession.authId,
-        is_super: adminSession.isSuper,
-      },
-      session: session || null,
+    // 始终以数据库中的最新权限为准，避免 token 内 is_super 过期
+    const { data: adminById, error: adminByIdError } = await supabase
+      .from('admin_users')
+      .select('id, auth_id, is_super')
+      .eq('id', adminSession.adminId)
+      .maybeSingle()
+
+    if (adminByIdError) {
+      console.warn('Admin lookup by id failed, fallback to token:', adminByIdError)
+      return {
+        user: {
+          id: adminSession.adminId,
+          auth_id: adminSession.authId,
+          is_super: adminSession.isSuper,
+        },
+        session: session || null,
+      }
     }
+
+    if (adminById?.id) {
+      return {
+        user: {
+          id: adminById.id,
+          auth_id: adminById.auth_id || adminSession.authId,
+          is_super: adminById.is_super === true,
+        },
+        session: session || null,
+      }
+    }
+
+    // 管理员记录已删除/撤权时，拒绝 token 回退并清理会话 cookie。
+    tryClearAdminSessionCookies(cookieStore)
+    return null
   }
 
   // 兼容：仅有 Supabase 管理员会话时仍可访问

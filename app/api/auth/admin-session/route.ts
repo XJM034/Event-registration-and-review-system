@@ -4,8 +4,10 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 import {
   ADMIN_SESSION_COOKIE_NAME,
+  ADMIN_TAB_SESSION_COOKIE_NAME,
   createAdminSessionToken,
   getAdminSessionMaxAge,
+  verifyAdminSessionToken,
 } from '@/lib/admin-session'
 import { getCurrentAdminSession } from '@/lib/auth'
 
@@ -59,14 +61,22 @@ function createAnonClient() {
 }
 
 async function resolveAuthUser(request: Request) {
-  const supabase = await createSupabaseFromCookies()
-  const { data: { session } } = await supabase.auth.getSession()
-  if (session?.user) return session.user
-
+  // 登录后立即创建管理员会话时，优先使用本次登录返回的 Bearer token，
+  // 避免并发标签页下读到旧 cookie 会话导致“账号串线”。
   const authHeader = request.headers.get('authorization')
   const bearerToken = authHeader?.startsWith('Bearer ')
     ? authHeader.slice('Bearer '.length)
     : null
+
+  if (bearerToken) {
+    const anonClient = createAnonClient()
+    const { data: { user } } = await anonClient.auth.getUser(bearerToken)
+    if (user) return user
+  }
+
+  const supabase = await createSupabaseFromCookies()
+  const { data: { session } } = await supabase.auth.getSession()
+  if (session?.user) return session.user
 
   if (!bearerToken) return null
 
@@ -94,6 +104,30 @@ function isMissingColumnError(
     text.includes(column)
     && (text.includes('does not exist') || text.includes('could not find') || text.includes('not found'))
   )
+}
+
+function applyAdminSessionCookie(response: NextResponse, token: string) {
+  response.cookies.set({
+    name: ADMIN_SESSION_COOKIE_NAME,
+    value: token,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: getAdminSessionMaxAge(),
+  })
+}
+
+function applyAdminTabSessionCookie(response: NextResponse, token: string) {
+  response.cookies.set({
+    name: ADMIN_TAB_SESSION_COOKIE_NAME,
+    value: token,
+    httpOnly: false,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    // 会话级 cookie，减少可读 token 的持久暴露时间窗口。
+  })
 }
 
 export async function POST(request: Request) {
@@ -193,16 +227,17 @@ export async function POST(request: Request) {
       isSuper,
     )
 
-    const response = NextResponse.json({ success: true })
-    response.cookies.set({
-      name: ADMIN_SESSION_COOKIE_NAME,
-      value: token,
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: getAdminSessionMaxAge(),
+    const response = NextResponse.json({
+      success: true,
+      data: {
+        token,
+        id: adminId,
+        auth_id: user.id,
+        is_super: isSuper,
+      },
     })
+    applyAdminSessionCookie(response, token)
+    applyAdminTabSessionCookie(response, token)
 
     return response
   } catch (error) {
@@ -214,6 +249,15 @@ export async function POST(request: Request) {
 export async function DELETE() {
   const response = NextResponse.json({ success: true })
   response.cookies.set({
+    name: ADMIN_TAB_SESSION_COOKIE_NAME,
+    value: '',
+    httpOnly: false,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 0,
+  })
+  response.cookies.set({
     name: ADMIN_SESSION_COOKIE_NAME,
     value: '',
     httpOnly: true,
@@ -223,6 +267,59 @@ export async function DELETE() {
     maxAge: 0,
   })
   return response
+}
+
+export async function PUT(request: Request) {
+  try {
+    const tokenFromHeader = request.headers.get('x-admin-session-token')
+    const rawToken = tokenFromHeader
+
+    const parsed = await verifyAdminSessionToken(rawToken)
+    if (!parsed) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const serviceRoleClient = createServiceRoleClient()
+    const { data: adminById, error: adminByIdError } = await serviceRoleClient
+      .from('admin_users')
+      .select('id, auth_id, is_super')
+      .eq('id', parsed.adminId)
+      .maybeSingle()
+
+    if (adminByIdError && !isMissingColumnError(adminByIdError, 'auth_id')) {
+      console.error('Read admin by id failed:', adminByIdError)
+      return NextResponse.json({ success: false, error: 'Read admin failed' }, { status: 500 })
+    }
+
+    if (!adminById?.id) {
+      return NextResponse.json({ success: false, error: 'Admin not found' }, { status: 403 })
+    }
+
+    if (adminById.auth_id && adminById.auth_id !== parsed.authId) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const refreshedToken = await createAdminSessionToken(
+      parsed.authId,
+      adminById.id,
+      adminById.is_super === true,
+    )
+
+    const response = NextResponse.json({
+      success: true,
+      data: {
+        id: adminById.id,
+        auth_id: parsed.authId,
+        is_super: adminById.is_super === true,
+      },
+    })
+    applyAdminSessionCookie(response, refreshedToken)
+    applyAdminTabSessionCookie(response, refreshedToken)
+    return response
+  } catch (error) {
+    console.error('Sync admin session error:', error)
+    return NextResponse.json({ success: false, error: '服务器错误' }, { status: 500 })
+  }
 }
 
 export async function GET() {
@@ -236,6 +333,7 @@ export async function GET() {
       success: true,
       data: {
         id: current.user.id,
+        auth_id: current.user.auth_id || null,
         is_super: current.user.is_super === true,
       },
     })

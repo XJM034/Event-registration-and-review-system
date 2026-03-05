@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { ThemeProvider } from "next-themes";
+import AdminApiSessionBridge from "@/components/admin-api-session-bridge";
+import AdminSessionTabSync from "@/components/admin-session-tab-sync";
 import "./globals.css";
 
 const defaultUrl = process.env.VERCEL_URL
@@ -26,6 +28,8 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
+          <AdminApiSessionBridge />
+          <AdminSessionTabSync />
           {children}
         </ThemeProvider>
       </body>

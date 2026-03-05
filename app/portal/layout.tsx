@@ -226,6 +226,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
   ]
 
   const userInitial = (user?.name || user?.email || 'U').slice(0, 1).toUpperCase()
+  const coachDisplayName = (user?.name?.trim?.() || '教练')
 
   const toggleSidebar = () => {
     setIsSidebarAnimating(true)
@@ -423,6 +424,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
             </div>
 
             <div className="flex items-center gap-2 md:gap-3">
+              <span className="hidden md:inline text-sm text-gray-600">{coachDisplayName}，您好</span>
               <Button variant="ghost" size="icon" asChild className="relative">
                 <Link href="/portal/my/notifications" aria-label="通知">
                   <Bell className="h-5 w-5" />

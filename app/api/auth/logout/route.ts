@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
+import { ADMIN_SESSION_COOKIE_NAME, ADMIN_TAB_SESSION_COOKIE_NAME } from '@/lib/admin-session'
 
 export async function POST() {
   try {
@@ -27,10 +28,30 @@ export async function POST() {
 
     await supabase.auth.signOut()
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       message: '已成功退出登录',
     })
+    response.cookies.set({
+      name: ADMIN_SESSION_COOKIE_NAME,
+      value: '',
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 0,
+    })
+    response.cookies.set({
+      name: ADMIN_TAB_SESSION_COOKIE_NAME,
+      value: '',
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 0,
+    })
+
+    return response
   } catch (error) {
     console.error('Logout error:', error)
     return NextResponse.json(
