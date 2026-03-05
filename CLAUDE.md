@@ -23,6 +23,7 @@
 - [文件上传与 Storage Bucket](#文件上传与-storage-bucket)
 - [通知系统](#通知系统门户我的通知)
 - [导出功能](#导出功能管理员) ⭐ 重大更新
+- [账号管理](#账号管理超级管理员) ⭐ 新增
 - [API 端点列表](#api-端点列表以实际路由为准)
 - [环境变量](#环境变量)
 - [测试账号](#测试账号开发调试)
@@ -45,6 +46,7 @@
 | 门户报名页 | `app/portal/events/[id]/register/page.tsx` | 动态表单渲染 + 分享链接 |
 | 审核列表 | `components/event-manage/review-list-tab.tsx` | 逐项审核 + 状态更新 |
 | 通知系统 | `contexts/notification-context.tsx` | 30s 轮询 + 未读计数 |
+| 账号管理 | `app/admin/account-management/page.tsx` | 教练/管理员账号管理（仅超级管理员） |
 
 ### 常见问题速查
 
@@ -676,6 +678,111 @@ bucket 清单（部署时必须创建，否则会出现 Bucket not found）：
 - 文件名生成：优先使用队伍前三个非图片字段值组合
 - 错误处理：使用 `Promise.allSettled` 确保部分图片失败不影响整体导出
 
+## 账号管理（超级管理员）
+
+超级管理员可以在管理端通过"账号管理"功能管理教练和管理员账号。
+
+### 访问控制
+
+- **路由保护**：`/admin/account-management` 仅超级管理员可访问
+- **API 保护**：所有 `/api/admin/coaches` 和 `/api/admin/admins` 端点需要超级管理员权限
+- **菜单显示**：账号管理菜单项仅对超级管理员显示
+
+### 教练账号管理
+
+**功能位置**：`/admin/account-management` → 教练账号 Tab
+
+**核心功能**：
+- **列表展示**：显示所有教练账号，支持搜索（手机号/姓名/学校）和分页
+- **创建账号**：使用 Supabase Admin API 创建教练账号
+  - 手机号（11位，自动转换为 `phone@system.local` 邮箱格式）
+  - 默认密码（最少6位）
+  - 姓名、学校、机构（可选）
+- **编辑信息**：更新教练的姓名、学校、机构、备注
+- **重置密码**：使用 Admin API 重置教练密码
+- **启用/禁用**：通过 `ban_duration` 控制账号状态
+- **删除账号**：智能删除保护
+  - 阻止删除有活跃报名的教练（pending/submitted/approved）
+  - 阻止删除有未结束赛事的被驳回报名的教练
+  - 自动清理草稿和已取消的报名
+  - 检查是否有审核记录（作为管理员）
+
+**实现文件**：
+- 页面：`app/admin/account-management/page.tsx`
+- 组件：`components/account-management/coaches-tab.tsx`
+- API：`app/api/admin/coaches/route.ts`、`app/api/admin/coaches/[id]/route.ts`
+
+### 管理员账号管理
+
+**功能位置**：`/admin/account-management` → 管理员账号 Tab（仅超级管理员可见）
+
+**核心功能**：
+- **列表展示**：显示所有管理员账号，支持搜索（手机号/邮箱）和分页
+- **创建账号**：使用 Supabase Admin API 创建管理员账号
+  - 手机号（11位）
+  - 默认密码（最少6位）
+  - 是否超级管理员（Checkbox）
+- **权限管理**：切换超级管理员/普通管理员权限
+- **重置密码**：使用 Admin API 重置管理员密码
+- **删除账号**：安全删除保护
+  - 不能删除自己
+  - 不能删除最后一个超级管理员
+  - 检查是否有审核记录
+
+**实现文件**：
+- 组件：`components/account-management/admins-tab.tsx`
+- API：`app/api/admin/admins/route.ts`、`app/api/admin/admins/[id]/route.ts`
+
+### 技术实现
+
+**Supabase Admin API**：
+```typescript
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  }
+)
+
+// 创建用户
+await supabaseAdmin.auth.admin.createUser({
+  email: `${phone}@system.local`,
+  password: password,
+  email_confirm: true,
+  user_metadata: {
+    role: 'coach', // 或 'admin'
+    phone: phone,
+    // ... 其他字段
+  }
+})
+
+// 重置密码
+await supabaseAdmin.auth.admin.updateUserById(authId, { password })
+
+// 启用/禁用账号
+await supabaseAdmin.auth.admin.updateUserById(authId, {
+  ban_duration: '876000h' // 禁用
+  // 或 ban_duration: 'none' // 启用
+})
+
+// 删除用户
+await supabaseAdmin.auth.admin.deleteUser(authId)
+```
+
+**账号同步**：
+- 数据库触发器 `handle_new_user()` 自动同步 `auth.users` 到 `admin_users` 或 `coaches` 表
+- 创建账号后触发器自动创建对应的业务表记录
+
+**数据库字段**（`coaches` 表）：
+- `is_active`：账号是否启用
+- `created_by`：创建者（管理员 ID）
+- `last_login_at`：最后登录时间
+- `notes`：备注信息
+
 ## API 端点列表（以实际路由为准）
 
 ### 管理员相关（需要 `admin-session`）
@@ -697,6 +804,17 @@ bucket 清单（部署时必须创建，否则会出现 Bucket not found）：
 | `/api/events/[id]/registrations/export` | POST | 导出报名（xlsx/zip） |
 | `/api/registrations/[id]/review` | POST | 审核报名（approved/rejected）并写通知（需 service role） |
 | `/api/upload` | POST | 上传图片到 Storage（需 service role） |
+| `/api/admin/coaches` | GET | 列出所有教练（支持搜索、分页）（需超级管理员） |
+| `/api/admin/coaches` | POST | 创建教练账号（需超级管理员） |
+| `/api/admin/coaches/[id]` | PUT | 更新教练信息（需超级管理员） |
+| `/api/admin/coaches/[id]` | PATCH | 启用/禁用教练账号（需超级管理员） |
+| `/api/admin/coaches/[id]` | DELETE | 删除教练账号（需超级管理员） |
+| `/api/admin/coaches/[id]/reset-password` | POST | 重置教练密码（需超级管理员） |
+| `/api/admin/admins` | GET | 列出所有管理员（需超级管理员） |
+| `/api/admin/admins` | POST | 创建管理员账号（需超级管理员） |
+| `/api/admin/admins/[id]` | PUT | 更新管理员权限（需超级管理员） |
+| `/api/admin/admins/[id]` | DELETE | 删除管理员账号（需超级管理员） |
+| `/api/admin/admins/[id]/reset-password` | POST | 重置管理员密码（需超级管理员） |
 
 ### 门户/教练相关（需要 Supabase Session）
 

@@ -19,31 +19,78 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Settings, LogOut, Plus, Settings2 } from 'lucide-react'
+import { Settings, LogOut, Plus, Settings2, Users } from 'lucide-react'
 
 interface AdminHeaderProps {
   onCreateEvent: () => void
 }
 
+const ADMIN_TAB_SESSION_COOKIE_NAME = 'admin-session-tab'
+
+function writeAdminTabSessionCookie(token: string | null) {
+  if (typeof document === 'undefined') return
+  const secure = window.location.protocol === 'https:' ? '; Secure' : ''
+  if (token) {
+    // 会话级 cookie，浏览器关闭后失效，降低可读 token 的持久暴露风险。
+    document.cookie = `${ADMIN_TAB_SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; SameSite=Lax${secure}`
+    return
+  }
+  document.cookie = `${ADMIN_TAB_SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; SameSite=Lax${secure}`
+}
+
 export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
   const [showLogoutDialog, setShowLogoutDialog] = useState(false)
   const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+  const [adminDisplayName, setAdminDisplayName] = useState('管理员')
   const router = useRouter()
+
+  const syncTabSession = async () => {
+    const tabToken = sessionStorage.getItem('tab_admin_session_token')
+    if (!tabToken) return
+
+    try {
+      writeAdminTabSessionCookie(tabToken)
+      await fetch('/api/auth/admin-session', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'x-admin-session-token': tabToken,
+        },
+      })
+    } catch (error) {
+      console.error('Sync admin session failed:', error)
+    }
+  }
 
   useEffect(() => {
     const checkSuperAdmin = async () => {
       try {
-        const res = await fetch('/api/auth/admin-session', {
-          method: 'GET',
-          credentials: 'include',
-        })
+        await syncTabSession()
 
-        if (!res.ok) {
+        const [sessionRes, meRes] = await Promise.all([
+          fetch('/api/auth/admin-session', {
+            method: 'GET',
+            credentials: 'include',
+          }),
+          fetch('/api/admin/me', {
+            method: 'GET',
+            credentials: 'include',
+            cache: 'no-store',
+          }),
+        ])
+
+        if (meRes.ok) {
+          const meResult = await meRes.json()
+          const displayName = meResult?.data?.name?.trim() || '管理员'
+          setAdminDisplayName(displayName)
+        }
+
+        if (!sessionRes.ok) {
           setIsSuperAdmin(false)
           return
         }
 
-        const result = await res.json()
+        const result = await sessionRes.json()
         setIsSuperAdmin(result?.success && result?.data?.is_super === true)
       } catch (error) {
         console.error('Check super admin failed:', error)
@@ -51,20 +98,32 @@ export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
       }
     }
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkSuperAdmin()
+      }
+    }
+
     checkSuperAdmin()
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', checkSuperAdmin)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', checkSuperAdmin)
+    }
   }, [])
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        credentials: 'include',
-      })
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
 
       await fetch('/api/auth/admin-session', {
         method: 'DELETE',
         credentials: 'include',
       })
+      sessionStorage.removeItem('tab_admin_session_token')
+      writeAdminTabSessionCookie(null)
       router.push('/auth/login')
       router.refresh()
     } catch (error) {
@@ -77,6 +136,7 @@ export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-gray-900">赛事活动管理</h1>
         <div className="flex items-center space-x-4">
+          <span className="hidden md:inline text-sm text-gray-600">{adminDisplayName}，您好</span>
           <Button onClick={onCreateEvent} className="bg-blue-600 hover:bg-blue-700">
             <Plus className="h-4 w-4 mr-2" />
             创建赛事
@@ -88,6 +148,12 @@ export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem
+                onClick={() => router.push('/admin/account-management')}
+              >
+                <Users className="h-4 w-4 mr-2" />
+                账号管理
+              </DropdownMenuItem>
               {isSuperAdmin && (
                 <DropdownMenuItem
                   onClick={() => router.push('/admin/project-management')}

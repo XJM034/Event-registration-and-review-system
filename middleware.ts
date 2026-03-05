@@ -1,6 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from '@supabase/ssr'
-import { ADMIN_SESSION_COOKIE_NAME, verifyAdminSessionToken } from '@/lib/admin-session'
+import {
+  ADMIN_SESSION_COOKIE_NAME,
+  ADMIN_TAB_SESSION_COOKIE_NAME,
+  verifyAdminSessionToken,
+} from '@/lib/admin-session'
+
+const cookieBaseOptions = {
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/',
+}
+
+function clearAdminSessionCookies(response: NextResponse) {
+  response.cookies.set({
+    name: ADMIN_TAB_SESSION_COOKIE_NAME,
+    value: '',
+    httpOnly: false,
+    ...cookieBaseOptions,
+    maxAge: 0,
+  })
+  response.cookies.set({
+    name: ADMIN_SESSION_COOKIE_NAME,
+    value: '',
+    httpOnly: true,
+    ...cookieBaseOptions,
+    maxAge: 0,
+  })
+  return response
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -66,17 +94,28 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  const { data: { session } } = await supabase.auth.getSession()
+  const { data: { user: sessionUser }, error: getUserError } = await supabase.auth.getUser()
+  if (getUserError) {
+    console.warn('Middleware getUser error:', getUserError)
+  }
+  const adminSessionTokenFromHeader = request.headers.get('x-admin-session-token')
   const adminSessionToken = request.cookies.get(ADMIN_SESSION_COOKIE_NAME)?.value
-  const adminSession = await verifyAdminSessionToken(adminSessionToken)
+  const adminTabSessionToken = request.cookies.get(ADMIN_TAB_SESSION_COOKIE_NAME)?.value
+  const adminHeaderSession = await verifyAdminSessionToken(adminSessionTokenFromHeader)
+  const adminTabSession = await verifyAdminSessionToken(adminTabSessionToken)
+  const adminSession = adminHeaderSession || adminTabSession || await verifyAdminSessionToken(adminSessionToken)
   let adminChecked = false
+  let shouldClearAdminSession = false
   let adminInfo: { isAdmin: boolean; isSuper: boolean } = { isAdmin: false, isSuper: false }
+  const withSessionCleanup = (res: NextResponse) => (
+    shouldClearAdminSession ? clearAdminSessionCookies(res) : res
+  )
 
   const checkAdmin = async () => {
     if (adminChecked) return adminInfo
 
     if (!adminSession?.adminId) {
-      if (!session) {
+      if (!sessionUser) {
         adminInfo = { isAdmin: false, isSuper: false }
         adminChecked = true
         return adminInfo
@@ -86,7 +125,7 @@ export async function middleware(request: NextRequest) {
       const { data: adminByAuthId, error: adminLookupError } = await supabase
         .from('admin_users')
         .select('id, is_super')
-        .eq('auth_id', session.user.id)
+        .eq('auth_id', sessionUser.id)
         .maybeSingle()
 
       if (adminLookupError) {
@@ -104,23 +143,52 @@ export async function middleware(request: NextRequest) {
       return adminInfo
     }
 
-    adminInfo = {
-      isAdmin: true,
-      isSuper: adminSession.isSuper === true,
+    // 始终以数据库中的当前权限为准，避免 admin-session 中 isSuper 旧值导致误判
+    const { data: adminById, error: adminByIdError } = await supabase
+      .from('admin_users')
+      .select('id, is_super')
+      .eq('id', adminSession.adminId)
+      .maybeSingle()
+
+    if (adminByIdError) {
+      console.warn('Admin lookup by id failed, fallback to token:', adminByIdError)
+      adminInfo = {
+        isAdmin: true,
+        isSuper: adminSession.isSuper === true,
+      }
+      adminChecked = true
+      return adminInfo
     }
+
+    if (!adminById?.id) {
+      // 管理员记录已删除/撤权时，立即失效当前 admin-session。
+      shouldClearAdminSession = true
+      adminInfo = { isAdmin: false, isSuper: false }
+      adminChecked = true
+      return adminInfo
+    }
+
+    adminInfo = { isAdmin: true, isSuper: adminById.is_super === true }
 
     adminChecked = true
     return adminInfo
   }
 
-  // 根路径固定进入登录页，避免因历史会话自动进入系统
+  // 根路径按当前登录状态跳转
   if (pathname === '/') {
-    return NextResponse.redirect(new URL('/auth/login', request.url))
+    const { isAdmin } = await checkAdmin()
+    if (isAdmin) {
+      return withSessionCleanup(NextResponse.redirect(new URL('/events', request.url)))
+    }
+    if (sessionUser) {
+      return withSessionCleanup(NextResponse.redirect(new URL('/portal', request.url)))
+    }
+    return withSessionCleanup(NextResponse.redirect(new URL('/auth/login', request.url)))
   }
 
   // Portal 路径：按 Supabase 登录态控制
   if (pathname.startsWith('/portal')) {
-    if (!session) {
+    if (!sessionUser) {
       return NextResponse.redirect(new URL('/auth/login', request.url))
     }
     return response
@@ -132,15 +200,12 @@ export async function middleware(request: NextRequest) {
 
     if (!isAdmin) {
       console.log('Non-admin trying to access admin area, redirecting to login')
-      return NextResponse.redirect(new URL('/auth/login', request.url))
+      return withSessionCleanup(NextResponse.redirect(new URL('/auth/login', request.url)))
     }
 
-    // 项目管理路径 - 需要超级管理员
-    if (pathname.startsWith('/admin/project-management')) {
-      if (!isSuper) {
-        console.log('Non-super admin trying to access project management')
-        return NextResponse.redirect(new URL('/', request.url))
-      }
+    // 项目管理路径 - 仅允许超级管理员访问
+    if (pathname.startsWith('/admin/project-management') && !isSuper) {
+      return NextResponse.redirect(new URL('/events', request.url))
     }
 
     return response
@@ -150,35 +215,45 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith('/api')) {
     // Portal API 需要教练认证
     if (pathname.startsWith('/api/portal')) {
-      if (!session) {
+      if (!sessionUser) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
       }
       return response
     }
 
-    // 项目管理 API：读取需管理员，写入需超级管理员
+    // 项目管理 API：仅允许超级管理员访问
     if (pathname.startsWith('/api/project-management')) {
       const { isAdmin, isSuper } = await checkAdmin()
 
       if (!isAdmin) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        return withSessionCleanup(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
       }
 
-      // 只读接口允许普通管理员访问，写接口仍要求超级管理员
-      const method = request.method.toUpperCase()
-      const isReadMethod = method === 'GET' || method === 'HEAD' || method === 'OPTIONS'
-
-      if (!isReadMethod && !isSuper) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      if (!isSuper) {
+        return withSessionCleanup(NextResponse.json({ error: 'Forbidden' }, { status: 403 }))
       }
     }
 
-    return response
+    // 账号管理 API：需要超级管理员权限
+    if (pathname.startsWith('/api/admin/coaches') || pathname.startsWith('/api/admin/admins')) {
+      const { isAdmin, isSuper } = await checkAdmin()
+
+      if (!isAdmin) {
+        return withSessionCleanup(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      }
+
+      // 账号管理需要超级管理员权限
+      if (!isSuper) {
+        return withSessionCleanup(NextResponse.json({ error: 'Forbidden' }, { status: 403 }))
+      }
+    }
+
+    return withSessionCleanup(response)
   }
 
   // 默认重定向到登录页
   console.log('No matching route, redirecting to login')
-  return NextResponse.redirect(new URL('/auth/login', request.url))
+  return withSessionCleanup(NextResponse.redirect(new URL('/auth/login', request.url)))
 }
 
 export const config = {

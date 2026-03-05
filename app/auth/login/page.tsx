@@ -9,6 +9,19 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Loader2, Phone, Lock } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
+const ADMIN_TAB_SESSION_COOKIE_NAME = 'admin-session-tab'
+
+function writeAdminTabSessionCookie(token: string | null) {
+  if (typeof document === 'undefined') return
+  const secure = window.location.protocol === 'https:' ? '; Secure' : ''
+  if (token) {
+    // 会话级 cookie，浏览器关闭后失效，降低可读 token 的持久暴露风险。
+    document.cookie = `${ADMIN_TAB_SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; SameSite=Lax${secure}`
+    return
+  }
+  document.cookie = `${ADMIN_TAB_SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; SameSite=Lax${secure}`
+}
+
 function mapAdminSessionErrorMessage(rawError: string) {
   switch (rawError) {
     case 'Admin not found':
@@ -78,9 +91,9 @@ export default function UnifiedLoginPage() {
         return
       }
 
-      // 读取一次 session，确保会话已稳定写入再跳转
+      // 优先使用本次登录返回的 token，避免并发标签页下 getSession 读取到旧会话
       const { data: { session: currentSession } } = await supabase.auth.getSession()
-      const accessToken = currentSession?.access_token || data.session?.access_token || null
+      const accessToken = data.session?.access_token || currentSession?.access_token || null
 
       // 检查用户角色
       const role = data.user.user_metadata?.role
@@ -98,6 +111,13 @@ export default function UnifiedLoginPage() {
           })
 
           if (adminSessionRes.ok) {
+            const payload = await adminSessionRes.json().catch(() => null)
+            const token = payload?.data?.token
+            if (typeof token === 'string' && token.length > 0) {
+              // 每个标签页独立保存自己的管理员会话令牌
+              sessionStorage.setItem('tab_admin_session_token', token)
+              writeAdminTabSessionCookie(token)
+            }
             created = true
             break
           }
@@ -121,6 +141,8 @@ export default function UnifiedLoginPage() {
         // 跳转到管理端主页
         window.location.href = '/events'
       } else {
+        sessionStorage.removeItem('tab_admin_session_token')
+        writeAdminTabSessionCookie(null)
         // 教练：检查或创建 coaches 记录
         const { data: coach } = await supabase
           .from('coaches')
