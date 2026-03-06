@@ -1,11 +1,17 @@
 {
   "private": true,
   "scripts": {
+    "predev": "node scripts/ensure-env.mjs",
     "dev": "next dev --turbopack",
+    "prebuild": "node scripts/ensure-env.mjs",
     "build": "next build",
+    "prestart": "node scripts/ensure-env.mjs",
     "start": "next start",
+    "prelint": "node scripts/ensure-env.mjs",
     "lint": "next lint",
-    "test": "vitest run"
+    "pretest": "node scripts/ensure-env.mjs",
+    "test": "vitest run",
+    "env:sync": "node scripts/ensure-env.mjs --sync"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

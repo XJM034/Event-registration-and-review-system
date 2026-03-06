@@ -385,13 +385,13 @@ export default function MyNotificationsPage() {
   const getNotificationColor = (type: string) => {
     switch (type) {
       case 'registration':
-        return 'text-blue-600 bg-blue-50'
+        return 'bg-primary/10 text-primary'
       case 'event':
-        return 'text-green-600 bg-green-50'
+        return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
       case 'system':
-        return 'text-orange-600 bg-orange-50'
+        return 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
       default:
-        return 'text-gray-600 bg-gray-50'
+        return 'bg-muted text-muted-foreground'
     }
   }
 
@@ -448,7 +448,7 @@ export default function MyNotificationsPage() {
             查看系统通知和消息 {unreadCount > 0 && `(${unreadCount}条未读)`}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <Button
             variant="outline"
             onClick={() => {
@@ -456,12 +456,13 @@ export default function MyNotificationsPage() {
               refreshUnreadCount()
             }}
             disabled={isLoading}
+            className="w-full sm:w-auto"
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             刷新
           </Button>
           {unreadCount > 0 && (
-            <Button variant="outline" onClick={markAllAsRead}>
+            <Button variant="outline" onClick={markAllAsRead} className="w-full sm:w-auto">
               <CheckCheck className="h-4 w-4 mr-2" />
               全部标记已读
             </Button>
@@ -470,7 +471,7 @@ export default function MyNotificationsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="mb-2">
+        <TabsList className="mb-2 grid h-auto w-full grid-cols-3 sm:inline-flex sm:w-auto">
           <TabsTrigger value="all">
             全部
             {notifications.length > 0 && (
@@ -505,15 +506,15 @@ export default function MyNotificationsPage() {
               {filteredNotifications.map((notification) => (
                 <Card
                   key={notification.id}
-                  className={`transition-all ${!notification.is_read ? 'border-blue-200 bg-blue-50/30' : ''}`}
+                  className={`border-border/60 bg-card transition-all ${!notification.is_read ? 'border-primary/20 bg-primary/5' : ''}`}
                 >
-                  <CardContent className="p-4">
+                  <CardContent className="p-4 sm:p-5">
                     <div className="flex items-start gap-3">
                       <div className={`p-2 rounded-lg ${getNotificationColor(notification.type)}`}>
                         {getNotificationIcon(notification.type)}
                       </div>
                       <div className="flex-1">
-                        <div className="flex items-start justify-between mb-1">
+                        <div className="mb-1 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                           <h3 className="font-medium">
                             {notification.title}
                             {!notification.is_read && (
@@ -542,7 +543,7 @@ export default function MyNotificationsPage() {
                               ))}
                           </div>
                         )}
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           {!notification.is_read && (
                             <Button
                               size="sm"
@@ -582,7 +583,7 @@ export default function MyNotificationsPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="text-red-600 hover:text-red-700"
+                            className="text-destructive hover:text-destructive"
                             onClick={() => deleteNotification(notification.id)}
                           >
                             <Trash2 className="h-3 w-3" />

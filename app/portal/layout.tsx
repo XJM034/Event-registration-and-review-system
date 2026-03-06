@@ -38,11 +38,11 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
-  UserCircle2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { getSessionUser, withTimeout } from '@/lib/supabase/client-auth'
+import { getSessionUserWithRetry, withTimeout } from '@/lib/supabase/client-auth'
+import { ThemeSwitcher } from '@/components/theme-switcher'
 
 interface PortalLayoutProps {
   children: React.ReactNode
@@ -113,7 +113,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
   }, [])
 
   const scheduleUserRecheck = () => {
-    if (authRetryCountRef.current >= 1) {
+    if (authRetryCountRef.current >= 2) {
       router.push('/auth/login')
       return
     }
@@ -124,16 +124,20 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
     }
     authRetryTimerRef.current = setTimeout(() => {
       checkUser()
-    }, 350)
+    }, 500)
   }
 
   const checkUser = async () => {
     try {
       const supabase = createClient()
-      const { user: sessionUser, error: sessionError, isNetworkError } = await getSessionUser(supabase)
+      const { user: sessionUser, error: sessionError, isNetworkError } = await getSessionUserWithRetry(supabase, {
+        maxRetries: 2,
+        baseDelayMs: 400,
+      })
 
       if (sessionError) {
         if (isNetworkError) {
+          console.error('门户布局会话请求网络异常（已重试）:', sessionError)
           return
         }
         scheduleUserRecheck()
@@ -253,10 +257,10 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
   // Keep the first paint deterministic between SSR and CSR to avoid hydration mismatch.
   if (!hydrated) {
     return (
-      <div className="min-h-screen bg-gray-100 flex overflow-hidden">
-        <aside className="bg-white border-r shadow-sm shrink-0 w-16" />
+      <div className="flex min-h-screen overflow-hidden bg-background">
+        <aside className="w-16 shrink-0 border-r border-border bg-card" />
         <main className="min-w-0 flex-1 flex flex-col">
-          <header className="h-14 border-b bg-white/95 backdrop-blur" />
+          <header className="h-14 border-b border-border bg-background/95 backdrop-blur" />
           <div className="flex-1 p-4 md:p-6" />
         </main>
       </div>
@@ -267,13 +271,13 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
     <>
       <div
         className={cn(
-          'h-14 border-b flex items-center',
+          'flex h-14 items-center border-b border-border',
           isCollapsed ? 'px-2 justify-center' : 'px-3 justify-between'
         )}
       >
         {!isCollapsed ? (
           <div className="min-w-0 ml-2">
-            <p className="truncate whitespace-nowrap text-base font-semibold text-gray-900">赛事报名工作台</p>
+            <p className="truncate whitespace-nowrap text-base font-semibold text-foreground">赛事报名工作台</p>
           </div>
         ) : null}
 
@@ -282,7 +286,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
             <button
               onClick={toggleSidebar}
               className={cn(
-                'rounded-lg transition-colors hover:bg-gray-100',
+                'rounded-lg transition-colors hover:bg-muted',
                 isCollapsed
                   ? 'relative flex w-full items-center justify-center px-3 py-2'
                   : 'p-2'
@@ -291,9 +295,9 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
               aria-label={isCollapsed ? '展开菜单' : '收起菜单'}
             >
               {isCollapsed ? (
-                <PanelLeftOpen className="h-5 w-5 text-gray-700" />
+                <PanelLeftOpen className="h-5 w-5 text-muted-foreground" />
               ) : (
-                <PanelLeftClose className="h-5 w-5 text-gray-700" />
+                <PanelLeftClose className="h-5 w-5 text-muted-foreground" />
               )}
             </button>
           </TooltipTrigger>
@@ -314,8 +318,8 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                       href={item.href}
                       onClick={() => setMobileMenuOpen(false)}
                       className={cn(
-                        'relative flex items-center justify-center rounded-lg px-3 py-2 transition-colors hover:bg-gray-100',
-                        item.active && 'bg-blue-50 text-blue-600'
+                        'relative flex items-center justify-center rounded-lg px-3 py-2 transition-colors hover:bg-muted',
+                        item.active && 'bg-primary/10 text-primary'
                       )}
                     >
                       <item.icon className="h-5 w-5 flex-shrink-0" />
@@ -335,8 +339,8 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                   href={item.href}
                   onClick={() => setMobileMenuOpen(false)}
                   className={cn(
-                    'flex items-center justify-between gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-gray-100',
-                    item.active && 'bg-blue-50 text-blue-600'
+                    'flex items-center justify-between gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-muted',
+                    item.active && 'bg-primary/10 text-primary'
                   )}
                 >
                   <div className="flex min-w-0 items-center gap-2">
@@ -359,10 +363,10 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
             <TooltipTrigger asChild>
               <button
                 onClick={() => setShowLogoutDialog(true)}
-                className="relative flex items-center justify-center rounded-lg px-3 py-2 transition-colors hover:bg-gray-100 w-full"
+                className="relative flex w-full items-center justify-center rounded-lg px-3 py-2 transition-colors hover:bg-muted"
                 aria-label="退出登录"
               >
-                <LogOut className="h-5 w-5 flex-shrink-0 text-gray-700" />
+                <LogOut className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right" sideOffset={10}>
@@ -372,7 +376,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
         ) : (
           <Button
             variant="ghost"
-            className="h-10 w-full justify-start text-gray-700 hover:bg-gray-100 transition-colors"
+            className="h-10 w-full justify-start text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             onClick={() => setShowLogoutDialog(true)}
           >
             <LogOut className="mr-2 h-4 w-4" />
@@ -384,18 +388,18 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
   )
 
   return (
-    <div className="min-h-screen bg-gray-100 flex overflow-hidden">
+    <div className="flex min-h-screen overflow-hidden bg-background">
       {isMobile && mobileMenuOpen ? (
         <button
           aria-label="关闭侧边栏"
-          className="fixed inset-0 z-40 bg-black/30"
+          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
           onClick={() => setMobileMenuOpen(false)}
         />
       ) : null}
 
       <aside
         className={cn(
-          'bg-white border-r shadow-sm shrink-0 flex flex-col transition-[width,transform] duration-300 ease-in-out',
+          'flex shrink-0 flex-col border-r border-border bg-card shadow-sm transition-[width,transform] duration-300 ease-in-out',
           isMobile
             ? cn(
                 'fixed inset-y-0 left-0 z-50 w-[240px] transform',
@@ -408,23 +412,26 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
       </aside>
 
       <main className="min-w-0 flex-1 flex flex-col">
-        <header className="h-14 border-b bg-white/95 backdrop-blur">
-          <div className="h-full px-4 md:px-6 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+        <header className="border-b border-border bg-background/95 backdrop-blur">
+          <div className="flex items-start justify-between gap-3 px-4 py-2 sm:px-6">
+            <div className="flex min-w-0 items-start gap-3">
               {isMobile ? (
                 <button
                   aria-label="打开侧边栏"
                   onClick={() => setMobileMenuOpen(true)}
-                  className="rounded-md p-2 transition-colors hover:bg-gray-100"
+                  className="rounded-md p-2 transition-colors hover:bg-muted"
                 >
                   <Menu className="h-5 w-5" />
                 </button>
               ) : null}
-              <h1 className="text-lg font-semibold text-gray-900">{pageTitle}</h1>
+              <div className="min-w-0">
+                <h1 className="truncate text-base font-semibold text-foreground sm:text-lg">{pageTitle}</h1>
+                <p className="mt-0.5 truncate text-sm text-muted-foreground">{coachDisplayName}，您好</p>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 md:gap-3">
-              <span className="hidden md:inline text-sm text-gray-600">{coachDisplayName}，您好</span>
+            <div className="flex shrink-0 items-center gap-1 sm:gap-2 md:gap-3">
+              <ThemeSwitcher />
               <Button variant="ghost" size="icon" asChild className="relative">
                 <Link href="/portal/my/notifications" aria-label="通知">
                   <Bell className="h-5 w-5" />
@@ -440,10 +447,10 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    className="flex items-center gap-2 rounded-full p-1 transition-colors hover:bg-gray-100"
+                    className="flex items-center gap-2 rounded-full p-1 transition-colors hover:bg-muted"
                   >
                     <Avatar className="h-8 w-8">
-                      <AvatarFallback className="text-xs bg-blue-100 text-blue-700">
+                      <AvatarFallback className="bg-primary/10 text-xs text-primary">
                         {userInitial}
                       </AvatarFallback>
                     </Avatar>
@@ -460,7 +467,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    className="text-red-600 focus:text-red-600"
+                    className="text-destructive focus:text-destructive"
                     onClick={() => setShowLogoutDialog(true)}
                   >
                     <LogOut className="mr-2 h-4 w-4" />
@@ -487,7 +494,10 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={handleLogout} className="bg-red-600 hover:bg-red-700">
+            <AlertDialogAction
+              onClick={handleLogout}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
               确认退出
             </AlertDialogAction>
           </AlertDialogFooter>

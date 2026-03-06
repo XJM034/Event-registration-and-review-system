@@ -30,7 +30,7 @@ const ThemeSwitcher = () => {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size={"sm"}>
+        <Button variant="ghost" size="sm" className="h-9 w-9 px-0" aria-label="切换主题">
           {theme === "light" ? (
             <Sun
               key="light"
@@ -59,15 +59,15 @@ const ThemeSwitcher = () => {
         >
           <DropdownMenuRadioItem className="flex gap-2" value="light">
             <Sun size={ICON_SIZE} className="text-muted-foreground" />{" "}
-            <span>Light</span>
+            <span>浅色</span>
           </DropdownMenuRadioItem>
           <DropdownMenuRadioItem className="flex gap-2" value="dark">
             <Moon size={ICON_SIZE} className="text-muted-foreground" />{" "}
-            <span>Dark</span>
+            <span>深色</span>
           </DropdownMenuRadioItem>
           <DropdownMenuRadioItem className="flex gap-2" value="system">
             <Laptop size={ICON_SIZE} className="text-muted-foreground" />{" "}
-            <span>System</span>
+            <span>跟随系统</span>
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>

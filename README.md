@@ -47,6 +47,7 @@ cp .env.example .env.local
 # Supabase/MemFire 配置
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.baseapi.memfiredb.com
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
+# NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY 可与上面保持相同；脚本会自动同步
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY=your_anon_key_here
 
 # Service Role Key（用于文件上传和审核操作）
@@ -55,6 +56,14 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 # JWT Secret（用于管理员会话加密）
 JWT_SECRET=your_jwt_secret_here
 ```
+
+填完一次后，执行：
+
+```bash
+pnpm env:sync
+```
+
+这会把当前正确的环境变量同步到当前机器的 `~/.config/event-registration-and-review-system/las-vegas.env`。后续在这台机器上重新 clone 仓库或新建 workspace 时，`pnpm dev` / `pnpm build` / `pnpm test` 会自动补齐 `.env.local`，不需要再手动复制。
 
 **获取 Supabase/MemFire 配置：**
 

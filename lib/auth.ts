@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies, headers } from 'next/headers'
+import { getSupabaseAnonKey, getSupabaseUrl } from './env'
 import {
   ADMIN_SESSION_COOKIE_NAME,
   ADMIN_TAB_SESSION_COOKIE_NAME,
@@ -37,8 +38,8 @@ export async function createSupabaseServer() {
   const cookieStore = await cookies()
 
   return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY!,
+    getSupabaseUrl(),
+    getSupabaseAnonKey(),
     {
       cookies: {
         getAll() {
@@ -134,6 +135,11 @@ export async function isSuperAdmin(): Promise<boolean> {
 
 // 获取当前教练会话（使用 Supabase Auth）
 export async function getCurrentCoachSession() {
+  const adminSession = await getCurrentAdminSession()
+  if (adminSession?.user) {
+    return null
+  }
+
   const supabase = await createSupabaseServer()
   const { data: { session } } = await supabase.auth.getSession()
 

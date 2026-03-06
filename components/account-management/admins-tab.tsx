@@ -224,10 +224,10 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-2 flex-1">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <div className="relative flex-1 md:max-w-sm">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="搜索手机号或邮箱..."
               value={search}
@@ -239,13 +239,13 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
             />
           </div>
         </div>
-        <Button onClick={() => setShowCreateDialog(true)}>
-          <Plus className="h-4 w-4 mr-2" />
+        <Button onClick={() => setShowCreateDialog(true)} className="w-full md:w-auto">
+          <Plus className="mr-2 h-4 w-4" />
           创建管理员
         </Button>
       </div>
 
-      <Card>
+      <Card className="hidden md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -259,13 +259,13 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                   加载中...
                 </TableCell>
               </TableRow>
             ) : admins.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                   暂无管理员
                 </TableCell>
               </TableRow>
@@ -275,7 +275,7 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
                 return (
                   <TableRow
                     key={admin.id}
-                    className={isCurrentAdmin ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''}
+                    className={isCurrentAdmin ? 'border-l-4 border-l-primary bg-primary/5' : ''}
                   >
                     <TableCell className="font-medium">
                       {admin.phone}
@@ -350,12 +350,94 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
         </Table>
       </Card>
 
+      <div className="grid gap-3 md:hidden">
+        {loading ? (
+          <div className="rounded-lg border border-dashed border-border py-10 text-center">
+            <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : admins.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+            暂无管理员
+          </div>
+        ) : (
+          sortedAdmins.map((admin) => {
+            const isCurrentAdmin = admin.id === currentAdminId
+            return (
+              <div
+                key={admin.id}
+                className={`rounded-xl border p-4 shadow-sm ${isCurrentAdmin ? 'border-primary/30 bg-primary/5' : 'border-border bg-card'}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-base font-semibold text-foreground">{admin.name || admin.phone}</div>
+                      {isCurrentAdmin && (
+                        <Badge variant="default">
+                          <Shield className="mr-1 h-3 w-3" />
+                          当前账号
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="mt-1 text-sm text-muted-foreground">{admin.phone}</div>
+                    <div className="mt-1 text-sm text-muted-foreground">
+                      {admin.is_super ? '超级管理员' : '普通管理员'}
+                    </div>
+                  </div>
+                  <Badge variant={admin.is_super ? 'default' : 'secondary'}>
+                    {admin.is_super ? '超级' : '普通'}
+                  </Badge>
+                </div>
+
+                <div className="mt-3 rounded-lg bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                  创建时间：{new Date(admin.created_at).toLocaleDateString('zh-CN')}
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSelectedAdmin(admin)
+                      setShowEditDialog(true)
+                    }}
+                  >
+                    <Edit className="mr-2 h-4 w-4" />
+                    编辑
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSelectedAdmin(admin)
+                      setPassword('')
+                      setConfirmPassword('')
+                      setShowResetPasswordDialog(true)
+                    }}
+                  >
+                    <Key className="mr-2 h-4 w-4" />
+                    重置密码
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      setSelectedAdmin(admin)
+                      setShowDeleteDialog(true)
+                    }}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    删除
+                  </Button>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+
       {total > 0 && (
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-gray-500">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="text-sm text-muted-foreground">
             共 {total} 个管理员
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <Select
               value={pageSize.toString()}
               onValueChange={(value) => {
@@ -363,7 +445,7 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
                 setPage(1)
               }}
             >
-              <SelectTrigger className="w-[100px]">
+              <SelectTrigger className="w-full sm:w-[100px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -372,7 +454,7 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
                 <SelectItem value="50">50 条/页</SelectItem>
               </SelectContent>
             </Select>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center justify-between gap-2 sm:justify-start">
               <Button
                 variant="outline"
                 size="sm"
@@ -381,7 +463,7 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
               >
                 上一页
               </Button>
-              <span className="text-sm px-4">
+              <span className="px-4 text-sm">
                 {page} / {totalPages}
               </span>
               <Button

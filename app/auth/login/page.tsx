@@ -1,13 +1,15 @@
 'use client'
 
 import { useState } from 'react'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Loader2, Phone, Lock } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
+import { getSupabaseAnonKey, getSupabaseUrl } from '@/lib/env'
+import { createClient as createBrowserClient } from '@/lib/supabase/client'
 
 const ADMIN_TAB_SESSION_COOKIE_NAME = 'admin-session-tab'
 
@@ -39,6 +41,36 @@ function mapAdminSessionErrorMessage(rawError: string) {
   }
 }
 
+function createLoginClient() {
+  return createSupabaseClient(
+    getSupabaseUrl(),
+    getSupabaseAnonKey(),
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    },
+  )
+}
+
+async function clearAdminSessionState() {
+  if (typeof window !== 'undefined') {
+    sessionStorage.removeItem('tab_admin_session_token')
+  }
+  writeAdminTabSessionCookie(null)
+
+  try {
+    await fetch('/api/auth/admin-session', {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+  } catch (error) {
+    console.warn('Clear admin session state failed:', error)
+  }
+}
+
 export default function UnifiedLoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
@@ -64,16 +96,15 @@ export default function UnifiedLoginPage() {
     }
 
     try {
-      const supabase = createClient()
-      // 先清理本地会话，避免管理员旧会话残留导致角色串线
-      await supabase.auth.signOut({ scope: 'local' })
+      const loginClient = createLoginClient()
+      const browserClient = createBrowserClient()
 
       // 将手机号转换为邮箱格式用于登录
       // 例如：18140044662 -> 18140044662@system.local
       const email = `${phone}@system.local`
 
-      // 使用邮箱密码登录
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
+      // 先用非持久化会话完成鉴权，避免新窗口登录时覆盖别的窗口的共享会话。
+      const { data, error: authError } = await loginClient.auth.signInWithPassword({
         email: email,
         password: password,
       })
@@ -91,14 +122,15 @@ export default function UnifiedLoginPage() {
         return
       }
 
-      // 优先使用本次登录返回的 token，避免并发标签页下 getSession 读取到旧会话
-      const { data: { session: currentSession } } = await supabase.auth.getSession()
-      const accessToken = data.session?.access_token || currentSession?.access_token || null
+      const accessToken = data.session?.access_token || null
 
       // 检查用户角色
       const role = data.user.user_metadata?.role
 
       if (role === 'admin') {
+        // 登录前先清理旧的管理员旁路会话，避免失败后残留上一次的管理员身份。
+        await clearAdminSessionState()
+
         let created = false
         let createSessionError = ''
         for (let i = 0; i < 3; i += 1) {
@@ -141,10 +173,29 @@ export default function UnifiedLoginPage() {
         // 跳转到管理端主页
         window.location.href = '/events'
       } else {
-        sessionStorage.removeItem('tab_admin_session_token')
-        writeAdminTabSessionCookie(null)
+        // 切回教练端时清理管理员旁路会话，避免角色上下文叠加。
+        await clearAdminSessionState()
+
+        if (!data.session?.access_token || !data.session.refresh_token) {
+          setError('教练会话创建失败，请重试')
+          setIsLoading(false)
+          return
+        }
+
+        const { error: persistError } = await browserClient.auth.setSession({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+        })
+
+        if (persistError) {
+          console.error('Persist coach session error:', persistError)
+          setError('教练会话创建失败，请重试')
+          setIsLoading(false)
+          return
+        }
+
         // 教练：检查或创建 coaches 记录
-        const { data: coach } = await supabase
+        const { data: coach } = await browserClient
           .from('coaches')
           .select('*')
           .eq('auth_id', data.user.id)
@@ -152,7 +203,7 @@ export default function UnifiedLoginPage() {
 
         if (!coach) {
           // 创建教练记录
-          await supabase
+          await browserClient
             .from('coaches')
             .insert({
               auth_id: data.user.id,

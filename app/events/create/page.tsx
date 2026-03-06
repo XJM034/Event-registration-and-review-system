@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -49,6 +49,40 @@ interface EventReferenceTemplate {
   uploadedAt: string
 }
 
+const TEMPLATE_FILE_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'gif', 'webp']
+const TEMPLATE_FILE_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+])
+const DESKTOP_TEMPLATE_ACCEPT = [
+  'application/pdf',
+  '.pdf',
+  'application/msword',
+  '.doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.docx',
+  'application/vnd.ms-excel',
+  '.xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.xlsx',
+  'image/jpeg',
+  '.jpg',
+  '.jpeg',
+  'image/png',
+  '.png',
+  'image/gif',
+  '.gif',
+  'image/webp',
+  '.webp',
+].join(',')
+
 // 表单验证 schema
 const createEventSchema = z.object({
   name: z.string().min(1, '赛事名称不能为空').max(100, '赛事名称不能超过100个字符'),
@@ -89,6 +123,15 @@ export default function CreateEventPage() {
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [selectedDivisionIds, setSelectedDivisionIds] = useState<string[]>([])
   const [loadingConfig, setLoadingConfig] = useState(true)
+  const referenceTemplateAccept = useMemo<string | undefined>(() => {
+    if (typeof navigator === 'undefined') {
+      return DESKTOP_TEMPLATE_ACCEPT
+    }
+
+    const ua = navigator.userAgent.toLowerCase()
+    const isMobileFileChooser = /iphone|ipad|ipod|android|mobile|harmonyos/.test(ua)
+    return isMobileFileChooser ? undefined : DESKTOP_TEMPLATE_ACCEPT
+  }, [])
 
   const {
     register,
@@ -258,8 +301,22 @@ export default function CreateEventPage() {
   const handleTemplateFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = e.target.files
     if (!fileList || fileList.length === 0) return
+    const files = Array.from(fileList)
+    const invalidFiles = files.filter((file) => {
+      if (TEMPLATE_FILE_MIME_TYPES.has(file.type)) {
+        return false
+      }
+      const extension = file.name.split('.').pop()?.toLowerCase()
+      return !extension || !TEMPLATE_FILE_EXTENSIONS.includes(extension)
+    })
 
-    setReferenceTemplateFiles((prev) => [...prev, ...Array.from(fileList)])
+    if (invalidFiles.length > 0) {
+      setError('模板仅支持 PDF、Word、Excel 或常见图片文件')
+      e.target.value = ''
+      return
+    }
+
+    setReferenceTemplateFiles((prev) => [...prev, ...files])
     setError('')
     e.target.value = ''
   }
@@ -468,7 +525,7 @@ export default function CreateEventPage() {
                   </p>
                   <input
                     type="file"
-                    accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp"
+                    accept={referenceTemplateAccept}
                     multiple
                     onChange={handleTemplateFilesChange}
                     className="absolute inset-0 opacity-0 cursor-pointer"

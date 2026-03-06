@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
+import { ThemeSwitcher } from '@/components/theme-switcher'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -132,15 +133,19 @@ export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
   }
 
   return (
-    <header className="bg-white border-b border-gray-200 px-6 py-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">赛事活动管理</h1>
-        <div className="flex items-center space-x-4">
-          <span className="hidden md:inline text-sm text-gray-600">{adminDisplayName}，您好</span>
-          <Button onClick={onCreateEvent} className="bg-blue-600 hover:bg-blue-700">
-            <Plus className="h-4 w-4 mr-2" />
+    <header className="border-b border-border bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="truncate text-lg font-semibold text-foreground sm:text-xl">赛事活动管理</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{adminDisplayName}，您好</p>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 sm:gap-3">
+          <Button onClick={onCreateEvent} className="shrink-0">
+            <Plus className="mr-2 h-4 w-4" />
             创建赛事
           </Button>
+          <ThemeSwitcher />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm">
@@ -164,7 +169,7 @@ export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
               )}
               <DropdownMenuItem
                 onClick={(e) => { e.preventDefault(); setShowLogoutDialog(true) }}
-                className="text-red-600"
+                className="text-destructive focus:text-destructive"
               >
                 <LogOut className="h-4 w-4 mr-2" />
                 退出登录

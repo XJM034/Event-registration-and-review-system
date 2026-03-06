@@ -368,8 +368,8 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
       <Card>
         <CardContent className="flex items-center justify-center py-8">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">加载中...</p>
+            <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-primary"></div>
+            <p className="mt-4 text-muted-foreground">加载中...</p>
           </div>
         </CardContent>
       </Card>
@@ -380,26 +380,27 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
     <>
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <CardTitle className="flex items-center">
-                <CheckCircle className="h-5 w-5 mr-2 text-green-600" />
+                <CheckCircle className="mr-2 h-5 w-5 text-emerald-600 dark:text-emerald-300" />
                 报名列表
               </CardTitle>
               <CardDescription>
                 已通过审核的报名 ({registrations.length})
               </CardDescription>
             </div>
-            <div className="flex space-x-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Button
                 variant="outline"
                 onClick={handleDownload}
+                className="w-full sm:w-auto"
               >
                 <Download className="h-4 w-4 mr-2" />
                 下载 {selectedIds.length > 0 ? `(${selectedIds.length})` : ''}
               </Button>
-              <Button 
-                className="bg-blue-600 hover:bg-blue-700"
+              <Button
+                className="w-full sm:w-auto"
                 onClick={() => setShowAddDialog(true)}
               >
                 <Plus className="h-4 w-4 mr-2" />
@@ -410,87 +411,152 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
         </CardHeader>
         <CardContent>
           {registrations.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
+            <div className="py-8 text-center text-muted-foreground">
               暂无已通过的报名
             </div>
           ) : (
-            <Table className="table-fixed">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-8 px-1">
-                    <Checkbox
-                      checked={selectedIds.length === registrations.length && registrations.length > 0}
-                      onCheckedChange={toggleSelectAll}
-                    />
-                  </TableHead>
-                  {/* 动态显示队伍报名要求字段（组别-参赛单位-队伍名称-联系人） */}
-                  {teamFields.map((field) => (
-                    <TableHead key={field.id} className="w-[14%] px-2">{field.label}</TableHead>
-                  ))}
-                  <TableHead className="w-[18%] px-2">审核时间</TableHead>
-                  <TableHead className="w-[22%] px-2">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              <div className="mb-4 flex items-center gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 md:hidden">
+                <Checkbox
+                  checked={selectedIds.length === registrations.length && registrations.length > 0}
+                  onCheckedChange={toggleSelectAll}
+                />
+                <span className="text-sm text-muted-foreground">全选当前列表</span>
+              </div>
+
+              <div className="space-y-3 md:hidden">
                 {registrations.map((registration) => (
-                  <TableRow key={registration.id}>
-                    <TableCell className="px-1 py-2">
+                  <div key={registration.id} className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-3">
+                        {teamFields.map((field) => {
+                          const rawValue = getFieldValue(registration.team_data || {}, field)
+                          const value = rawValue === null || rawValue === undefined ? '-' : String(rawValue)
+                          return (
+                            <div key={field.id}>
+                              <p className="text-xs text-muted-foreground">{field.label}</p>
+                              <p className="text-sm font-medium text-foreground break-words">{value}</p>
+                            </div>
+                          )
+                        })}
+                        <div>
+                          <p className="text-xs text-muted-foreground">审核时间</p>
+                          <p className="text-sm text-foreground">{registration.reviewed_at ? formatDate(registration.reviewed_at) : '-'}</p>
+                        </div>
+                      </div>
                       <Checkbox
                         checked={selectedIds.includes(registration.id)}
                         onCheckedChange={() => toggleSelection(registration.id)}
                       />
-                    </TableCell>
-                    {/* 动态显示队伍数据的前3个字段 */}
-                    {teamFields.map((field, index) => {
-                      const rawValue = getFieldValue(registration.team_data || {}, field)
-                      const value = rawValue === null || rawValue === undefined ? '-' : String(rawValue)
-                      const displayValue = value.length > 8
-                        ? value.substring(0, 8) + '\n' + value.substring(8)
-                        : value
+                    </div>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          router.push(`/events/${eventId}/registrations/${registration.id}/detail`)
+                        }}
+                      >
+                        <Eye className="mr-1 h-3 w-3" />
+                        查看
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => {
+                          setSelectedRegistration(registration)
+                          setShowRejectDialog(true)
+                        }}
+                      >
+                        <X className="mr-1 h-3 w-3" />
+                        驳回
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
 
-                      return (
-                        <TableCell
-                          key={field.id}
-                          className={`${index === 0 ? "font-medium" : ""} px-2 py-2`}
-                        >
-                          <div className="whitespace-pre-wrap break-words" style={{maxWidth: '100px', wordBreak: 'break-all'}}>
-                            {displayValue}
+              <div className="hidden overflow-hidden rounded-xl border border-border/60 md:block">
+                <Table className="table-fixed">
+                  <TableHeader>
+                    <TableRow className="bg-muted/40">
+                      <TableHead className="w-8 px-1">
+                        <Checkbox
+                          checked={selectedIds.length === registrations.length && registrations.length > 0}
+                          onCheckedChange={toggleSelectAll}
+                        />
+                      </TableHead>
+                      {/* 动态显示队伍报名要求字段（组别-参赛单位-队伍名称-联系人） */}
+                      {teamFields.map((field) => (
+                        <TableHead key={field.id} className="w-[14%] px-2">{field.label}</TableHead>
+                      ))}
+                      <TableHead className="w-[18%] px-2">审核时间</TableHead>
+                      <TableHead className="w-[22%] px-2">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {registrations.map((registration) => (
+                      <TableRow key={registration.id} className="bg-background transition-colors hover:bg-accent/40">
+                        <TableCell className="px-1 py-2">
+                          <Checkbox
+                            checked={selectedIds.includes(registration.id)}
+                            onCheckedChange={() => toggleSelection(registration.id)}
+                          />
+                        </TableCell>
+                        {/* 动态显示队伍数据的前3个字段 */}
+                        {teamFields.map((field, index) => {
+                          const rawValue = getFieldValue(registration.team_data || {}, field)
+                          const value = rawValue === null || rawValue === undefined ? '-' : String(rawValue)
+                          const displayValue = value.length > 8
+                            ? value.substring(0, 8) + '\n' + value.substring(8)
+                            : value
+
+                          return (
+                            <TableCell
+                              key={field.id}
+                              className={`${index === 0 ? "font-medium" : ""} px-2 py-2`}
+                            >
+                              <div className="whitespace-pre-wrap break-words" style={{maxWidth: '100px', wordBreak: 'break-all'}}>
+                                {displayValue}
+                              </div>
+                            </TableCell>
+                          )
+                        })}
+                        <TableCell className="whitespace-nowrap px-2 py-2 text-sm">{registration.reviewed_at ? formatDate(registration.reviewed_at) : '-'}</TableCell>
+                        <TableCell className="px-2 py-2">
+                          <div className="flex space-x-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                router.push(`/events/${eventId}/registrations/${registration.id}/detail`)
+                              }}
+                              className="px-2 text-xs"
+                            >
+                              <Eye className="h-3 w-3 mr-1" />
+                              查看
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="px-2 text-xs text-destructive hover:text-destructive"
+                              onClick={() => {
+                                setSelectedRegistration(registration)
+                                setShowRejectDialog(true)
+                              }}
+                            >
+                              <X className="h-3 w-3 mr-1" />
+                              驳回
+                            </Button>
                           </div>
                         </TableCell>
-                      )
-                    })}
-                    <TableCell className="whitespace-nowrap px-2 py-2 text-sm">{registration.reviewed_at ? formatDate(registration.reviewed_at) : '-'}</TableCell>
-                    <TableCell className="px-2 py-2">
-                      <div className="flex space-x-1">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            router.push(`/events/${eventId}/registrations/${registration.id}/detail`)
-                          }}
-                          className="px-2 text-xs"
-                        >
-                          <Eye className="h-3 w-3 mr-1" />
-                          查看
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-red-600 hover:text-red-700 px-2 text-xs"
-                          onClick={() => {
-                            setSelectedRegistration(registration)
-                            setShowRejectDialog(true)
-                          }}
-                        >
-                          <X className="h-3 w-3 mr-1" />
-                          驳回
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -537,7 +603,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
             <Button
               onClick={handleReject}
               disabled={!rejectionReason.trim() || processingId === selectedRegistration?.id}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               确认驳回
             </Button>
@@ -559,7 +625,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
             {/* 队伍信息 */}
             <div>
               <h3 className="font-semibold mb-3">队伍信息</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <Label htmlFor="teamName">队伍名称 *</Label>
                   <Input
@@ -616,8 +682,8 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
               
               <div className="space-y-3">
                 {newRegistration.players.map((player, index) => (
-                  <div key={index} className="p-4 border rounded-lg">
-                    <div className="flex items-center justify-between mb-3">
+                  <div key={index} className="rounded-lg border border-border/60 bg-muted/20 p-4">
+                    <div className="mb-3 flex items-center justify-between">
                       <span className="text-sm font-medium">队员 {index + 1}</span>
                       {newRegistration.players.length > 1 && (
                         <Button
@@ -630,7 +696,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                         </Button>
                       )}
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div>
                         <Label>姓名 *</Label>
                         <Input
@@ -644,7 +710,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                         <select
                           value={player.gender}
                           onChange={(e) => updatePlayer(index, 'gender', e.target.value)}
-                          className="w-full h-10 px-3 border border-gray-300 rounded-md"
+                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
                         >
                           <option value="男">男</option>
                           <option value="女">女</option>
@@ -692,7 +758,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
             </Button>
             <Button
               onClick={handleAddRegistration}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               确认添加
             </Button>

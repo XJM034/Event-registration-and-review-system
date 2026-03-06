@@ -90,7 +90,7 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
         const coachRows = Array.isArray(data.data.coaches) ? data.data.coaches : []
         const serverSchoolOptions = Array.isArray(data.data.schoolOptions) ? data.data.schoolOptions : []
         const fallbackSchoolOptions = Array.from(
-          new Set(
+          new Set<string>(
             coachRows
               .map((coach: Coach) => coach.school?.trim())
               .filter((value: string | undefined): value is string => Boolean(value))
@@ -231,10 +231,10 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
   return (
     <div className="space-y-4">
       {/* 工具栏 */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center space-x-2 flex-1 max-w-3xl">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex flex-1 flex-col gap-2 lg:max-w-3xl lg:flex-row">
+          <div className="relative flex-1 lg:max-w-md">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="搜索手机号、姓名、参赛单位..."
               value={search}
@@ -252,7 +252,7 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
               setPage(1)
             }}
           >
-            <SelectTrigger className="w-[220px]">
+            <SelectTrigger className="w-full lg:w-[220px]">
               <SelectValue placeholder="筛选参赛单位" />
             </SelectTrigger>
             <SelectContent>
@@ -265,19 +265,19 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
             </SelectContent>
           </Select>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setShowImportDialog(true)}>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex">
+          <Button variant="outline" onClick={() => setShowImportDialog(true)} className="w-full xl:w-auto">
             批量导入
           </Button>
-          <Button onClick={() => setShowCreateDialog(true)}>
-            <Plus className="h-4 w-4 mr-2" />
+          <Button onClick={() => setShowCreateDialog(true)} className="w-full xl:w-auto">
+            <Plus className="mr-2 h-4 w-4" />
             创建教练账号
           </Button>
         </div>
       </div>
 
       {/* 表格 */}
-      <div className="border rounded-lg">
+      <div className="hidden rounded-lg border md:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -320,7 +320,7 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
               </TableRow>
             ) : coaches.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                   暂无教练账号
                 </TableCell>
               </TableRow>
@@ -386,12 +386,81 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
         </Table>
       </div>
 
+      <div className="grid gap-3 md:hidden">
+        {loading ? (
+          <div className="rounded-lg border border-dashed border-border py-10 text-center">
+            <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : coaches.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+            暂无教练账号
+          </div>
+        ) : (
+          coaches.map((coach) => (
+            <div key={coach.id} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-base font-semibold text-foreground">{coach.name || '未命名教练'}</div>
+                  <div className="mt-1 text-sm text-muted-foreground">{coach.phone}</div>
+                  <div className="mt-1 text-sm text-muted-foreground">{coach.school || '未填写参赛单位'}</div>
+                </div>
+                <Badge variant={coach.is_active ? 'default' : 'secondary'}>
+                  {coach.is_active ? '启用' : '禁用'}
+                </Badge>
+              </div>
+
+              <div className="mt-3 rounded-lg bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                创建时间：{new Date(coach.created_at).toLocaleDateString('zh-CN')}
+              </div>
+
+              <div className="mt-3 flex items-center justify-between rounded-lg border border-border px-3 py-2">
+                <span className="text-sm text-foreground">账号状态</span>
+                <Switch
+                  checked={coach.is_active}
+                  onCheckedChange={() => handleToggleActive(coach)}
+                />
+              </div>
+
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSelectedCoach(coach)
+                    setShowEditDialog(true)
+                  }}
+                >
+                  <Edit className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSelectedCoach(coach)
+                    setShowResetPasswordDialog(true)
+                  }}
+                >
+                  <Key className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    setSelectedCoach(coach)
+                    setShowDeleteDialog(true)
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
       {/* 分页 */}
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-gray-500">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="text-sm text-muted-foreground">
           共 {total} 条记录，第 {page} / {totalPages} 页
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:flex md:flex-wrap md:items-center">
           <Button
             variant="outline"
             size="sm"

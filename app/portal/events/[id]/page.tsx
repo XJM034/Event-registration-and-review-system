@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Calendar, MapPin, Phone, Clock, Users, ArrowLeft, FileText, AlertCircle, Paperclip, Download } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { getSessionUser } from '@/lib/supabase/client-auth'
+import { getSessionUser, getSessionUserWithRetry } from '@/lib/supabase/client-auth'
 import { MY_REGISTRATION_SCROLL_TARGET, resolveEventDetailScrollTarget } from '@/lib/portal/event-detail-navigation'
 import { toSafeHttpUrl } from '@/lib/url-security'
 
@@ -31,7 +31,7 @@ function LinkifyText({ text }: { text: string }) {
               href={part}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-600 hover:text-blue-800 underline break-all"
+              className="break-all underline text-primary hover:text-primary/80"
             >
               {part}
             </a>
@@ -233,23 +233,30 @@ export default function EventDetailPage() {
     try {
       // 首先检查用户session
       const supabase = createClient()
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      const { user, error: sessionError, isNetworkError } = await getSessionUserWithRetry(supabase, {
+        maxRetries: 2,
+        baseDelayMs: 400,
+      })
 
-      // 如果获取session出错，重试一次
-      if (sessionError && retryCount < 1) {
-        console.log('Session error, retrying in 500ms...')
-        setTimeout(() => fetchEventDetails(retryCount + 1), 500)
+      if (sessionError && isNetworkError) {
+        if (retryCount < 2) {
+          console.log('Session error, retrying in 800ms...')
+          setTimeout(() => fetchEventDetails(retryCount + 1), 800)
+          return
+        }
+        console.error('Session error after retries, keeping current page state:', sessionError)
+        setIsLoading(false)
         return
       }
 
-      if (!session) {
-        // 没有session时也尝试重试一次，可能是初始化延迟
-        if (retryCount < 1) {
-          console.log('No session yet, retrying in 500ms...')
-          setTimeout(() => fetchEventDetails(retryCount + 1), 500)
+      if (!user) {
+        // 没有session时也尝试重试，可能是初始化延迟
+        if (retryCount < 2) {
+          console.log('No session yet, retrying in 700ms...')
+          setTimeout(() => fetchEventDetails(retryCount + 1), 700)
           return
         }
-        console.error('No session found after retry, redirecting to login')
+        console.error('No session found after retries, redirecting to login')
         router.push('/auth/login')
         return
       }
@@ -732,8 +739,8 @@ export default function EventDetailPage() {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">加载中...</p>
+          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-primary"></div>
+          <p className="mt-4 text-muted-foreground">加载中...</p>
         </div>
       </div>
     )
@@ -743,8 +750,8 @@ export default function EventDetailPage() {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
-          <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <p className="text-lg text-gray-600">赛事不存在或已下架</p>
+          <AlertCircle className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+          <p className="text-lg text-muted-foreground">赛事不存在或已下架</p>
           <Button className="mt-4" onClick={() => router.push('/portal')}>
             返回赛事列表
           </Button>
@@ -778,7 +785,7 @@ export default function EventDetailPage() {
   return (
     <div className="space-y-6">
       {/* 头部导航 */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Button
           variant="ghost"
           onClick={() => router.push('/portal')}
@@ -791,8 +798,8 @@ export default function EventDetailPage() {
 
       {/* 赛事信息卡片 - 包含所有赛事相关信息 */}
       <Card className="mb-6">
-        <CardContent className="p-6">
-          <div className="flex gap-6">
+        <CardContent className="p-4 sm:p-6">
+          <div className="flex flex-col gap-6 lg:flex-row">
             {/* 海报 */}
             {event.poster_url && (
               <div className="flex-shrink-0">
@@ -844,14 +851,14 @@ export default function EventDetailPage() {
                 </div>
 
                 {/* 使用两列布局 */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   {/* 左列：比赛时间和报名时间 */}
                   <div className="space-y-3 text-sm">
                     <div className="flex items-start gap-2">
-                      <Calendar className="h-4 w-4 flex-shrink-0 text-gray-400 mt-0.5" />
+                      <Calendar className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
                       <div>
                         <div>比赛时间</div>
-                        <div className="text-gray-600">{formatDate(event.start_date)} ~ {formatDate(event.end_date)}</div>
+                        <div className="text-muted-foreground">{formatDate(event.start_date)} ~ {formatDate(event.end_date)}</div>
                       </div>
                     </div>
 
@@ -862,10 +869,10 @@ export default function EventDetailPage() {
                         return (
                           <>
                             <div className="flex items-start gap-2">
-                              <Clock className="h-4 w-4 flex-shrink-0 text-gray-400 mt-0.5" />
+                              <Clock className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
                               <div>
                                 <div>报名时间</div>
-                                <div className="text-gray-600">
+                                <div className="text-muted-foreground">
                                   {formatDateTime(teamReq.registrationStartDate)} ~ {formatDateTime(teamReq.registrationEndDate)}
                                 </div>
                               </div>
@@ -881,20 +888,20 @@ export default function EventDetailPage() {
                   <div className="space-y-3 text-sm">
                     {event.address && (
                       <div className="flex items-start gap-2">
-                        <MapPin className="h-4 w-4 flex-shrink-0 text-gray-400 mt-0.5" />
+                        <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
                         <div>
                           <div>比赛地点</div>
-                          <div className="text-gray-600">{event.address}</div>
+                          <div className="text-muted-foreground">{event.address}</div>
                         </div>
                       </div>
                     )}
 
                     {event.phone && (
                       <div className="flex items-start gap-2">
-                        <Phone className="h-4 w-4 flex-shrink-0 text-gray-400 mt-0.5" />
+                        <Phone className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
                         <div>
                           <div>咨询方式</div>
-                          <div className="text-gray-600">{event.phone}</div>
+                          <div className="text-muted-foreground">{event.phone}</div>
                         </div>
                       </div>
                     )}
@@ -904,9 +911,9 @@ export default function EventDetailPage() {
 
               {/* 赛事详情 */}
               {event.details && (
-                <div className="border-t pt-4 mt-4">
+                <div className="mt-4 border-t pt-4">
                   <h3 className="font-semibold mb-2">赛事介绍</h3>
-                  <div className="text-sm text-gray-600 whitespace-pre-wrap">
+                  <div className="text-sm whitespace-pre-wrap text-muted-foreground">
                     <LinkifyText text={event.details} />
                   </div>
                 </div>
@@ -914,9 +921,9 @@ export default function EventDetailPage() {
 
               {/* 报名要求 */}
               {event.requirements && (
-                <div className="border-t pt-4 mt-4">
+                <div className="mt-4 border-t pt-4">
                   <h3 className="font-semibold mb-2">报名要求</h3>
-                  <div className="text-sm text-gray-600 whitespace-pre-wrap">
+                  <div className="text-sm whitespace-pre-wrap text-muted-foreground">
                     <LinkifyText text={event.requirements} />
                   </div>
                 </div>
@@ -924,14 +931,14 @@ export default function EventDetailPage() {
 
               {/* 参考模板 */}
               {referenceTemplates.length > 0 && (
-                <div className="border-t pt-4 mt-4">
+                <div className="mt-4 border-t pt-4">
                   <h3 className="font-semibold mb-2 flex items-center">
                     <Paperclip className="h-4 w-4 mr-1" />
                     参考模板
                   </h3>
                   <div className="space-y-2">
                     {referenceTemplates.map((file, index) => (
-                      <div key={`${file.path || file.url || 'file'}-${index}`} className="flex items-center justify-between border rounded-md px-3 py-2">
+                      <div key={`${file.path || file.url || 'file'}-${index}`} className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
                         <div className="min-w-0">
                           <p className="text-sm font-medium truncate">{file.name || `模板${index + 1}`}</p>
                         </div>
@@ -940,7 +947,7 @@ export default function EventDetailPage() {
                           download={file.name || `模板${index + 1}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center text-sm text-blue-600 hover:text-blue-700"
+                          className="inline-flex items-center text-sm text-primary hover:text-primary/80"
                         >
                           <Download className="h-4 w-4 mr-1" />
                           下载
@@ -958,7 +965,7 @@ export default function EventDetailPage() {
       {/* 我的报名卡片 */}
       <Card id="my-registration-section">
         <CardHeader className="relative pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="text-lg">我的报名{allRegistrations.length > 0 && `（${allRegistrations.length}）`}</CardTitle>
               <CardDescription className="mt-1">查看和管理您的报名信息</CardDescription>
@@ -978,12 +985,12 @@ export default function EventDetailPage() {
 
           {/* 报名截止的提示信息 */}
           {isEventEnded() && (
-            <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/10 p-4">
               <div className="flex items-start gap-3">
-                <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-700 dark:text-amber-300" />
                 <div className="space-y-1">
-                  <p className="font-semibold text-amber-900">该比赛报名已截止</p>
-                  <p className="text-sm text-amber-700">
+                  <p className="font-semibold text-amber-800 dark:text-amber-200">该比赛报名已截止</p>
+                  <p className="text-sm text-amber-700 dark:text-amber-300">
                     此赛事报名已截止，您只能查看报名信息，不能再次提交或修改。
                   </p>
                 </div>
@@ -993,12 +1000,12 @@ export default function EventDetailPage() {
 
           {/* 审核期的提示信息 */}
           {!isEventEnded() && newRegStatus?.inReviewPeriod && (
-            <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="mt-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
               <div className="flex items-start gap-3">
-                <Clock className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <Clock className="mt-0.5 h-5 w-5 flex-shrink-0 text-primary" />
                 <div className="space-y-1">
-                  <p className="font-semibold text-blue-900">审核期内</p>
-                  <p className="text-sm text-blue-700">
+                  <p className="font-semibold text-primary">审核期内</p>
+                  <p className="text-sm text-primary/80">
                     报名已结束，现在处于审核期。审核期内仅允许被驳回的报名重新提交，不接受新的报名申请。
                   </p>
                 </div>
@@ -1006,7 +1013,7 @@ export default function EventDetailPage() {
             </div>
           )}
         </CardHeader>
-        <CardContent className="pt-3 px-6 pb-6">
+        <CardContent className="px-4 pb-6 pt-3 sm:px-6">
               {allRegistrations.length > 0 ? (
                 <div className="space-y-6">
                   {/* 显示所有报名记录，按审核时间排序（最新的在前） */}
@@ -1018,10 +1025,10 @@ export default function EventDetailPage() {
                       return new Date(timeB).getTime() - new Date(timeA).getTime()
                     })
                     .map((reg, index) => (
-                    <div key={reg.id} className="border rounded-lg p-4 space-y-3 relative">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-gray-500">报名 {index + 1}</span>
+                    <div key={reg.id} className="relative space-y-3 rounded-xl border border-border/60 bg-card p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium text-muted-foreground">报名 {index + 1}</span>
                           <Badge
                             className="text-sm"
                             variant={
@@ -1040,7 +1047,7 @@ export default function EventDetailPage() {
                           </Badge>
                         </div>
 
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
                           {/* 赛事已结束时，所有状态都只能查看，不能编辑或操作 */}
                           {isEventEnded() ? (
                             <>
@@ -1216,13 +1223,13 @@ export default function EventDetailPage() {
                         </div>
                       </div>
 
-                      <div className="text-sm text-gray-600 space-y-1">
+                      <div className="space-y-1 text-sm text-muted-foreground">
                         <p>
                           {reg.status === 'draft' ? '保存时间' : '提交时间'}：
                           {formatDateTime(reg.submitted_at || reg.created_at || '')}
                         </p>
                         {reg.team_data && (
-                          <div className="flex items-center gap-2 text-gray-500">
+                          <div className="flex items-center gap-2 text-muted-foreground">
                             {(() => {
                               const teamData = reg.team_data
                               const fields: string[] = []
@@ -1277,9 +1284,9 @@ export default function EventDetailPage() {
                       </div>
 
                       {reg.status === 'rejected' && reg.rejection_reason && (
-                        <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
-                          <p className="text-red-600 text-sm font-medium mb-1">驳回原因：</p>
-                          <div className="text-red-600 text-sm whitespace-pre-line pl-2">
+                        <div className="mt-2 rounded-md border border-destructive/20 bg-destructive/10 p-3">
+                          <p className="mb-1 text-sm font-medium text-destructive">驳回原因：</p>
+                          <div className="pl-2 text-sm whitespace-pre-line text-destructive">
                             {reg.rejection_reason}
                           </div>
                         </div>
@@ -1288,9 +1295,9 @@ export default function EventDetailPage() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-8">
-                  <Users className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-500">您还未报名此赛事</p>
+                <div className="py-8 text-center">
+                  <Users className="mx-auto mb-4 h-12 w-12 text-muted-foreground/50" />
+                  <p className="text-muted-foreground">您还未报名此赛事</p>
                   {!isEventEnded() && newRegStatus?.canRegister && (
                     <Button className="mt-4" onClick={handleRegister}>
                       立即报名
