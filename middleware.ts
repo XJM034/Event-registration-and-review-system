@@ -189,14 +189,13 @@ export async function middleware(request: NextRequest) {
 
   // Portal 路径：按 Supabase 登录态控制
   if (pathname.startsWith('/portal')) {
-    const { isAdmin } = await checkAdmin()
-    if (isAdmin) {
+    if (sessionUser?.user_metadata?.role === 'admin') {
       return withSessionCleanup(NextResponse.redirect(new URL('/events', request.url)))
     }
-    if (!sessionUser) {
-      return withSessionCleanup(NextResponse.redirect(new URL('/auth/login', request.url)))
+    if (sessionUser) {
+      return withSessionCleanup(response)
     }
-    return withSessionCleanup(response)
+    return withSessionCleanup(NextResponse.redirect(new URL('/auth/login', request.url)))
   }
 
   // 管理端路径 - 只允许管理员访问
@@ -220,14 +219,13 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith('/api')) {
     // Portal API 需要教练认证
     if (pathname.startsWith('/api/portal')) {
-      const { isAdmin } = await checkAdmin()
-      if (isAdmin) {
+      if (sessionUser?.user_metadata?.role === 'admin') {
         return withSessionCleanup(NextResponse.json({ error: 'Forbidden' }, { status: 403 }))
       }
-      if (!sessionUser) {
-        return withSessionCleanup(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      if (sessionUser) {
+        return withSessionCleanup(response)
       }
-      return withSessionCleanup(response)
+      return withSessionCleanup(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
     }
 
     // 项目管理 API：仅允许超级管理员访问

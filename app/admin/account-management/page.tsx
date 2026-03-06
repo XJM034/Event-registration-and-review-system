@@ -83,11 +83,11 @@ export default function AccountManagementPage() {
           <CardContent className="p-4 sm:p-6">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList
-                className={`grid w-full gap-1 ${isSuper ? 'grid-cols-1 sm:max-w-xl sm:grid-cols-3' : 'max-w-xs grid-cols-1'}`}
+                className={`grid h-auto w-full auto-rows-fr gap-1 p-1 ${isSuper ? 'grid-cols-1 sm:max-w-xl sm:grid-cols-3' : 'grid-cols-1 sm:max-w-xs'}`}
               >
-                {isSuper && <TabsTrigger value="coaches">教练账号</TabsTrigger>}
-                {isSuper && <TabsTrigger value="admins">管理员账号</TabsTrigger>}
-                <TabsTrigger value="my-account">我的账号</TabsTrigger>
+                {isSuper && <TabsTrigger className="min-h-10 whitespace-normal px-3 text-sm leading-5" value="coaches">教练账号</TabsTrigger>}
+                {isSuper && <TabsTrigger className="min-h-10 whitespace-normal px-3 text-sm leading-5" value="admins">管理员账号</TabsTrigger>}
+                <TabsTrigger className="min-h-10 whitespace-normal px-3 text-sm leading-5" value="my-account">我的账号</TabsTrigger>
               </TabsList>
               {isSuper && (
                 <TabsContent value="coaches" className="mt-6">

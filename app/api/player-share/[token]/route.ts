@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/client'
+import {
+  getShareTokenAccessError,
+  pickRegistrationSettings,
+  resolveSharedPlayerData,
+} from '@/lib/player-share-token'
 
 interface RouteParams {
   params: Promise<{ token: string }>
@@ -24,22 +29,21 @@ export async function GET(request: NextRequest, context: RouteParams) {
       .from('player_share_tokens')
       .select('*')
       .eq('token', token)
-      .eq('is_active', true)
-      .single()
+      .maybeSingle()
 
-    if (shareTokenError || !shareTokenData) {
+    if (shareTokenError) {
       console.error('查询分享令牌失败:', shareTokenError)
       return NextResponse.json(
-        { error: '分享链接不存在或已过期', success: false },
-        { status: 404 }
+        { error: '查询分享链接失败', success: false },
+        { status: 500 }
       )
     }
 
-    // 检查是否过期
-    if (new Date(shareTokenData.expires_at) < new Date()) {
+    const tokenAccessError = getShareTokenAccessError(shareTokenData)
+    if (tokenAccessError) {
       return NextResponse.json(
-        { error: '分享链接已过期', success: false },
-        { status: 410 }
+        { error: tokenAccessError.error, success: false },
+        { status: tokenAccessError.status }
       )
     }
 
@@ -74,15 +78,23 @@ export async function GET(request: NextRequest, context: RouteParams) {
     }
 
     // 获取报名设置
-    const { data: settingsData } = await supabase
+    const { data: settingsRows } = await supabase
       .from('registration_settings')
       .select('*')
       .eq('event_id', shareTokenData.event_id)
-      .single()
+      .order('created_at', { ascending: true })
+
+    const selectedSettings = pickRegistrationSettings(
+      settingsRows,
+      registrationData?.team_data?.division_id
+    )
 
     // 合并 registration_settings 到 event 对象
-    if (settingsData) {
-      eventData.registration_settings = settingsData
+    if (selectedSettings) {
+      eventData.registration_settings = selectedSettings
+    }
+    if (settingsRows) {
+      eventData.registration_settings_by_division = settingsRows
     }
 
     // 添加调试日志
@@ -94,6 +106,15 @@ export async function GET(request: NextRequest, context: RouteParams) {
       registration_id: shareTokenData.registration_id
     })
 
+    const sharedPlayerData = resolveSharedPlayerData(registrationData?.players_data, shareTokenData)
+
+    if (!sharedPlayerData) {
+      return NextResponse.json(
+        { error: '分享对象不存在或已被移除，请联系教练重新生成新的分享链接', success: false },
+        { status: 410 }
+      )
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -101,7 +122,8 @@ export async function GET(request: NextRequest, context: RouteParams) {
         registration: registrationData,
         event: eventData,
         player_index: shareTokenData.player_index,
-        player_id: shareTokenData.player_id
+        player_id: shareTokenData.player_id,
+        shared_player: sharedPlayerData
       }
     })
 
@@ -134,38 +156,57 @@ export async function PUT(request: NextRequest, context: RouteParams) {
       .from('player_share_tokens')
       .select('*')
       .eq('token', token)
-      .eq('is_active', true)
-      .single()
+      .maybeSingle()
 
-    if (tokenError || !tokenData) {
+    if (tokenError) {
       return NextResponse.json(
-        { error: '分享链接无效', success: false },
-        { status: 400 }
+        { error: '查询分享链接失败', success: false },
+        { status: 500 }
       )
     }
 
-    // 检查是否过期
-    if (new Date(tokenData.expires_at) < new Date()) {
+    const tokenAccessError = getShareTokenAccessError(tokenData)
+    if (tokenAccessError) {
       return NextResponse.json(
-        { error: '分享链接已过期', success: false },
-        { status: 410 }
+        { error: tokenAccessError.error, success: false },
+        { status: tokenAccessError.status }
+      )
+    }
+
+    // 获取当前报名数据（包括状态）
+    const { data: registration, error: regError } = await supabase
+      .from('registrations')
+      .select('players_data, status, team_data')
+      .eq('id', tokenData.registration_id)
+      .single()
+
+    if (regError) {
+      console.error('获取报名数据失败:', regError)
+      return NextResponse.json(
+        { error: '获取报名数据失败', success: false },
+        { status: 500 }
       )
     }
 
     // 获取报名设置，检查报名是否已截止
-    const { data: settingsData } = await supabase
+    const { data: settingsRows } = await supabase
       .from('registration_settings')
-      .select('team_requirements')
+      .select('division_id, team_requirements')
       .eq('event_id', tokenData.event_id)
-      .single()
+      .order('created_at', { ascending: true })
 
-    if (settingsData?.team_requirements) {
+    const selectedSettings = pickRegistrationSettings(
+      settingsRows,
+      registration?.team_data?.division_id
+    )
+
+    if (selectedSettings?.team_requirements) {
       const now = new Date()
-      let teamReq = settingsData.team_requirements
+      let teamReq: { registrationEndDate?: string; reviewEndDate?: string } | null = selectedSettings.team_requirements as { registrationEndDate?: string; reviewEndDate?: string } | null
       if (typeof teamReq === 'string') {
         try {
           teamReq = JSON.parse(teamReq)
-        } catch (e) {
+        } catch {
           // ignore parse error
         }
       }
@@ -184,21 +225,6 @@ export async function PUT(request: NextRequest, context: RouteParams) {
           { status: 403 }
         )
       }
-    }
-
-    // 获取当前报名数据（包括状态）
-    const { data: registration, error: regError } = await supabase
-      .from('registrations')
-      .select('players_data, status')
-      .eq('id', tokenData.registration_id)
-      .single()
-
-    if (regError) {
-      console.error('获取报名数据失败:', regError)
-      return NextResponse.json(
-        { error: '获取报名数据失败', success: false },
-        { status: 500 }
-      )
     }
 
     // 检查报名状态 - 只有草稿和已驳回状态允许通过分享链接修改
@@ -223,13 +249,27 @@ export async function PUT(request: NextRequest, context: RouteParams) {
     const playersData = registration.players_data || []
     const playerIndex = tokenData.player_index
     const playerId = tokenData.player_id
+    const existingSharedPlayer = resolveSharedPlayerData(playersData, tokenData)
+
+    if (!existingSharedPlayer) {
+      return NextResponse.json(
+        { error: '分享对象不存在或已被移除，请联系教练重新生成新的分享链接', success: false },
+        { status: 410 }
+      )
+    }
+
+    const lockedRole = String(existingSharedPlayer.role || body.player_data?.role || 'player')
+    const sanitizedPlayerData = {
+      ...body.player_data,
+      role: lockedRole,
+    }
 
     console.log('PUT /api/player-share - Updating player:', {
       playerIndex,
       playerId,
       playersDataLength: playersData.length,
       tokenData,
-      playerData: body.player_data
+      playerData: sanitizedPlayerData
     })
 
     // 优先使用 player_id 查找队员
@@ -241,16 +281,18 @@ export async function PUT(request: NextRequest, context: RouteParams) {
         // 更新现有队员
         playersData[existingPlayerIndex] = {
           ...playersData[existingPlayerIndex],
-          ...body.player_data,
-          id: playerId // 保留原始 ID
+          ...sanitizedPlayerData,
+          id: playerId, // 保留原始 ID
+          role: lockedRole,
         }
       } else if (playerIndex !== null && playerIndex !== undefined) {
         // 如果找不到对应ID的队员，但有索引，尝试使用索引
         if (playerIndex >= 0 && playerIndex < playersData.length) {
           playersData[playerIndex] = {
             ...playersData[playerIndex],
-            ...body.player_data,
-            id: playerId // 确保设置正确的 ID
+            ...sanitizedPlayerData,
+            id: playerId, // 确保设置正确的 ID
+            role: lockedRole,
           }
         } else {
           // 如果索引也无效，则添加为新队员
@@ -258,15 +300,17 @@ export async function PUT(request: NextRequest, context: RouteParams) {
             playersData.push({ id: `placeholder-${playersData.length}` })
           }
           playersData[playerIndex] = {
-            ...body.player_data,
-            id: playerId
+            ...sanitizedPlayerData,
+            id: playerId,
+            role: lockedRole,
           }
         }
       } else {
         // 没有索引信息，添加为新队员
         playersData.push({
-          ...body.player_data,
-          id: playerId
+          ...sanitizedPlayerData,
+          id: playerId,
+          role: lockedRole,
         })
       }
     } else if (playerIndex !== null && playerIndex !== undefined) {
@@ -278,7 +322,8 @@ export async function PUT(request: NextRequest, context: RouteParams) {
         }
         playersData[playerIndex] = {
           ...playersData[playerIndex],
-          ...body.player_data
+          ...sanitizedPlayerData,
+          role: lockedRole,
         }
       } else {
         return NextResponse.json(
@@ -310,7 +355,10 @@ export async function PUT(request: NextRequest, context: RouteParams) {
     // 标记 token 为已使用
     await supabase
       .from('player_share_tokens')
-      .update({ used_at: new Date().toISOString() })
+      .update({
+        used_at: new Date().toISOString(),
+        is_active: false,
+      })
       .eq('token', token)
 
     return NextResponse.json({

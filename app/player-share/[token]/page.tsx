@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useEffect, useMemo, useState } from 'react'
+import { useParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -9,25 +9,276 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { AlertCircle, Send, CheckCircle, Loader2, Upload, Trash2 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import Image from 'next/image'
+import { parseIdCard, validateAgainstDivisionRules } from '@/lib/id-card-validator'
 
 interface PlayerField {
   id: string
   label: string
   type: 'text' | 'date' | 'select' | 'multiselect' | 'image'
   required?: boolean
-  options?: { id: string; label: string }[]
+  options?: Array<string | { id?: string; label?: string; value?: string; text?: string; name?: string }>
   placeholder?: string
+  conditionalRequired?: {
+    dependsOn?: string
+    values?: unknown[]
+  }
+}
+
+interface RoleConfig {
+  id: string
+  name: string
+  commonFields?: PlayerField[]
+  customFields?: PlayerField[]
+  allFields?: PlayerField[]
+}
+
+interface PlayerRequirementsConfig {
+  roles?: RoleConfig[]
+  genderRequirement?: 'none' | 'male' | 'female'
+  minAge?: number
+  maxAge?: number
+  minAgeDate?: string
+  maxAgeDate?: string
+}
+
+interface TeamRequirementsConfig {
+  registrationEndDate?: string
+  reviewEndDate?: string
+}
+
+interface RegistrationSettingsConfig {
+  division_id?: string | null
+  team_requirements?: TeamRequirementsConfig | string
+  player_requirements?: PlayerRequirementsConfig
+}
+
+interface DivisionRules {
+  gender?: 'male' | 'female' | 'mixed' | 'none'
+  minAge?: number
+  maxAge?: number
+  minBirthDate?: string
+  maxBirthDate?: string
+  minPlayers?: number
+  maxPlayers?: number
+}
+
+interface SharedPlayerData extends Record<string, any> {
+  id?: string
+  role?: string
+  id_type?: string
+}
+
+const VALIDATION_INPUT_ERROR_CLASS = 'border-destructive/40 bg-destructive/10 text-foreground dark:border-destructive/50 dark:bg-destructive/15'
+const VALIDATION_INPUT_SUCCESS_CLASS = 'border-emerald-500/40 bg-emerald-500/10 text-foreground dark:border-emerald-400/40 dark:bg-emerald-500/15'
+const VALIDATION_MESSAGE_ERROR_CLASS = 'rounded border border-destructive/20 bg-destructive/10 p-2 text-destructive'
+const VALIDATION_MESSAGE_SUCCESS_CLASS = 'rounded border border-emerald-500/20 bg-emerald-500/10 p-2 text-emerald-700 dark:text-emerald-300'
+const MUTED_BADGE_CLASS = 'rounded bg-muted px-2 py-1 text-xs text-muted-foreground'
+const INFO_BADGE_CLASS = 'rounded bg-sky-500/10 px-2 py-1 text-xs text-sky-700 dark:text-sky-300'
+
+function isIdentityDocumentSelected(values: { id_type?: unknown }): boolean {
+  return String(values.id_type || '').trim() === '身份证'
+}
+
+function isFieldConditionSatisfied(field: PlayerField, values: Record<string, any>): boolean {
+  if (!field.conditionalRequired?.dependsOn) return true
+
+  const dependencyValue = values?.[field.conditionalRequired.dependsOn]
+  if (!Array.isArray(field.conditionalRequired.values) || field.conditionalRequired.values.length === 0) {
+    return Boolean(dependencyValue)
+  }
+
+  return field.conditionalRequired.values.includes(dependencyValue)
+}
+
+function isFieldRequiredForValues(field: PlayerField, values: Record<string, any>): boolean {
+  return Boolean(field.required && isFieldConditionSatisfied(field, values))
+}
+
+function getFieldDisplayLabel(field: PlayerField): string {
+  if (field.id === 'id_number') return '证件号码'
+  return field.label || field.id
+}
+
+function parseLocalDate(dateValue?: string | null): Date | undefined {
+  if (!dateValue) return undefined
+
+  const normalized = String(dateValue).slice(0, 10)
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!match) return undefined
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(year, month - 1, day)
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return undefined
+  }
+
+  return date
+}
+
+function calculateAgeFromDateString(
+  dateValue?: string | null,
+  referenceDate: Date = new Date()
+): number | undefined {
+  const birthDate = parseLocalDate(dateValue)
+  if (!birthDate) return undefined
+
+  let age = referenceDate.getFullYear() - birthDate.getFullYear()
+  const monthDiff = referenceDate.getMonth() - birthDate.getMonth()
+  if (monthDiff < 0 || (monthDiff === 0 && referenceDate.getDate() < birthDate.getDate())) {
+    age--
+  }
+
+  return age >= 0 ? age : undefined
+}
+
+function resolveAgeRequirementBounds(rules: {
+  minAge?: number
+  maxAge?: number
+  minBirthDate?: string
+  maxBirthDate?: string
+}) {
+  const hasBirthDateRule = Boolean(rules.minBirthDate || rules.maxBirthDate)
+
+  if (hasBirthDateRule) {
+    return {
+      minAge: calculateAgeFromDateString(rules.maxBirthDate),
+      maxAge: calculateAgeFromDateString(rules.minBirthDate),
+      usesBirthDateRule: true,
+    }
+  }
+
+  return {
+    minAge: rules.minAge,
+    maxAge: rules.maxAge,
+    usesBirthDateRule: false,
+  }
+}
+
+function formatAgeRequirementLabel(minAge?: number, maxAge?: number): string | null {
+  if (minAge !== undefined && maxAge !== undefined) {
+    return minAge === maxAge ? `${minAge}岁` : `${minAge}-${maxAge}岁`
+  }
+
+  if (minAge !== undefined) return `≥${minAge}岁`
+  if (maxAge !== undefined) return `≤${maxAge}岁`
+
+  return null
+}
+
+function parseAgeValue(value: unknown): number | undefined {
+  if (value === null || value === undefined) return undefined
+
+  const normalized = String(value).trim()
+  if (!normalized) return undefined
+
+  const age = Number(normalized)
+  if (!Number.isInteger(age) || age < 0) return undefined
+
+  return age
+}
+
+function validateIdNumber(idNumber: string) {
+  const trimmedId = idNumber.trim()
+
+  if (trimmedId.length !== 18) {
+    return { valid: false, message: '身份证号码必须为18位' }
+  }
+
+  const first17 = trimmedId.slice(0, 17)
+  if (!/^\d{17}$/.test(first17)) {
+    return { valid: false, message: '身份证号码前17位必须为数字' }
+  }
+
+  const last = trimmedId.charAt(17)
+  if (!/^[0-9Xx]$/.test(last)) {
+    return { valid: false, message: '身份证号码第18位必须为数字或字母X' }
+  }
+
+  const weights = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2]
+  const checkCodes = ['1', '0', 'X', '9', '8', '7', '6', '5', '4', '3', '2']
+  let sum = 0
+
+  for (let i = 0; i < 17; i++) {
+    sum += parseInt(trimmedId.charAt(i), 10) * weights[i]
+  }
+
+  const checkCode = checkCodes[sum % 11]
+  const actualCheckCode = last.toUpperCase()
+
+  if (checkCode !== actualCheckCode) {
+    return { valid: false, message: '身份证号码校验位错误，请检查输入是否正确' }
+  }
+
+  return { valid: true, message: '证件号码格式正确' }
+}
+
+function hasFieldValue(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0
+  if (value === null || value === undefined) return false
+  return String(value).trim().length > 0
+}
+
+function getOptionValue(option: string | { id?: string; label?: string; value?: string; text?: string; name?: string }): string {
+  if (typeof option === 'string') return option
+  return option.value || option.id || option.label || option.text || option.name || ''
+}
+
+function getOptionLabel(option: string | { id?: string; label?: string; value?: string; text?: string; name?: string }): string {
+  if (typeof option === 'string') return option
+  return option.label || option.text || option.name || option.value || option.id || ''
+}
+
+function parseTeamRequirements(
+  value?: TeamRequirementsConfig | string | null
+): TeamRequirementsConfig | undefined {
+  if (!value) return undefined
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      if (parsed && typeof parsed === 'object') {
+        return parsed as TeamRequirementsConfig
+      }
+      return undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  return value
+}
+
+function selectMatchingRegistrationSettings(
+  eventData: any,
+  divisionId?: string | null
+): RegistrationSettingsConfig | null {
+  const settingsByDivision = Array.isArray(eventData?.registration_settings_by_division)
+    ? eventData.registration_settings_by_division
+    : []
+
+  if (divisionId) {
+    const matched = settingsByDivision.find((setting: RegistrationSettingsConfig) => setting?.division_id === divisionId)
+    if (matched) return matched
+  }
+
+  return eventData?.registration_settings || settingsByDivision.find((setting: RegistrationSettingsConfig) => !setting?.division_id) || settingsByDivision[0] || null
 }
 
 export default function PlayerSharePage() {
   const params = useParams()
-  const router = useRouter()
   const token = params.token as string
 
   const [shareToken, setShareToken] = useState<any>(null)
   const [event, setEvent] = useState<any>(null)
+  const [registration, setRegistration] = useState<any>(null)
   const [teamData, setTeamData] = useState<any>(null)
   const [playerData, setPlayerData] = useState<any>({})
   const [isLoading, setIsLoading] = useState(true)
@@ -35,6 +286,7 @@ export default function PlayerSharePage() {
   const [isSubmitted, setIsSubmitted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isRegistrationClosed, setIsRegistrationClosed] = useState(false)
+  const [lockedRoleId, setLockedRoleId] = useState('player')
 
   useEffect(() => {
     if (token) {
@@ -54,10 +306,11 @@ export default function PlayerSharePage() {
         return
       }
 
-      const { token_info, registration, event, player_index, player_id } = result.data
+      const { token_info, registration, event, player_index, player_id, shared_player } = result.data
 
       setShareToken(token_info)
       setEvent(event)
+      setRegistration(registration)
       setTeamData(registration.team_data)
 
       // 检查报名是否已截止或已提交
@@ -71,11 +324,12 @@ export default function PlayerSharePage() {
         setIsRegistrationClosed(true)
       } else {
         // 2. 检查时间维度
-        const teamReq = event?.registration_settings?.team_requirements
+        const matchedSettings = selectMatchingRegistrationSettings(event, registration?.team_data?.division_id)
+        const teamReq = parseTeamRequirements(matchedSettings?.team_requirements)
         if (teamReq) {
           const now = new Date()
-          const regEndDate = teamReq.registrationEndDate
-          const reviewEndDate = teamReq.reviewEndDate
+          const regEndDate = teamReq?.registrationEndDate
+          const reviewEndDate = teamReq?.reviewEndDate
           const regEnd = regEndDate ? new Date(regEndDate) : null
           const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
 
@@ -86,10 +340,26 @@ export default function PlayerSharePage() {
       }
 
       // 如果指定了队员索引，加载现有数据
-      if (player_index !== null && player_index !== undefined && registration.players_data) {
-        const existingPlayerData = registration.players_data[player_index] || {}
-        setPlayerData(existingPlayerData)
-      }
+      const existingPlayerData =
+        shared_player ||
+        (() => {
+          if (registration.players_data) {
+            if (player_index !== null && player_index !== undefined) {
+              return registration.players_data[player_index] || {}
+            }
+            if (player_id) {
+              return registration.players_data.find((player: SharedPlayerData) => player.id === player_id) || {}
+            }
+          }
+          return {}
+        })()
+
+      const resolvedRoleId = String(existingPlayerData?.role || 'player')
+      setLockedRoleId(resolvedRoleId)
+      setPlayerData({
+        ...existingPlayerData,
+        role: resolvedRoleId,
+      })
 
       setIsLoading(false)
     } catch (error) {
@@ -99,32 +369,167 @@ export default function PlayerSharePage() {
     }
   }
 
-  const handleSubmit = async () => {
-    // 验证必填字段 - 与报名端保持一致
-    const selectedRoleId = playerData.role || 'player'
-    const selectedRole = event?.registration_settings?.player_requirements?.roles?.find(
-      (r: any) => r.id === selectedRoleId
-    ) || event?.registration_settings?.player_requirements?.roles?.[0]
+  const activeRegistrationSettings = useMemo(
+    () => selectMatchingRegistrationSettings(event, teamData?.division_id),
+    [event, teamData?.division_id]
+  )
 
-    // 使用管理端设置的字段顺序
-    const roleFields = selectedRole?.allFields || [
-      ...(selectedRole?.commonFields || []),
-      ...(selectedRole?.customFields || [])
+  const playerRequirements = activeRegistrationSettings?.player_requirements
+
+  const activeDivisionRules = useMemo<DivisionRules>(() => ({
+    gender: playerRequirements?.genderRequirement || 'none',
+    minAge: playerRequirements?.minAge,
+    maxAge: playerRequirements?.maxAge,
+    minBirthDate: playerRequirements?.minAgeDate,
+    maxBirthDate: playerRequirements?.maxAgeDate,
+  }), [playerRequirements?.genderRequirement, playerRequirements?.maxAge, playerRequirements?.maxAgeDate, playerRequirements?.minAge, playerRequirements?.minAgeDate])
+
+  const ageRuleBounds = useMemo(
+    () => resolveAgeRequirementBounds(activeDivisionRules),
+    [activeDivisionRules]
+  )
+
+  const selectedRoleId = lockedRoleId || playerData.role || 'player'
+  const selectedRole = playerRequirements?.roles?.find(
+    (role: RoleConfig) => role.id === selectedRoleId
+  ) || playerRequirements?.roles?.[0]
+  const lockedRoleName = selectedRole?.name || '人员'
+
+  let roleFields = selectedRole?.allFields || [
+    ...(selectedRole?.commonFields || []),
+    ...(selectedRole?.customFields || [])
+  ]
+
+  if (!roleFields || roleFields.length === 0) {
+    roleFields = [
+      { id: 'name', label: '姓名', type: 'text', required: true },
+      { id: 'gender', label: '性别', type: 'select', required: true, options: ['男', '女'] },
+      { id: 'birthdate', label: '出生日期', type: 'date', required: false },
+      { id: 'age', label: '年龄', type: 'text', required: false },
+      { id: 'id_type', label: '证件类型', type: 'select', required: false, options: ['身份证', '其他'] },
+      { id: 'id_number', label: '证件号码', type: 'text', required: false }
     ]
+  }
+
+  const handleSubmit = async () => {
+    const registrationPlayers = registration?.players_data || []
+    const existingPlayerData = (() => {
+      const playerId = shareToken?.player_id
+      if (playerId) {
+        const matchedPlayer = registrationPlayers.find((player: SharedPlayerData) => player.id === playerId)
+        if (matchedPlayer) return matchedPlayer
+      }
+
+      if (shareToken?.player_index !== null && shareToken?.player_index !== undefined) {
+        return registrationPlayers[shareToken.player_index] || {}
+      }
+
+      return {}
+    })()
+
+    const mergedPlayerData = {
+      ...existingPlayerData,
+      ...playerData,
+      role: selectedRoleId,
+    }
 
     // 验证所有必填字段
     for (const field of roleFields) {
-      if (field.required && !playerData[field.id]) {
-        alert(`请填写${field.label}`)
+      const fieldLabel = getFieldDisplayLabel(field)
+      if (isFieldRequiredForValues(field, mergedPlayerData) && !hasFieldValue(mergedPlayerData[field.id])) {
+        alert(`请填写${fieldLabel}`)
         return
       }
 
       // 特殊验证：身份证号码
-      if (field.id === 'id_number' && playerData[field.id]) {
-        const validation = validateIdNumber(playerData[field.id])
+      if (field.id === 'id_number' && isIdentityDocumentSelected(mergedPlayerData) && mergedPlayerData[field.id]) {
+        const validation = validateIdNumber(mergedPlayerData[field.id])
         if (!validation.valid) {
           alert(`身份证号码格式错误: ${validation.message}`)
           return
+        }
+      }
+    }
+
+    if ((mergedPlayerData.role || 'player') === 'player') {
+      const idNumber = String(mergedPlayerData.id_number || '').trim()
+      const enteredAge = parseAgeValue(mergedPlayerData.age)
+      const useIdentityDocumentValidation = isIdentityDocumentSelected(mergedPlayerData)
+
+      if (useIdentityDocumentValidation && idNumber) {
+        const idRuleValidation = validateAgainstDivisionRules(idNumber, activeDivisionRules)
+        if (!idRuleValidation.isValid) {
+          alert(`当前队员不符合组别要求：\n${idRuleValidation.errors.join('\n')}`)
+          return
+        }
+
+        const idCardInfo = parseIdCard(idNumber)
+        if (enteredAge !== undefined && idCardInfo.isValid && idCardInfo.age !== undefined && enteredAge !== idCardInfo.age) {
+          alert(`当前队员填写年龄为 ${enteredAge} 岁，但身份证号对应年龄为 ${idCardInfo.age} 岁，请核对后再提交`)
+          return
+        }
+      } else {
+        if (activeDivisionRules.gender && activeDivisionRules.gender !== 'none' && activeDivisionRules.gender !== 'mixed') {
+          const requiredGender = activeDivisionRules.gender === 'male' ? '男' : '女'
+          const playerGender = mergedPlayerData.gender || mergedPlayerData.sex
+          if (!playerGender) {
+            alert('当前队员必须填写性别信息')
+            return
+          }
+          if (playerGender !== requiredGender) {
+            alert(`该组别仅限${requiredGender}队员，但当前队员的性别为${playerGender}`)
+            return
+          }
+        }
+
+        if (activeDivisionRules.minBirthDate || activeDivisionRules.maxBirthDate) {
+          let birthDateStr: string | undefined
+          if (mergedPlayerData.birthdate) {
+            birthDateStr = String(mergedPlayerData.birthdate).slice(0, 10)
+          } else if (mergedPlayerData.birthday) {
+            birthDateStr = String(mergedPlayerData.birthday).slice(0, 10)
+          }
+          if (birthDateStr) {
+            if (activeDivisionRules.minBirthDate && birthDateStr < activeDivisionRules.minBirthDate) {
+              alert(`当前队员出生日期为 ${birthDateStr}，早于组别要求的 ${activeDivisionRules.minBirthDate}`)
+              return
+            }
+            if (activeDivisionRules.maxBirthDate && birthDateStr > activeDivisionRules.maxBirthDate) {
+              alert(`当前队员出生日期为 ${birthDateStr}，晚于组别要求的 ${activeDivisionRules.maxBirthDate}`)
+              return
+            }
+          } else {
+            if (enteredAge === undefined) {
+              alert('当前队员需补充年龄或出生日期用于组别校验')
+              return
+            }
+            if (ageRuleBounds.minAge !== undefined && enteredAge < ageRuleBounds.minAge) {
+              alert(`当前队员年龄为 ${enteredAge} 岁，小于当前允许年龄 ${ageRuleBounds.minAge} 岁`)
+              return
+            }
+            if (ageRuleBounds.maxAge !== undefined && enteredAge > ageRuleBounds.maxAge) {
+              alert(`当前队员年龄为 ${enteredAge} 岁，大于当前允许年龄 ${ageRuleBounds.maxAge} 岁`)
+              return
+            }
+          }
+        } else if (activeDivisionRules.minAge !== undefined || activeDivisionRules.maxAge !== undefined) {
+          let playerAge = enteredAge
+          if (playerAge === undefined) {
+            playerAge = calculateAgeFromDateString(mergedPlayerData.birthdate || mergedPlayerData.birthday)
+          }
+
+          if (playerAge === undefined || Number.isNaN(playerAge)) {
+            alert('当前队员需补充年龄或出生日期用于组别年龄校验')
+            return
+          }
+          if (activeDivisionRules.minAge !== undefined && playerAge < activeDivisionRules.minAge) {
+            alert(`当前队员年龄为 ${playerAge} 岁，小于组别最小年龄 ${activeDivisionRules.minAge} 岁`)
+            return
+          }
+          if (activeDivisionRules.maxAge !== undefined && playerAge > activeDivisionRules.maxAge) {
+            alert(`当前队员年龄为 ${playerAge} 岁，大于组别最大年龄 ${activeDivisionRules.maxAge} 岁`)
+            return
+          }
         }
       }
     }
@@ -142,7 +547,7 @@ export default function PlayerSharePage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          player_data: playerData
+          player_data: mergedPlayerData
         }),
       })
 
@@ -150,7 +555,7 @@ export default function PlayerSharePage() {
 
       if (result.success) {
         setIsSubmitted(true)
-        alert('提交成功！您的信息已保存')
+        alert('提交成功！您的信息已保存，如需修改请联系教练重新生成新的分享链接')
       } else {
         alert(result.error || '提交失败，请重试')
       }
@@ -162,50 +567,14 @@ export default function PlayerSharePage() {
     }
   }
 
-  // 验证身份证号码格式
-  const validateIdNumber = (idNumber: string) => {
-    // 去除空格
-    const trimmedId = idNumber.trim()
-
-    // 检查长度
-    if (trimmedId.length !== 18) {
-      return { valid: false, message: '身份证号码必须为18位' }
-    }
-
-    // 检查前17位是否为数字
-    const first17 = trimmedId.slice(0, 17)
-    if (!/^\d{17}$/.test(first17)) {
-      return { valid: false, message: '身份证号码前17位必须为数字' }
-    }
-
-    // 检查第18位是否为数字或X/x
-    const last = trimmedId.charAt(17)
-    if (!/^[0-9Xx]$/.test(last)) {
-      return { valid: false, message: '身份证号码第18位必须为数字或字母X' }
-    }
-
-    // 验证身份证号码的校验位
-    const weights = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2]
-    const checkCodes = ['1', '0', 'X', '9', '8', '7', '6', '5', '4', '3', '2']
-    let sum = 0
-
-    for (let i = 0; i < 17; i++) {
-      sum += parseInt(trimmedId.charAt(i)) * weights[i]
-    }
-
-    const checkCode = checkCodes[sum % 11]
-    const actualCheckCode = last.toUpperCase()
-
-    if (checkCode !== actualCheckCode) {
-      return { valid: false, message: '身份证号码校验位错误，请检查输入是否正确' }
-    }
-
-    return { valid: true, message: '身份证号码格式正确' }
-  }
-
   const updatePlayerData = (field: string, value: any) => {
+    if (field === 'role') {
+      return
+    }
+
     setPlayerData((prev: any) => ({
       ...prev,
+      role: lockedRoleId || prev?.role || 'player',
       [field]: value
     }))
   }
@@ -269,20 +638,9 @@ export default function PlayerSharePage() {
   }
 
   if (isSubmitted) {
-    // 获取字段配置以显示提交的信息
-    const selectedRoleId = playerData.role || 'player'
-    const selectedRole = event?.registration_settings?.player_requirements?.roles?.find(
-      (r: any) => r.id === selectedRoleId
-    ) || event?.registration_settings?.player_requirements?.roles?.[0]
-
-    const roleFields = selectedRole?.allFields || [
-      ...(selectedRole?.commonFields || []),
-      ...(selectedRole?.customFields || [])
-    ]
-
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Card className="max-w-md w-full">
+      <div className="min-h-screen bg-gray-50 px-4 py-6 sm:py-8">
+        <Card className="mx-auto w-full max-w-md">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-green-600">
               <CheckCircle className="h-5 w-5" />
@@ -290,27 +648,47 @@ export default function PlayerSharePage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-gray-600 mb-4">您的队员信息已成功提交！</p>
+            <p className="text-gray-600 mb-4">您的{lockedRoleName}信息已成功提交。</p>
+            <p className="mb-4 text-sm text-muted-foreground">该分享链接已自动失效，如需修改请联系教练重新生成新的分享链接。</p>
             <div className="bg-gray-50 p-4 rounded-lg">
               <h4 className="font-medium mb-2">已提交的信息：</h4>
-              <div className="space-y-1 text-sm">
+              <div className="space-y-3 text-sm">
                 {roleFields.map((field: any) => {
                   const value = playerData[field.id]
-                  if (!value) return null
+                  const fieldLabel = getFieldDisplayLabel(field)
+                  if (!hasFieldValue(value)) return null
 
                   // 处理不同类型的显示
-                  let displayValue = value
-                  if (Array.isArray(value)) {
-                    displayValue = value.join(', ')
-                  } else if (field.type === 'date') {
-                    displayValue = new Date(value).toLocaleDateString('zh-CN')
-                  }
+                  const isImageField = field.type === 'image' && typeof value === 'string'
+                  const displayValue = Array.isArray(value)
+                    ? value.join(', ')
+                    : field.type === 'date'
+                      ? new Date(value).toLocaleDateString('zh-CN')
+                      : String(value)
 
                   return (
-                    <p key={field.id}>
-                      <span className="font-medium">{field.label}：</span>
-                      {displayValue}
-                    </p>
+                    <div key={field.id} className="space-y-2">
+                      <p className="font-medium">{fieldLabel}：</p>
+                      {isImageField ? (
+                        <div className="flex items-center gap-3 rounded-lg border bg-background p-3">
+                          <div className="relative h-16 w-16 overflow-hidden rounded-md border bg-background">
+                            <Image
+                              src={value}
+                              alt={fieldLabel}
+                              fill
+                              unoptimized
+                              className="object-cover"
+                            />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium">已上传{fieldLabel}</p>
+                            <p className="text-xs text-muted-foreground">图片预览已保存</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="break-all text-sm text-foreground">{displayValue}</p>
+                      )}
+                    </div>
                   )
                 })}
               </div>
@@ -321,194 +699,327 @@ export default function PlayerSharePage() {
     )
   }
 
-  const playerRequirements = event?.registration_settings?.player_requirements
-
-  // 获取角色配置的字段
-  const selectedRoleId = playerData.role || 'player'
-  const selectedRole = playerRequirements?.roles?.find(
-    (r: any) => r.id === selectedRoleId
-  ) || playerRequirements?.roles?.[0]
-
-  // 使用管理端设置的字段顺序
-  let roleFields = selectedRole?.allFields || [
-    ...(selectedRole?.commonFields || []),
-    ...(selectedRole?.customFields || [])
-  ]
-
-  // 如果没有配置字段，使用默认字段
-  if (!roleFields || roleFields.length === 0) {
-    console.log('没有找到字段配置，使用默认字段', {
-      event,
-      playerRequirements,
-      selectedRole
-    })
-
-    // 默认字段配置
-    roleFields = [
-      { id: 'name', label: '姓名', type: 'text', required: true },
-      { id: 'gender', label: '性别', type: 'select', required: true, options: ['男', '女'] },
-      { id: 'birthdate', label: '出生日期', type: 'date', required: false },
-      { id: 'age', label: '年龄', type: 'text', required: false },
-      { id: 'idcard', label: '身份证号', type: 'text', required: false }
-    ]
-  }
-
-  console.log('使用的字段配置:', roleFields)
-
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-2xl mx-auto px-4">
-        <Card>
+    <div className="min-h-screen bg-gray-50 px-4 py-6 sm:py-8">
+      <div className="mx-auto max-w-2xl">
+        <Card className="border-border/60 shadow-sm">
           <CardHeader>
-            <div className="flex items-center justify-between mb-2">
-              <Badge variant="outline">{event?.name}</Badge>
+            <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <Badge className="max-w-full justify-center truncate sm:max-w-[70%]" variant="outline">{event?.name}</Badge>
               {teamData?.team_name && (
-                <Badge>{teamData.team_name}</Badge>
+                <Badge className="max-w-full justify-center truncate sm:max-w-[40%]">{teamData.team_name}</Badge>
               )}
             </div>
-            <CardTitle>队员信息填写</CardTitle>
+            <CardTitle>{lockedRoleName}信息填写</CardTitle>
             <CardDescription>
               请填写您的个人信息，完成后点击提交
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {/* 角色选择 - 如果有多个角色 */}
-              {playerRequirements?.roles && playerRequirements.roles.length > 1 && (
-                <div>
-                  <Label>角色 *</Label>
-                  <Select
-                    value={playerData.role || 'player'}
-                    onValueChange={(value) => updatePlayerData('role', value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="选择角色" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {playerRequirements.roles.map((role: any) => (
-                        <SelectItem key={role.id} value={role.id}>
-                          {role.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+            <div className="space-y-5">
+              {playerRequirements?.roles && playerRequirements.roles.length > 0 && (
+                <div className="space-y-2 rounded-lg border border-border/60 bg-muted/30 p-3">
+                  <Label className="flex flex-wrap items-center gap-2 text-sm font-medium leading-none">
+                    角色
+                    <span className={MUTED_BADGE_CLASS}>已锁定</span>
+                  </Label>
+                  <p className="text-sm font-medium text-foreground">{lockedRoleName}</p>
+                  <p className="text-xs text-muted-foreground">该分享链接仅可填写当前角色的信息，提交后将自动失效。</p>
                 </div>
               )}
 
               {/* 动态渲染字段 - 与报名端保持一致 */}
               {roleFields.map((field: any) => {
+                const fieldLabel = getFieldDisplayLabel(field)
+                const isFieldRequired = isFieldRequiredForValues(field, playerData)
+                const useIdentityDocumentValidation = isIdentityDocumentSelected(playerData)
+                const isAgeField = field.id === 'age'
+                const isBirthdateField = field.id === 'birthdate' || field.id === 'birthday'
+                const ageRequirement = isAgeField && (
+                  activeDivisionRules.minBirthDate !== undefined ||
+                  activeDivisionRules.maxBirthDate !== undefined ||
+                  activeDivisionRules.minAge !== undefined ||
+                  activeDivisionRules.maxAge !== undefined
+                )
+                const ageRequirementLabel = formatAgeRequirementLabel(ageRuleBounds.minAge, ageRuleBounds.maxAge)
+
                 switch (field.type) {
                   case 'text':
                     // 检查是否是身份证号码字段
                     const isIdNumberField = field.id === 'id_number'
                     let idValidation = { valid: true, message: '' }
-                    if (isIdNumberField && playerData[field.id]) {
+                    let idRuleErrors: string[] = []
+                    let ageStatus = ''
+                    let ageMessage = ''
+                    if (isIdNumberField && useIdentityDocumentValidation && playerData[field.id]) {
                       idValidation = validateIdNumber(playerData[field.id])
+                      if (idValidation.valid) {
+                        const idRuleValidation = validateAgainstDivisionRules(playerData[field.id], activeDivisionRules)
+                        if (!idRuleValidation.isValid) {
+                          idRuleErrors = idRuleValidation.errors
+                        }
+                      }
+                    }
+
+                    if (isAgeField && ageRequirement && hasFieldValue(playerData[field.id])) {
+                      const currentAge = parseAgeValue(playerData[field.id])
+                      const ageErrors: string[] = []
+                      const ageSuccessMessages: string[] = []
+
+                      if (currentAge === undefined) {
+                        ageErrors.push('请输入有效年龄')
+                      } else {
+                        if (ageRuleBounds.minAge !== undefined && currentAge < ageRuleBounds.minAge) {
+                          ageErrors.push(`年龄不能小于 ${ageRuleBounds.minAge} 岁，当前为 ${currentAge} 岁`)
+                        } else if (ageRuleBounds.maxAge !== undefined && currentAge > ageRuleBounds.maxAge) {
+                          ageErrors.push(`年龄不能大于 ${ageRuleBounds.maxAge} 岁，当前为 ${currentAge} 岁`)
+                        } else {
+                          ageSuccessMessages.push(`年龄 ${currentAge} 岁，符合要求`)
+                        }
+
+                        const idNumber = String(playerData.id_number || '').trim()
+                        if (useIdentityDocumentValidation && idNumber) {
+                          const parsedIdCard = parseIdCard(idNumber)
+                          if (parsedIdCard.isValid && parsedIdCard.age !== undefined && parsedIdCard.age !== currentAge) {
+                            ageErrors.push(`身份证号对应年龄为 ${parsedIdCard.age} 岁，与填写年龄 ${currentAge} 岁不一致`)
+                          }
+                        }
+                      }
+
+                      if (ageErrors.length > 0) {
+                        ageStatus = 'invalid'
+                        ageMessage = ageErrors.join('；')
+                      } else if (ageSuccessMessages.length > 0) {
+                        ageStatus = 'valid'
+                        ageMessage = ageSuccessMessages.join('；')
+                      }
                     }
 
                     return (
-                      <div key={field.id}>
-                        <Label className="flex items-center gap-2">
-                          {field.label}{field.required && ' *'}
-                          {isIdNumberField && (
-                            <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                      <div key={field.id} className="space-y-2">
+                        <Label className="flex flex-wrap items-center gap-2 text-sm font-medium leading-none">
+                          {fieldLabel}{isFieldRequired && ' *'}
+                          {isIdNumberField && useIdentityDocumentValidation && (
+                            <span className={MUTED_BADGE_CLASS}>
                               18位
+                            </span>
+                          )}
+                          {isAgeField && ageRequirement && ageRequirementLabel && (
+                            <span className={INFO_BADGE_CLASS}>
+                              {ageRequirementLabel}
                             </span>
                           )}
                         </Label>
                         <Input
                           value={playerData[field.id] || ''}
                           onChange={(e) => updatePlayerData(field.id, e.target.value)}
-                          placeholder={isIdNumberField ? '请输入18位身份证号码' : `请输入${field.label}`}
-                          maxLength={isIdNumberField ? 18 : undefined}
-                          className={`${
-                            isIdNumberField && !idValidation.valid
-                              ? 'border-red-300 bg-red-50'
-                              : isIdNumberField && idValidation.valid && playerData[field.id]
-                              ? 'border-green-300 bg-green-50'
+                          type={isAgeField ? 'number' : 'text'}
+                          placeholder={isIdNumberField
+                            ? (useIdentityDocumentValidation ? '请输入18位身份证号码' : '请输入证件号码')
+                            : `请输入${fieldLabel}`}
+                          maxLength={isIdNumberField && useIdentityDocumentValidation ? 18 : undefined}
+                          className={`h-11 ${
+                            isIdNumberField && useIdentityDocumentValidation && (!idValidation.valid || idRuleErrors.length > 0)
+                              ? VALIDATION_INPUT_ERROR_CLASS
+                            : isIdNumberField && useIdentityDocumentValidation && idValidation.valid && playerData[field.id] && idRuleErrors.length === 0
+                              ? VALIDATION_INPUT_SUCCESS_CLASS
+                              : ageStatus === 'invalid'
+                              ? VALIDATION_INPUT_ERROR_CLASS
+                              : ageStatus === 'valid'
+                              ? VALIDATION_INPUT_SUCCESS_CLASS
                               : ''
                           }`}
                         />
-                        {isIdNumberField && playerData[field.id] && (
-                          <p className={`text-xs mt-1 font-medium ${
-                            !idValidation.valid
-                              ? 'text-red-600 bg-red-50 p-2 rounded border border-red-200'
-                              : 'text-green-600 bg-green-50 p-2 rounded border border-green-200'
+                        {isIdNumberField && useIdentityDocumentValidation && playerData[field.id] && (
+                          <p className={`text-xs font-medium ${
+                            !idValidation.valid || idRuleErrors.length > 0
+                              ? VALIDATION_MESSAGE_ERROR_CLASS
+                              : VALIDATION_MESSAGE_SUCCESS_CLASS
                           }`}>
-                            {idValidation.message}
+                            {!idValidation.valid ? idValidation.message : idRuleErrors.length > 0 ? idRuleErrors.join('；') : idValidation.message}
+                          </p>
+                        )}
+                        {isAgeField && ageMessage && (
+                          <p className={`text-xs font-medium ${
+                            ageStatus === 'invalid'
+                              ? VALIDATION_MESSAGE_ERROR_CLASS
+                              : ageStatus === 'valid'
+                              ? VALIDATION_MESSAGE_SUCCESS_CLASS
+                              : ''
+                          }`}>
+                            {ageMessage}
                           </p>
                         )}
                       </div>
                     )
                   case 'date':
+                    const birthdateAgeRequirement = isBirthdateField && (
+                      activeDivisionRules.minBirthDate !== undefined ||
+                      activeDivisionRules.maxBirthDate !== undefined ||
+                      activeDivisionRules.minAge !== undefined ||
+                      activeDivisionRules.maxAge !== undefined
+                    )
+                    let birthdateAgeStatus = ''
+                    let birthdateAgeMessage = ''
+
+                    if (birthdateAgeRequirement && playerData[field.id]) {
+                      const calculatedAge = calculateAgeFromDateString(playerData[field.id])
+                      const birthDateStr = String(playerData[field.id]).slice(0, 10)
+
+                      if ((activeDivisionRules.minBirthDate || activeDivisionRules.maxBirthDate) && calculatedAge !== undefined) {
+                        if (activeDivisionRules.minBirthDate && birthDateStr < activeDivisionRules.minBirthDate) {
+                          birthdateAgeStatus = 'invalid'
+                          birthdateAgeMessage = `出生日期不能早于 ${activeDivisionRules.minBirthDate}，当前为 ${calculatedAge} 岁${ageRuleBounds.maxAge !== undefined ? `，超过 ${ageRuleBounds.maxAge} 岁限制` : ''}`
+                        } else if (activeDivisionRules.maxBirthDate && birthDateStr > activeDivisionRules.maxBirthDate) {
+                          birthdateAgeStatus = 'invalid'
+                          birthdateAgeMessage = `出生日期不能晚于 ${activeDivisionRules.maxBirthDate}，当前为 ${calculatedAge} 岁${ageRuleBounds.minAge !== undefined ? `，小于 ${ageRuleBounds.minAge} 岁限制` : ''}`
+                        } else {
+                          birthdateAgeStatus = 'valid'
+                          birthdateAgeMessage = `年龄 ${calculatedAge} 岁，出生日期符合要求`
+                        }
+                      } else if (calculatedAge !== undefined) {
+                        if (ageRuleBounds.minAge !== undefined && calculatedAge < ageRuleBounds.minAge) {
+                          birthdateAgeStatus = 'invalid'
+                          birthdateAgeMessage = `根据出生日期计算，年龄为 ${calculatedAge} 岁，不能小于 ${ageRuleBounds.minAge} 岁`
+                        } else if (ageRuleBounds.maxAge !== undefined && calculatedAge > ageRuleBounds.maxAge) {
+                          birthdateAgeStatus = 'invalid'
+                          birthdateAgeMessage = `根据出生日期计算，年龄为 ${calculatedAge} 岁，不能大于 ${ageRuleBounds.maxAge} 岁`
+                        } else {
+                          birthdateAgeStatus = 'valid'
+                          birthdateAgeMessage = `年龄 ${calculatedAge} 岁，符合要求`
+                        }
+                      }
+                    }
+
                     return (
-                      <div key={field.id}>
-                        <Label>{field.label}{field.required && ' *'}</Label>
+                      <div key={field.id} className="space-y-2">
+                        <Label className="flex flex-wrap items-center gap-2 text-sm font-medium leading-none">
+                          {fieldLabel}{isFieldRequired && ' *'}
+                          {birthdateAgeRequirement && (
+                            <span className={INFO_BADGE_CLASS}>
+                              {(() => {
+                                const dateLabel = `${activeDivisionRules.minBirthDate || '不限'} 至 ${activeDivisionRules.maxBirthDate || '不限'}`
+                                return ageRequirementLabel ? `${dateLabel}（${ageRequirementLabel}）` : dateLabel
+                              })()}
+                            </span>
+                          )}
+                        </Label>
                         <Input
                           type="date"
                           value={playerData[field.id] || ''}
                           onChange={(e) => updatePlayerData(field.id, e.target.value)}
+                          className={`h-11 ${
+                            birthdateAgeStatus === 'invalid'
+                              ? VALIDATION_INPUT_ERROR_CLASS
+                              : birthdateAgeStatus === 'valid'
+                              ? VALIDATION_INPUT_SUCCESS_CLASS
+                              : ''
+                          }`}
                         />
+                        {birthdateAgeMessage && (
+                          <p className={`text-xs font-medium ${
+                            birthdateAgeStatus === 'invalid'
+                              ? VALIDATION_MESSAGE_ERROR_CLASS
+                              : birthdateAgeStatus === 'valid'
+                              ? VALIDATION_MESSAGE_SUCCESS_CLASS
+                              : ''
+                          }`}>
+                            {birthdateAgeMessage}
+                          </p>
+                        )}
                       </div>
                     )
                   case 'select':
+                    const isGenderField = field.id === 'gender' || field.id === 'sex'
+                    const genderRequirement = isGenderField && activeDivisionRules.gender && activeDivisionRules.gender !== 'none' && activeDivisionRules.gender !== 'mixed'
+                    const currentGender = String(playerData[field.id] || '')
+
                     return (
-                      <div key={field.id}>
-                        <Label>{field.label}{field.required && ' *'}</Label>
+                      <div key={field.id} className="space-y-2">
+                        <Label className="flex flex-wrap items-center gap-2 text-sm font-medium leading-none">
+                          {fieldLabel}{isFieldRequired && ' *'}
+                          {genderRequirement && (
+                            <span className={INFO_BADGE_CLASS}>
+                              仅限{activeDivisionRules.gender === 'male' ? '男性' : '女性'}
+                            </span>
+                          )}
+                        </Label>
                         <Select
                           value={playerData[field.id] || ''}
                           onValueChange={(value) => updatePlayerData(field.id, value)}
                         >
-                          <SelectTrigger>
-                            <SelectValue placeholder={`请选择${field.label}`} />
+                          <SelectTrigger className={`h-11 w-full ${
+                            genderRequirement &&
+                            currentGender &&
+                            currentGender !== (activeDivisionRules.gender === 'male' ? '男' : '女')
+                              ? VALIDATION_INPUT_ERROR_CLASS
+                              : ''
+                          }`}>
+                            <SelectValue placeholder={`请选择${fieldLabel}`} />
                           </SelectTrigger>
                           <SelectContent>
-                            {field.options?.map((option: any) => (
-                              <SelectItem key={option} value={option}>
-                                {option}
-                              </SelectItem>
-                            ))}
+                            {field.options?.map((option: string | { id?: string; label?: string; value?: string; text?: string; name?: string }) => {
+                              const optionValue = getOptionValue(option)
+                              const optionLabel = getOptionLabel(option)
+                              return (
+                                <SelectItem key={optionValue} value={optionValue}>
+                                  {optionLabel}
+                                </SelectItem>
+                              )
+                            })}
                           </SelectContent>
                         </Select>
+                        {genderRequirement &&
+                          currentGender &&
+                          currentGender !== (activeDivisionRules.gender === 'male' ? '男' : '女') && (
+                            <p className={`text-xs font-medium ${VALIDATION_MESSAGE_ERROR_CLASS}`}>
+                              当前组别仅限{activeDivisionRules.gender === 'male' ? '男性' : '女性'}参赛
+                            </p>
+                          )}
                       </div>
                     )
                   case 'multiselect':
                     return (
-                      <div key={field.id}>
-                        <Label>{field.label}{field.required && ' *'}</Label>
-                        <div className="space-y-2 mt-1">
-                          {field.options?.map((option: string) => (
-                            <label key={option} className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                checked={(playerData[field.id] || []).includes(option)}
-                                onChange={(e) => {
-                                  const currentValues = playerData[field.id] || []
-                                  if (e.target.checked) {
-                                    updatePlayerData(field.id, [...currentValues, option])
-                                  } else {
-                                    updatePlayerData(field.id, currentValues.filter((v: string) => v !== option))
-                                  }
-                                }}
-                                className="rounded border-gray-300"
-                              />
-                              <span className="text-sm">{option}</span>
-                            </label>
-                          ))}
+                      <div key={field.id} className="space-y-2">
+                        <Label className="flex flex-wrap items-center gap-2 text-sm font-medium leading-none">{fieldLabel}{isFieldRequired && ' *'}</Label>
+                        <div className="space-y-2">
+                          {field.options?.map((option: string | { id?: string; label?: string; value?: string; text?: string; name?: string }) => {
+                            const optionValue = getOptionValue(option)
+                            const optionLabel = getOptionLabel(option)
+                            return (
+                              <label key={optionValue} className="flex items-center space-x-2 rounded-md border border-border/60 px-3 py-2">
+                                <input
+                                  type="checkbox"
+                                  checked={(playerData[field.id] || []).includes(optionValue)}
+                                  onChange={(e) => {
+                                    const currentValues = playerData[field.id] || []
+                                    if (e.target.checked) {
+                                      updatePlayerData(field.id, [...currentValues, optionValue])
+                                    } else {
+                                      updatePlayerData(field.id, currentValues.filter((v: string) => v !== optionValue))
+                                    }
+                                  }}
+                                  className="rounded border-gray-300"
+                                />
+                                <span className="text-sm">{optionLabel}</span>
+                              </label>
+                            )
+                          })}
                         </div>
                       </div>
                     )
                   case 'image':
                     return (
-                      <div key={field.id}>
-                        <Label>{field.label}{field.required && ' *'}</Label>
-                        <div className="mt-2">
+                      <div key={field.id} className="space-y-2">
+                        <Label className="flex flex-wrap items-center gap-2 text-sm font-medium leading-none">{fieldLabel}{isFieldRequired && ' *'}</Label>
+                        <div>
                           {playerData[field.id] ? (
                             <div className="relative w-32 h-32 border rounded-lg overflow-hidden">
                               <Image
                                 src={playerData[field.id]}
                                 alt={field.label}
                                 fill
+                                unoptimized
                                 className="object-cover"
                               />
                               <Button

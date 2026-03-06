@@ -78,6 +78,16 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, can
     'attachments': '多附件'
   }
 
+  const handleRemoveClick = () => {
+    if (!canRemove) {
+      alert('该字段为必填字段，不能删除')
+      return
+    }
+    if (onRemove) {
+      onRemove()
+    }
+  }
+
   return (
     <div
       ref={setNodeRef}
@@ -93,6 +103,9 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, can
           <GripVertical className="h-4 w-4 text-muted-foreground" />
         </button>
         <span className="text-sm font-medium">{field.label}</span>
+        {!canRemove && (
+          <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">必填</span>
+        )}
         <span className="text-xs text-muted-foreground">
           ({typeLabels[field.type] || field.type})
           {field.options && ` - ${field.options.length}个选项`}
@@ -117,18 +130,15 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, can
           />
           <span className="text-sm">必填</span>
         </label>
-        {/* 始终显示删除按钮位置，保持对齐 */}
-        {canRemove && onRemove ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onRemove}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        ) : (
-          <div className="h-9 px-3" />
-        )}
+        {/* 所有字段都显示删除按钮，保持UI一致 */}
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={handleRemoveClick}
+          title={canRemove ? "删除字段" : "该字段不能删除"}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
       </div>
     </div>
   )
@@ -191,7 +201,6 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
   const [teamRequirements, setTeamRequirements] = useState<TeamRequirements>({
     commonFields: [
-      { id: 'group', label: '队伍组别', type: 'select', required: true, options: [] },
       { id: 'unit', label: '参赛单位', type: 'text', required: true, canRemove: false },
       { id: 'name', label: '队伍名称', type: 'text', required: true, canRemove: false },
       { id: 'contact', label: '联系人', type: 'text', required: true, canRemove: false },
@@ -214,7 +223,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           { id: 'gender', label: '性别', type: 'select', required: true, options: ['男', '女'], canRemove: false },
           { id: 'age', label: '年龄', type: 'text', required: true, canRemove: false },
           { id: 'id_type', label: '证件类型', type: 'select', required: true, options: ['身份证', '其他'] },
-          { id: 'id_number', label: '身份证号', type: 'text', required: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
+          { id: 'id_number', label: '证件号码', type: 'text', required: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
           { id: 'player_number', label: '参赛号码', type: 'text', required: true },
           { id: 'emergency_contact', label: '紧急联系人', type: 'text', required: true },
           { id: 'contact_phone', label: '联系电话', type: 'text', required: true },
@@ -226,7 +235,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           { id: 'gender', label: '性别', type: 'select', required: true, options: ['男', '女'], isCommon: true, canRemove: false },
           { id: 'age', label: '年龄', type: 'text', required: true, isCommon: true, canRemove: false },
           { id: 'id_type', label: '证件类型', type: 'select', required: true, options: ['身份证', '其他'], isCommon: true },
-          { id: 'id_number', label: '身份证号', type: 'text', required: true, isCommon: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
+          { id: 'id_number', label: '证件号码', type: 'text', required: true, isCommon: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
           { id: 'player_number', label: '参赛号码', type: 'text', required: true, isCommon: true },
           { id: 'emergency_contact', label: '紧急联系人', type: 'text', required: true, isCommon: true },
           { id: 'contact_phone', label: '联系电话', type: 'text', required: true, isCommon: true },
@@ -506,7 +515,6 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
       if (result.success && result.data) {
         const loadedTeamReq: TeamRequirements = result.data.team_requirements || {
           commonFields: [
-            { id: 'group', label: '队伍组别', type: 'select', required: true, options: [] },
             { id: 'unit', label: '参赛单位', type: 'text', required: true, canRemove: false },
             { id: 'name', label: '队伍名称', type: 'text', required: true, canRemove: false },
             { id: 'contact', label: '联系人', type: 'text', required: true, canRemove: false },
@@ -567,7 +575,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
               { id: 'gender', label: '性别', type: 'select' as const, required: true, options: ['男', '女'], canRemove: false },
               { id: 'age', label: '年龄', type: 'text' as const, required: true, canRemove: false },
               { id: 'id_type', label: '证件类型', type: 'select' as const, required: true, options: ['身份证', '其他'] },
-              { id: 'id_number', label: '身份证号', type: 'text' as const, required: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
+              { id: 'id_number', label: '证件号码', type: 'text' as const, required: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
               { id: 'player_number', label: '参赛号码', type: 'text' as const, required: true },
               { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: true },
               { id: 'contact_phone', label: '联系电话', type: 'text' as const, required: true },
@@ -579,7 +587,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
               { id: 'gender', label: '性别', type: 'select' as const, required: true, options: ['男', '女'], isCommon: true, canRemove: false },
               { id: 'age', label: '年龄', type: 'text' as const, required: true, isCommon: true, canRemove: false },
               { id: 'id_type', label: '证件类型', type: 'select' as const, required: true, options: ['身份证', '其他'], isCommon: true },
-              { id: 'id_number', label: '身份证号', type: 'text' as const, required: true, isCommon: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
+              { id: 'id_number', label: '证件号码', type: 'text' as const, required: true, isCommon: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
               { id: 'player_number', label: '参赛号码', type: 'text' as const, required: true, isCommon: true },
               { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: true, isCommon: true },
               { id: 'contact_phone', label: '联系电话', type: 'text' as const, required: true, isCommon: true },
@@ -642,7 +650,6 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         // 如果没有保存的数据，使用默认值并标记为已加载
         const defaultTeamReq: TeamRequirements = {
           commonFields: [
-            { id: 'group', label: '队伍组别', type: 'select', required: true, options: [] },
             { id: 'unit', label: '参赛单位', type: 'text', required: true, canRemove: false },
             { id: 'name', label: '队伍名称', type: 'text', required: true, canRemove: false },
             { id: 'contact', label: '联系人', type: 'text', required: true, canRemove: false },
@@ -651,7 +658,6 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           ],
           customFields: [],
           allFields: [
-            { id: 'group', label: '队伍组别', type: 'select', required: true, isCommon: true, options: [] },
             { id: 'unit', label: '参赛单位', type: 'text', required: true, isCommon: true, canRemove: false },
             { id: 'name', label: '队伍名称', type: 'text', required: true, isCommon: true, canRemove: false },
             { id: 'contact', label: '联系人', type: 'text', required: true, isCommon: true, canRemove: false },
@@ -671,7 +677,6 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
       // 出错时也要设置默认值并标记为已加载
         const defaultTeamReq: TeamRequirements = {
           commonFields: [
-            { id: 'group', label: '队伍组别', type: 'select', required: true, options: [] },
             { id: 'unit', label: '参赛单位', type: 'text', required: true, canRemove: false },
             { id: 'name', label: '队伍名称', type: 'text', required: true, canRemove: false },
             { id: 'contact', label: '联系人', type: 'text', required: true, canRemove: false },
@@ -680,7 +685,6 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           ],
           customFields: [],
           allFields: [
-            { id: 'group', label: '队伍组别', type: 'select', required: true, isCommon: true, options: [] },
             { id: 'unit', label: '参赛单位', type: 'text', required: true, isCommon: true, canRemove: false },
             { id: 'name', label: '队伍名称', type: 'text', required: true, isCommon: true, canRemove: false },
             { id: 'contact', label: '联系人', type: 'text', required: true, isCommon: true, canRemove: false },
@@ -838,7 +842,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         { id: 'gender', label: '性别', type: 'select' as const, required: true, options: ['男', '女'], canRemove: false },
         { id: 'age', label: '年龄', type: 'text' as const, required: true, canRemove: false },
         { id: 'id_type', label: '证件类型', type: 'select' as const, required: true, options: ['身份证', '其他'] },
-        { id: 'id_number', label: '身份证号', type: 'text' as const, required: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
+        { id: 'id_number', label: '证件号码', type: 'text' as const, required: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
         { id: 'player_number', label: '参赛号码', type: 'text' as const, required: true },
         { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: true },
         { id: 'contact_phone', label: '联系电话', type: 'text' as const, required: true },
