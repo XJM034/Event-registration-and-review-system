@@ -248,12 +248,12 @@ function MyRegistrationsContent() {
       icon: typeof FileText
       className?: string
     }> = {
-      draft: { label: '草稿', variant: 'secondary', icon: FileText, className: 'bg-gray-100 text-gray-700 border-gray-200' },
-      submitted: { label: '待审核', variant: 'default', icon: Clock, className: 'bg-yellow-100 text-yellow-700 border-yellow-200 hover:bg-yellow-100' },
-      pending: { label: '待审核', variant: 'default', icon: Clock, className: 'bg-yellow-100 text-yellow-700 border-yellow-200 hover:bg-yellow-100' },
-      approved: { label: '已通过', variant: 'default', icon: CheckCircle, className: 'bg-green-100 text-green-700 border-green-200 hover:bg-green-100' },
-      rejected: { label: '已拒绝', variant: 'outline', icon: XCircle, className: 'bg-gray-100 text-gray-700 border-gray-200' },
-      cancelled: { label: '已取消', variant: 'outline', icon: AlertCircle, className: 'bg-gray-100 text-gray-600 border-gray-200' }
+      draft: { label: '草稿', variant: 'secondary', icon: FileText, className: 'border-border bg-muted text-muted-foreground' },
+      submitted: { label: '待审核', variant: 'default', icon: Clock, className: 'border-amber-500/20 bg-amber-500/10 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300' },
+      pending: { label: '待审核', variant: 'default', icon: Clock, className: 'border-amber-500/20 bg-amber-500/10 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300' },
+      approved: { label: '已通过', variant: 'default', icon: CheckCircle, className: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300' },
+      rejected: { label: '已拒绝', variant: 'outline', icon: XCircle, className: 'border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300' },
+      cancelled: { label: '已取消', variant: 'outline', icon: AlertCircle, className: 'border-border bg-muted text-muted-foreground' }
     }
 
     const statusKey: RegistrationStatus = status in statusConfig
@@ -458,7 +458,7 @@ function MyRegistrationsContent() {
         <CardContent className="p-4">
           <div className="space-y-4">
             <Tabs value={activeTab} onValueChange={handleTabChange}>
-              <TabsList className="grid w-full grid-cols-4 md:w-[420px]">
+              <TabsList className="grid h-auto w-full grid-cols-2 md:w-[420px] md:grid-cols-4">
                 {REGISTRATION_TABS.map((tab) => (
                   <TabsTrigger key={tab.value} value={tab.value}>
                     {tab.label}
@@ -498,16 +498,16 @@ function MyRegistrationsContent() {
             <Card
               key={reg.id}
               ref={isHighlighted ? highlightRef : null}
-              className={`hover:shadow-md transition-all duration-500 ${
-                isHighlighted ? 'ring-2 ring-blue-500 ring-offset-2 bg-blue-50/50' : ''
+              className={`border-border/60 bg-card shadow-sm transition-all duration-500 hover:shadow-md ${
+                isHighlighted ? 'ring-2 ring-primary/40 ring-offset-2 ring-offset-background bg-primary/5' : ''
               }`}
             >
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between mb-4">
+              <CardContent className="p-4 sm:p-6">
+                <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="flex-1">
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                       <h3
-                        className="text-lg font-semibold cursor-pointer hover:text-blue-600 hover:underline transition-colors"
+                        className="cursor-pointer text-lg font-semibold transition-colors hover:text-primary hover:underline"
                         onClick={() => router.push(`/portal/events/${reg.event_id}`)}
                       >
                         {reg.events?.name}
@@ -518,7 +518,7 @@ function MyRegistrationsContent() {
 
                     {/* 显示团队信息的前三个字段 */}
                     {reg.team_data && (
-                      <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mt-2">
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                         {Object.entries(reg.team_data)
                           .filter(([key]) => key !== 'id' && key !== 'team_logo' && key !== 'logo') // 排除ID和图片字段
                           .slice(0, 3) // 只取前3个字段
@@ -535,7 +535,7 @@ function MyRegistrationsContent() {
                   </div>
 
                   {/* 操作按钮 */}
-                  <div className="flex gap-2 ml-4">
+                  <div className="flex w-full flex-wrap gap-2 lg:ml-4 lg:w-auto lg:justify-end">
                     {/* 赛事已结束时的操作逻辑 */}
                     {reg.events && isEventEnded(reg.events) ? (
                       <>
@@ -667,15 +667,15 @@ function MyRegistrationsContent() {
 
                 {/* 驳回原因 */}
                 {reg.status === 'rejected' && reg.rejection_reason && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
-                    <p className="text-sm text-red-600">
+                  <div className="mb-3 rounded-lg border border-rose-500/20 bg-rose-500/10 p-3">
+                    <p className="text-sm text-rose-700 dark:text-rose-300">
                       <strong>驳回原因:</strong> {reg.rejection_reason}
                     </p>
                   </div>
                 )}
 
                 {/* 时间信息 */}
-                <div className="flex items-center gap-4 text-xs text-muted-foreground pt-3 border-t">
+                <div className="flex flex-col gap-2 border-t pt-3 text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
                   {reg.submitted_at && (
                     <span>提交时间: {new Date(reg.submitted_at).toLocaleString('zh-CN')}</span>
                   )}
@@ -683,7 +683,7 @@ function MyRegistrationsContent() {
                     <span>审核时间: {new Date(reg.reviewed_at).toLocaleString('zh-CN')}</span>
                   )}
                   {reg.registration_deadline && (
-                    <span className="text-orange-600">
+                    <span className="text-amber-700 dark:text-amber-300">
                       报名截止: {new Date(reg.registration_deadline).toLocaleString('zh-CN')}
                     </span>
                   )}

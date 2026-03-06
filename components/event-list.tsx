@@ -194,21 +194,21 @@ export default function EventList({
   if (events.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12">
-          <div className="text-gray-500 text-center">
-            <div className="text-4xl mb-4">📋</div>
-            <p className="text-lg font-medium">暂无赛事活动</p>
-            <p className="text-sm">点击右上角&quot;创建赛事&quot;开始创建第一个赛事</p>
-          </div>
+        <div className="text-center text-muted-foreground">
+          <div className="mb-4 text-4xl">📋</div>
+          <p className="text-lg font-medium">暂无赛事活动</p>
+          <p className="text-sm">点击右上角&quot;创建赛事&quot;开始创建第一个赛事</p>
         </div>
-      )
+      </div>
+    )
   }
 
   return (
     <>
-      <div className="bg-white rounded-lg shadow">
+      <div className="overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
         {/* Tab Navigation */}
-        <div className="px-6 pt-4 border-b border-gray-200">
-          <div className="flex space-x-6">
+        <div className="border-b border-border px-4 pt-4 sm:px-6">
+          <div className="flex gap-5 overflow-x-auto pb-1">
             {tabs.map(tab => (
               <button
                 key={tab}
@@ -216,13 +216,13 @@ export default function EventList({
                 className={cn(
                   'pb-3 text-sm transition-colors relative',
                   activeTab === tab
-                    ? 'text-gray-900 font-semibold'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'font-semibold text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
                 )}
               >
                 {tab}
                 {activeTab === tab && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-primary" />
                 )}
               </button>
             ))}
@@ -230,18 +230,18 @@ export default function EventList({
         </div>
 
         {/* Filter Row */}
-        <div className="flex items-center justify-between px-6 py-3">
-          <div className="relative">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative w-full lg:max-w-xs">
+            <Filter className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="搜索赛事名称"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 w-64 h-8 text-sm"
+              className="h-9 w-full pl-10 text-sm"
             />
           </div>
-          <div className="flex items-center space-x-1">
-            <span className="text-xs text-gray-400 mr-1">报名：</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="mr-1 text-xs text-muted-foreground">报名：</span>
             {['全部', '未开始', '报名中', '审核中', '已截止'].map(s => (
               <button
                 key={s}
@@ -249,8 +249,8 @@ export default function EventList({
                 className={cn(
                   'px-3 py-1 text-xs rounded-full transition-colors',
                   statusFilter === s
-                    ? 'bg-blue-100 text-blue-700 font-medium'
-                    : 'text-gray-500 hover:bg-gray-100'
+                    ? 'bg-primary/10 font-medium text-primary'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                 )}
               >
                 {s}
@@ -259,101 +259,167 @@ export default function EventList({
           </div>
         </div>
 
-        {/* Table */}
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-[#fafafa] hover:bg-[#fafafa] border-b border-gray-200">
-              <TableHead className="text-xs text-gray-400 font-normal w-[136px]">海报</TableHead>
-              <TableHead className="text-xs text-gray-400 font-normal max-w-[240px]">名称</TableHead>
-              <TableHead className="text-xs text-gray-400 font-normal w-[200px]">状态</TableHead>
-              <TableHead className="text-xs text-gray-400 font-normal w-[120px]">比赛时间</TableHead>
-              <TableHead className="text-xs text-gray-400 font-normal w-[80px]">显示设置</TableHead>
-              <TableHead className="text-xs text-gray-400 font-normal w-[100px]">操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {paginatedEvents.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-12 text-gray-400">
-                  没有符合条件的赛事
-                </TableCell>
-              </TableRow>
-            ) : (
-              paginatedEvents.map(event => {
-                const evtStatus = getEventStatus(event.start_date, event.end_date)
-                const regStatus = getRegistrationStatus(event)
-                return (
-                  <TableRow
-                    key={event.id}
-                    className="group border-b border-gray-100 hover:bg-[#f8f8f8] cursor-pointer"
+        <div className="grid gap-3 p-4 md:hidden">
+          {paginatedEvents.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-10 text-center text-sm text-muted-foreground">
+              没有符合条件的赛事
+            </div>
+          ) : (
+            paginatedEvents.map(event => {
+              const evtStatus = getEventStatus(event.start_date, event.end_date)
+              const regStatus = getRegistrationStatus(event)
+              return (
+                <div key={event.id} className="rounded-xl border border-border bg-background p-4 shadow-sm">
+                  <button
+                    className="flex w-full items-start gap-3 text-left"
                     onClick={() => onManageEvent(event.id)}
                   >
-                    {/* Poster */}
-                    <TableCell className="py-3">
-                      <div className="w-[120px] h-[68px] relative bg-gray-100 rounded overflow-hidden flex-shrink-0">
-                        {event.poster_url ? (
-                          <Image src={event.poster_url} alt={event.name} fill className="object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-gray-300 text-2xl">📷</div>
-                        )}
+                    <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-lg bg-muted">
+                      {event.poster_url ? (
+                        <Image src={event.poster_url} alt={event.name} fill className="object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-2xl text-muted-foreground/60">📷</div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="line-clamp-2 text-sm font-semibold text-foreground">{event.name}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {event.type}{event.short_name ? ` · ${event.short_name}` : ''}
                       </div>
-                    </TableCell>
-                    {/* Name */}
-                    <TableCell>
-                      <div>
-                        <div className="text-sm font-semibold text-gray-900 leading-5">{event.name}</div>
-                        <div className="text-xs text-gray-400 mt-0.5">
-                          {event.type}{event.short_name ? ` · ${event.short_name}` : ''}
-                        </div>
-                      </div>
-                    </TableCell>
-                    {/* Status */}
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Badge variant={evtStatus.variant} className="text-[10px] px-1.5 py-0 h-5 w-fit whitespace-nowrap">
+                      <div className="mt-2 flex flex-wrap items-center gap-1">
+                        <Badge variant={evtStatus.variant} className="h-5 whitespace-nowrap px-1.5 py-0 text-[10px]">
                           比赛{evtStatus.text}
                         </Badge>
-                        <span className="text-gray-300 text-xs">/</span>
-                        <Badge variant={regStatus.variant} className="text-[10px] px-1.5 py-0 h-5 w-fit whitespace-nowrap">
+                        <Badge variant={regStatus.variant} className="h-5 whitespace-nowrap px-1.5 py-0 text-[10px]">
                           {regStatus.text}
                         </Badge>
                       </div>
-                    </TableCell>
-                    {/* Date */}
-                    <TableCell>
-                      <div className="text-sm text-gray-700">
-                        <div>{formatDate(event.start_date)}</div>
-                        <div className="text-gray-400">至 {formatDate(event.end_date)}</div>
-                      </div>
-                    </TableCell>
-                    {/* Visibility */}
-                    <TableCell onClick={(e) => e.stopPropagation()}>
+                    </div>
+                  </button>
+
+                  <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="text-xs text-muted-foreground">比赛时间</div>
+                      <div className="truncate text-foreground">{formatDate(event.start_date)} 至 {formatDate(event.end_date)}</div>
+                    </div>
+                    <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
                       <Switch
                         checked={event.is_visible}
                         onCheckedChange={(checked) => onToggleVisibility(event.id, checked)}
                       />
-                    </TableCell>
-                    {/* Actions */}
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => onManageEvent(event.id)} title="管理">
-                          <Settings className="h-4 w-4 text-gray-500" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => handleDelete(event.id)} title="删除">
-                          <Trash2 className="h-4 w-4 text-gray-500 hover:text-red-500" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                )
-              })
-            )}
-          </TableBody>
-        </Table>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <Button variant="outline" onClick={() => onManageEvent(event.id)}>
+                      <Settings className="mr-2 h-4 w-4" />
+                      管理
+                    </Button>
+                    <Button variant="destructive" onClick={() => handleDelete(event.id)}>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      删除
+                    </Button>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        <div className="hidden md:block">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-b border-border bg-muted/40 hover:bg-muted/40">
+                <TableHead className="w-[136px] text-xs font-normal text-muted-foreground">海报</TableHead>
+                <TableHead className="max-w-[240px] text-xs font-normal text-muted-foreground">名称</TableHead>
+                <TableHead className="w-[200px] text-xs font-normal text-muted-foreground">状态</TableHead>
+                <TableHead className="w-[120px] text-xs font-normal text-muted-foreground">比赛时间</TableHead>
+                <TableHead className="w-[80px] text-xs font-normal text-muted-foreground">显示设置</TableHead>
+                <TableHead className="w-[100px] text-xs font-normal text-muted-foreground">操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {paginatedEvents.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                    没有符合条件的赛事
+                  </TableCell>
+                </TableRow>
+              ) : (
+                paginatedEvents.map((event, index) => {
+                  const evtStatus = getEventStatus(event.start_date, event.end_date)
+                  const regStatus = getRegistrationStatus(event)
+                  return (
+                    <TableRow
+                      key={event.id}
+                      className={cn(
+                        'group cursor-pointer border-b border-border/70',
+                        index % 2 === 0 ? 'bg-background' : 'bg-muted/10',
+                        'hover:bg-accent/50'
+                      )}
+                      onClick={() => onManageEvent(event.id)}
+                    >
+                      <TableCell className="py-3">
+                        <div className="relative h-[68px] w-[120px] overflow-hidden rounded-lg bg-muted">
+                          {event.poster_url ? (
+                            <Image src={event.poster_url} alt={event.name} fill className="object-cover" />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-2xl text-muted-foreground/60">📷</div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          <div className="text-sm font-semibold leading-5 text-foreground">{event.name}</div>
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            {event.type}{event.short_name ? ` · ${event.short_name}` : ''}
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Badge variant={evtStatus.variant} className="h-5 w-fit whitespace-nowrap px-1.5 py-0 text-[10px]">
+                            比赛{evtStatus.text}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground/60">/</span>
+                          <Badge variant={regStatus.variant} className="h-5 w-fit whitespace-nowrap px-1.5 py-0 text-[10px]">
+                            {regStatus.text}
+                          </Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm text-foreground">
+                          <div>{formatDate(event.start_date)}</div>
+                          <div className="text-muted-foreground">至 {formatDate(event.end_date)}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Switch
+                          checked={event.is_visible}
+                          onCheckedChange={(checked) => onToggleVisibility(event.id, checked)}
+                        />
+                      </TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center space-x-1 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => onManageEvent(event.id)} title="管理">
+                            <Settings className="h-4 w-4 text-muted-foreground" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => handleDelete(event.id)} title="删除">
+                            <Trash2 className="h-4 w-4 text-muted-foreground transition-colors hover:text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
 
         {/* Pagination */}
-        <div className="flex items-center justify-end space-x-4 px-6 py-3 border-t border-gray-100 text-sm text-gray-500">
-          <div className="flex items-center space-x-2">
+        <div className="flex flex-col gap-3 border-t border-border px-4 py-4 text-sm text-muted-foreground sm:px-6 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-2">
             <span>每页行数:</span>
             <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); setCurrentPage(1) }}>
               <SelectTrigger className="w-16 h-7 text-xs">
@@ -367,7 +433,7 @@ export default function EventList({
             </Select>
           </div>
           <span>第 {totalItems === 0 ? 0 : startIdx + 1}-{endIdx} 条，共 {totalItems} 条</span>
-          <div className="flex items-center space-x-1">
+          <div className="flex items-center justify-end space-x-1">
             <Button size="icon" variant="ghost" className="h-7 w-7" disabled={safePage <= 1} onClick={() => setCurrentPage(1)}>
               <ChevronsLeft className="h-4 w-4" />
             </Button>
@@ -409,7 +475,7 @@ export default function EventList({
             <AlertDialogTitle>二次确认删除</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3">
-                <p>请输入赛事名称 <span className="font-semibold text-gray-900">{secondConfirmEvent?.name}</span> 以确认删除：</p>
+                <p>请输入赛事名称 <span className="font-semibold text-foreground">{secondConfirmEvent?.name}</span> 以确认删除：</p>
                 <Input
                   placeholder="请输入赛事名称"
                   value={confirmName}

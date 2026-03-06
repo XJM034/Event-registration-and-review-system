@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { getOptionalSupabaseAnonKey } from '@/lib/env'
 import { createClient } from '@/lib/supabase/client'
 
 export async function GET() {
@@ -7,7 +8,7 @@ export async function GET() {
 
     // 获取环境变量
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    const supabaseKey = getOptionalSupabaseAnonKey()
 
     console.log('URL:', supabaseUrl)
     console.log('Key 前10位:', supabaseKey?.substring(0, 10) + '...')

@@ -82,7 +82,7 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, can
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center justify-between p-3 border rounded-lg bg-white"
+      className="flex flex-col gap-3 rounded-lg border border-border/60 bg-card p-3 sm:flex-row sm:items-center sm:justify-between"
     >
       <div className="flex items-center space-x-4">
         <button
@@ -90,15 +90,15 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, can
           {...attributes}
           {...listeners}
         >
-          <GripVertical className="h-4 w-4 text-gray-400" />
+          <GripVertical className="h-4 w-4 text-muted-foreground" />
         </button>
         <span className="text-sm font-medium">{field.label}</span>
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-muted-foreground">
           ({typeLabels[field.type] || field.type})
           {field.options && ` - ${field.options.length}个选项`}
         </span>
       </div>
-      <div className="flex items-center space-x-2">
+      <div className="flex flex-wrap items-center gap-2">
         {/* 所有字段都显示设置按钮 */}
         {onEditField && (
           <Button
@@ -1288,8 +1288,8 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         <CardContent>
           <div className="flex items-center justify-center py-8">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="mt-4 text-gray-600">加载设置中...</p>
+              <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-primary"></div>
+              <p className="mt-4 text-muted-foreground">加载设置中...</p>
             </div>
           </div>
         </CardContent>
@@ -1309,9 +1309,9 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
       <CardContent>
         {/* 组别选择器 */}
         {eventDivisions.length > 0 && (
-          <div className="mb-6 p-4 bg-gray-50 border rounded-lg">
+          <div className="mb-6 rounded-lg border border-border/60 bg-muted/20 p-4">
             <Label className="text-sm font-semibold mb-2 block">选择组别</Label>
-            <p className="text-xs text-gray-500 mb-3">每个组别可独立配置报名设置</p>
+            <p className="mb-3 text-xs text-muted-foreground">每个组别可独立配置报名设置</p>
             <div className="flex flex-wrap gap-2">
               {eventDivisions.map((div) => (
                 <Button
@@ -1339,31 +1339,31 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                 selectedDiv.rules.maxPlayers !== undefined
               )) {
                 return (
-                  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded">
-                    <p className="text-sm font-medium text-blue-900 mb-2">该组别报名限制：</p>
+                  <div className="mt-4 rounded border border-primary/20 bg-primary/5 p-3">
+                    <p className="mb-2 text-sm font-medium text-primary">该组别报名限制：</p>
                     <div className="flex flex-wrap gap-2">
                       {selectedDiv.rules.gender && selectedDiv.rules.gender !== 'none' && (
-                        <span className="inline-block px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded">
+                        <span className="inline-block rounded bg-primary/10 px-2 py-1 text-xs text-primary">
                           {selectedDiv.rules.gender === 'male' ? '仅限男子' : selectedDiv.rules.gender === 'female' ? '仅限女子' : '混合（男女均可）'}
                         </span>
                       )}
                       {(selectedDiv.rules.minBirthDate || selectedDiv.rules.maxBirthDate) && (
-                        <span className="inline-block px-2 py-1 bg-green-100 text-green-700 text-xs rounded">
+                        <span className="inline-block rounded bg-emerald-500/10 px-2 py-1 text-xs text-emerald-700 dark:text-emerald-300">
                           出生日期限制: {selectedDiv.rules.minBirthDate || '不限'} ~ {selectedDiv.rules.maxBirthDate || '不限'}
                         </span>
                       )}
                       {(!selectedDiv.rules.minBirthDate && !selectedDiv.rules.maxBirthDate) && (selectedDiv.rules.minAge !== undefined || selectedDiv.rules.maxAge !== undefined) && (
-                        <span className="inline-block px-2 py-1 bg-green-100 text-green-700 text-xs rounded">
+                        <span className="inline-block rounded bg-emerald-500/10 px-2 py-1 text-xs text-emerald-700 dark:text-emerald-300">
                           年龄限制: {selectedDiv.rules.minAge || '不限'} - {selectedDiv.rules.maxAge || '不限'}岁
                         </span>
                       )}
                       {(selectedDiv.rules.minPlayers !== undefined || selectedDiv.rules.maxPlayers !== undefined) && (
-                        <span className="inline-block px-2 py-1 bg-orange-100 text-orange-700 text-xs rounded">
+                        <span className="inline-block rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-300">
                           队员人数: {selectedDiv.rules.minPlayers || '不限'} - {selectedDiv.rules.maxPlayers || '不限'}人
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-gray-600 mt-2">
+                    <p className="mt-2 text-xs text-muted-foreground">
                       提示：以上队员限制统一在“项目管理-组别设置”中维护，教练报名时会自动校验
                     </p>
                   </div>
@@ -1388,7 +1388,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
 
           <TabsContent value="team" className="space-y-4">
             {/* 报名时间设置 - 移除标题，直接显示 */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
                 <Label htmlFor="reg-start" className="text-sm font-semibold">
                   报名开始时间 <span className="text-red-500">*</span>
@@ -1431,7 +1431,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
               <Label htmlFor="review-end" className="text-sm font-semibold">
                 审核结束时间 <span className="text-red-500">*</span>
               </Label>
-              <p className="text-xs text-gray-500 mt-1 mb-2">
+              <p className="mb-2 mt-1 text-xs text-muted-foreground">
                 报名截止后的审核缓冲期，期间用户仅能重新提交被驳回的报名，不能新建报名
               </p>
               <Input
@@ -1486,7 +1486,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                 </SortableContext>
               </DndContext>
 
-              <div className="mt-4 flex items-end space-x-2">
+              <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end">
                 <div className="flex-1">
                   <Label>字段名称</Label>
                   <Input
@@ -1523,7 +1523,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           <TabsContent value="player" className="space-y-4">
             {/* 角色选择和管理 */}
             <div>
-              <div className="flex items-center justify-between mb-3">
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <h3 className="text-sm font-semibold">角色管理</h3>
                 <Button
                   size="sm"
@@ -1566,11 +1566,11 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
             {playerRequirements.roles.map(role => (
               role.id === selectedRole && (
                 <div key={role.id}>
-                  <div className="bg-gray-50 p-4 rounded-lg space-y-4">
+                  <div className="space-y-4 rounded-lg border border-border/60 bg-muted/20 p-4">
                     <h4 className="font-medium">角色: {role.name}</h4>
 
                     {role.id === 'player' && (
-                      <div className="text-xs text-gray-600 bg-blue-50 border border-blue-200 rounded p-3">
+                      <div className="rounded border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
                         队员性别、年龄、人数限制已迁移至项目管理的组别规则统一配置。
                       </div>
                     )}
@@ -1646,7 +1646,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                         </SortableContext>
                       </DndContext>
 
-                      <div className="mt-4 flex items-end space-x-2">
+                      <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end">
                         <div className="flex-1">
                           <Label>字段名称</Label>
                           <Input
@@ -1689,7 +1689,6 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           <Button
             onClick={saveSettings}
             disabled={isLoading}
-            className="bg-blue-600 hover:bg-blue-700"
           >
             <Save className="h-4 w-4 mr-2" />
             {isLoading ? '保存中...' : '保存设置'}

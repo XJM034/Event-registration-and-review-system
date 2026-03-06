@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -48,6 +48,40 @@ interface EventReferenceTemplate {
   uploadedAt: string
 }
 
+const TEMPLATE_FILE_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'gif', 'webp']
+const TEMPLATE_FILE_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+])
+const DESKTOP_TEMPLATE_ACCEPT = [
+  'application/pdf',
+  '.pdf',
+  'application/msword',
+  '.doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.docx',
+  'application/vnd.ms-excel',
+  '.xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.xlsx',
+  'image/jpeg',
+  '.jpg',
+  '.jpeg',
+  'image/png',
+  '.png',
+  'image/gif',
+  '.gif',
+  'image/webp',
+  '.webp',
+].join(',')
+
 function parseReferenceTemplates(value: unknown): EventReferenceTemplate[] {
   if (!value) return []
   if (Array.isArray(value)) return value as EventReferenceTemplate[]
@@ -94,17 +128,17 @@ function LinkPreview({ links }: { links: string[] }) {
   if (links.length === 0) return null
 
   return (
-    <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
-      <div className="flex items-center gap-2 text-blue-700 text-sm font-medium mb-2">
+    <div className="mt-2 rounded-md border border-primary/20 bg-primary/5 p-3">
+      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-primary">
         <Link2 className="h-4 w-4" />
         <span>检测到 {links.length} 个链接</span>
       </div>
       <div className="space-y-1">
         {links.map((link, index) => (
           <div key={index} className="flex items-center gap-2 text-sm">
-            <ExternalLink className="h-3 w-3 text-blue-600 flex-shrink-0" />
+            <ExternalLink className="h-3 w-3 flex-shrink-0 text-primary" />
             <a href={link} target="_blank" rel="noopener noreferrer"
-              className="text-blue-600 hover:text-blue-800 underline break-all flex-1"
+              className="flex-1 break-all underline text-primary hover:text-primary/80"
               onClick={(e) => e.stopPropagation()}>{link}</a>
           </div>
         ))}
@@ -204,6 +238,15 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
 
   const filteredProjects = allProjects.filter(p => p.project_type_id === selectedTypeId)
   const filteredDivisions = allDivisions.filter(d => d.project_id === selectedProjectId)
+  const referenceTemplateAccept = useMemo<string | undefined>(() => {
+    if (typeof navigator === 'undefined') {
+      return DESKTOP_TEMPLATE_ACCEPT
+    }
+
+    const ua = navigator.userAgent.toLowerCase()
+    const isMobileFileChooser = /iphone|ipad|ipod|android|mobile|harmonyos/.test(ua)
+    return isMobileFileChooser ? undefined : DESKTOP_TEMPLATE_ACCEPT
+  }, [])
 
   // 加载配置 + 赛事已关联的组别
   useEffect(() => {
@@ -358,17 +401,31 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
   const handleTemplateFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = e.target.files
     if (!fileList || fileList.length === 0) return
+    const files = Array.from(fileList)
+    const invalidFiles = files.filter((file) => {
+      if (TEMPLATE_FILE_MIME_TYPES.has(file.type)) {
+        return false
+      }
+      const extension = file.name.split('.').pop()?.toLowerCase()
+      return !extension || !TEMPLATE_FILE_EXTENSIONS.includes(extension)
+    })
+
+    if (invalidFiles.length > 0) {
+      setError('模板仅支持 PDF、Word、Excel 或常见图片文件')
+      e.target.value = ''
+      return
+    }
 
     setUploadingTemplates(true)
     try {
-      const uploadResults = await Promise.all(Array.from(fileList).map((file) => uploadReferenceTemplate(file)))
+      const uploadResults = await Promise.all(files.map((file) => uploadReferenceTemplate(file)))
       const successFiles = uploadResults.filter((item): item is EventReferenceTemplate => Boolean(item))
 
       if (successFiles.length > 0) {
         setReferenceTemplates((prev) => [...prev, ...successFiles])
       }
 
-      if (successFiles.length !== fileList.length) {
+      if (successFiles.length !== files.length) {
         setError('部分模板上传失败，请重试失败文件')
       }
     } finally {
@@ -478,7 +535,7 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
       </CardHeader>
       <CardContent>
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md text-red-600 text-sm">{error}</div>
+          <div className="mb-6 rounded-md border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">{error}</div>
         )}
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -500,10 +557,10 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
                     onClick={() => { setPosterFile(null); setPosterPreview(null) }}>移除</Button>
                 </div>
               ) : (
-                <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors">
-                  <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
-                  <p className="text-sm text-gray-600 mb-2">点击或拖拽上传海报图片</p>
-                  <p className="text-xs text-gray-500">支持 JPG、PNG 格式，文件大小不超过 5MB</p>
+                <div className="relative rounded-lg border-2 border-dashed border-border p-8 text-center transition-colors hover:border-primary/40 hover:bg-muted/20">
+                  <Upload className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
+                  <p className="mb-2 text-sm text-foreground">点击或拖拽上传海报图片</p>
+                  <p className="text-xs text-muted-foreground">支持 JPG、PNG 格式，文件大小不超过 5MB</p>
                   <input type="file" accept="image/*" onChange={handlePosterChange}
                     className="absolute inset-0 opacity-0 cursor-pointer" />
                 </div>
@@ -516,16 +573,16 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
               <Paperclip className="h-4 w-4 mr-1" />
               参考模板
             </Label>
-            <p className="text-xs text-gray-500 mt-1 mb-2">
+            <p className="mb-2 mt-1 text-xs text-muted-foreground">
               支持多个模板，教练可在门户赛事详情下载（PDF、DOC、DOCX、XLS、XLSX、图片，单个不超过 20MB）
             </p>
-            <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
-              <p className="text-sm text-gray-600 mb-1">
+            <div className="relative rounded-lg border-2 border-dashed border-border p-4 text-center transition-colors hover:border-primary/40 hover:bg-muted/20">
+              <p className="mb-1 text-sm text-foreground">
                 {uploadingTemplates ? '上传中...' : '点击或拖拽上传模板文件（可多选）'}
               </p>
               <input
                 type="file"
-                accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp"
+                accept={referenceTemplateAccept}
                 multiple
                 onChange={handleTemplateFilesChange}
                 className="absolute inset-0 opacity-0 cursor-pointer"
@@ -539,10 +596,10 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
                   const safePreviewUrl = toSafeHttpUrl(file.url)
 
                   return (
-                    <div key={`${file.path}-${index}`} className="flex items-center justify-between border rounded-md px-3 py-2">
+                    <div key={`${file.path}-${index}`} className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{file.name}</p>
-                        <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
+                        <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         {safePreviewUrl && (
@@ -550,7 +607,7 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
                             href={safePreviewUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center text-xs text-blue-600 hover:text-blue-700"
+                            className="inline-flex items-center text-xs text-primary hover:text-primary/80"
                           >
                             <Download className="h-3 w-3 mr-1" />
                             预览
@@ -626,8 +683,8 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
             {filteredDivisions.length > 0 && (
               <div>
                 <Label>组别选择</Label>
-                <p className="text-sm text-gray-500 mb-2">选择该赛事包含的组别</p>
-                <div className="border rounded-md p-4 space-y-2 max-h-60 overflow-y-auto">
+                <p className="mb-2 text-sm text-muted-foreground">选择该赛事包含的组别</p>
+                <div className="max-h-60 space-y-2 overflow-y-auto rounded-md border border-border/60 p-4">
                   {filteredDivisions.map((division) => (
                     <div key={division.id} className="flex items-center space-x-2">
                       <Checkbox
@@ -643,13 +700,13 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
                       />
                       <label htmlFor={`div-${division.id}`} className="text-sm cursor-pointer">
                         {division.name}
-                        {division.description && <span className="text-gray-500 ml-2">({division.description})</span>}
+                        {division.description && <span className="ml-2 text-muted-foreground">({division.description})</span>}
                       </label>
                     </div>
                   ))}
                 </div>
                 {selectedDivisionIds.length > 0 && (
-                  <p className="text-sm text-blue-600 mt-1">已选择 {selectedDivisionIds.length} 个组别</p>
+                  <p className="mt-1 text-sm text-primary">已选择 {selectedDivisionIds.length} 个组别</p>
                 )}
               </div>
             )}
@@ -704,7 +761,7 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
           </div>
 
           <div className="flex justify-end">
-            <Button type="submit" disabled={isSubmitting} className="bg-blue-600 hover:bg-blue-700">
+            <Button type="submit" disabled={isSubmitting}>
               {isSubmitting ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />保存中...</>) : '保存'}
             </Button>
           </div>

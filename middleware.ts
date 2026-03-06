@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from '@supabase/ssr'
+import { getSupabaseAnonKey, getSupabaseUrl } from '@/lib/env'
 import {
   ADMIN_SESSION_COOKIE_NAME,
   ADMIN_TAB_SESSION_COOKIE_NAME,
@@ -59,8 +60,8 @@ export async function middleware(request: NextRequest) {
 
   // 创建 Supabase 客户端
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY!,
+    getSupabaseUrl(),
+    getSupabaseAnonKey(),
     {
       cookies: {
         get(name: string) {
@@ -188,10 +189,14 @@ export async function middleware(request: NextRequest) {
 
   // Portal 路径：按 Supabase 登录态控制
   if (pathname.startsWith('/portal')) {
-    if (!sessionUser) {
-      return NextResponse.redirect(new URL('/auth/login', request.url))
+    const { isAdmin } = await checkAdmin()
+    if (isAdmin) {
+      return withSessionCleanup(NextResponse.redirect(new URL('/events', request.url)))
     }
-    return response
+    if (!sessionUser) {
+      return withSessionCleanup(NextResponse.redirect(new URL('/auth/login', request.url)))
+    }
+    return withSessionCleanup(response)
   }
 
   // 管理端路径 - 只允许管理员访问
@@ -215,10 +220,14 @@ export async function middleware(request: NextRequest) {
   if (pathname.startsWith('/api')) {
     // Portal API 需要教练认证
     if (pathname.startsWith('/api/portal')) {
-      if (!sessionUser) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      const { isAdmin } = await checkAdmin()
+      if (isAdmin) {
+        return withSessionCleanup(NextResponse.json({ error: 'Forbidden' }, { status: 403 }))
       }
-      return response
+      if (!sessionUser) {
+        return withSessionCleanup(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
+      }
+      return withSessionCleanup(response)
     }
 
     // 项目管理 API：仅允许超级管理员访问

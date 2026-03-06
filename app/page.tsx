@@ -77,20 +77,20 @@ export default function HomePage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-background">
         <div className="flex items-center justify-center py-12">
-          <div className="text-gray-500">加载中...</div>
+          <div className="text-muted-foreground">加载中...</div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       <AdminHeader onCreateEvent={handleCreateEvent} />
-      <main className="p-6">
+      <main className="px-4 py-4 sm:px-6">
         {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md text-red-600 text-sm">
+          <div className="mb-4 rounded-md border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
             {error}
           </div>
         )}

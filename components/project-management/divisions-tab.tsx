@@ -323,18 +323,18 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     )
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <div className="flex items-center space-x-4">
-          <p className="text-sm text-gray-600">共 {filteredDivisions.length} 个组别</p>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:space-x-4">
+          <p className="text-sm text-muted-foreground">共 {filteredDivisions.length} 个组别</p>
           <Select value={filterTypeId} onValueChange={setFilterTypeId}>
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-full lg:w-[180px]">
               <SelectValue placeholder="筛选类型" />
             </SelectTrigger>
             <SelectContent>
@@ -347,7 +347,7 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
             </SelectContent>
           </Select>
           <Select value={filterProjectId} onValueChange={setFilterProjectId}>
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-full lg:w-[180px]">
               <SelectValue placeholder="筛选项目" />
             </SelectTrigger>
             <SelectContent>
@@ -360,8 +360,8 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={handleAdd}>
-          <Plus className="h-4 w-4 mr-2" />
+        <Button onClick={handleAdd} className="w-full lg:w-auto">
+          <Plus className="mr-2 h-4 w-4" />
           添加组别
         </Button>
       </div>
@@ -370,50 +370,50 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
         {filteredDivisions.map((division) => (
           <div
             key={division.id}
-            className="flex items-center justify-between p-4 bg-white border rounded-lg hover:shadow-sm transition-shadow"
+            className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 transition-shadow hover:shadow-sm sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="flex items-center space-x-4 flex-1">
               <div className="flex-1">
                 <h3 className="font-medium">{division.name}</h3>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-muted-foreground">
                   类型: {division.project?.project_type?.name} | 项目: {division.project?.name} |
                   排序: {division.display_order}
                 </p>
                 {division.description && (
-                  <p className="text-sm text-gray-400 mt-1">{division.description}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{division.description}</p>
                 )}
                 {division.rules && (
-                  <div className="text-sm text-gray-500 mt-1 space-x-2">
+                  <div className="mt-1 flex flex-wrap gap-2 text-sm text-muted-foreground">
                     {division.rules.gender && division.rules.gender !== 'none' && (
-                      <span className="inline-block px-2 py-0.5 bg-blue-100 text-blue-700 rounded">
+                      <span className="inline-block rounded bg-primary/10 px-2 py-0.5 text-primary">
                         {division.rules.gender === 'male' ? '男子' : division.rules.gender === 'female' ? '女子' : '混合'}
                       </span>
                     )}
                     {(division.rules.minBirthDate || division.rules.maxBirthDate) && (
-                      <span className="inline-block px-2 py-0.5 bg-green-100 text-green-700 rounded">
+                      <span className="inline-block rounded bg-emerald-500/10 px-2 py-0.5 text-emerald-700 dark:text-emerald-300">
                         出生日期: {division.rules.minBirthDate || '不限'} ~ {division.rules.maxBirthDate || '不限'}
                       </span>
                     )}
                     {(!division.rules.minBirthDate && !division.rules.maxBirthDate) && (division.rules.minAge !== undefined || division.rules.maxAge !== undefined) && (
-                      <span className="inline-block px-2 py-0.5 bg-green-100 text-green-700 rounded">
+                      <span className="inline-block rounded bg-emerald-500/10 px-2 py-0.5 text-emerald-700 dark:text-emerald-300">
                         年龄: {division.rules.minAge || '不限'} - {division.rules.maxAge || '不限'}岁
                       </span>
                     )}
                     {(division.rules.minPlayers !== undefined || division.rules.maxPlayers !== undefined) && (
-                      <span className="inline-block px-2 py-0.5 bg-orange-100 text-orange-700 rounded">
+                      <span className="inline-block rounded bg-orange-500/10 px-2 py-0.5 text-orange-700 dark:text-orange-300">
                         队员人数: {division.rules.minPlayers || '不限'} - {division.rules.maxPlayers || '不限'}人
                       </span>
                     )}
                   </div>
                 )}
-                <p className="text-sm text-gray-500 mt-1">
+                <p className="mt-1 text-sm text-muted-foreground">
                   使用赛事数: {division.event_divisions?.[0]?.count || 0}
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:space-x-4">
+              <div className="flex items-center justify-between sm:justify-start sm:space-x-2">
                 <Label htmlFor={`enabled-${division.id}`} className="text-sm">
                   {division.is_enabled ? '已启用' : '已禁用'}
                 </Label>
@@ -424,13 +424,14 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
                 />
               </div>
 
-              <Button variant="ghost" size="sm" onClick={() => handleEdit(division)}>
+              <Button variant="ghost" size="sm" onClick={() => handleEdit(division)} className="justify-start sm:justify-center">
                 <Edit className="h-4 w-4" />
               </Button>
 
               <Button
                 variant="ghost"
                 size="sm"
+                className="justify-start sm:justify-center"
                 onClick={() => {
                   setDeletingDivision(division)
                   setShowDeleteDialog(true)

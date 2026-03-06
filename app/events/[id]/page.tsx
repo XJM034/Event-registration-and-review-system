@@ -11,6 +11,7 @@ import BasicInfoTab from '@/components/event-manage/basic-info-tab'
 import RegistrationSettingsTab from '@/components/event-manage/registration-settings-tab'
 import ReviewListTab from '@/components/event-manage/review-list-tab'
 import RegistrationListTab from '@/components/event-manage/registration-list-tab'
+import { ThemeSwitcher } from '@/components/theme-switcher'
 
 interface Event {
   id: string
@@ -94,8 +95,8 @@ export default function EventManagePage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">加载中...</p>
+          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-primary"></div>
+          <p className="mt-4 text-muted-foreground">加载中...</p>
         </div>
       </div>
     )
@@ -105,7 +106,7 @@ export default function EventManagePage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <p className="text-gray-600">赛事不存在</p>
+          <p className="text-muted-foreground">赛事不存在</p>
           <Button
             className="mt-4"
             onClick={() => router.push('/events')}
@@ -118,19 +119,22 @@ export default function EventManagePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="flex">
+    <div className="min-h-screen bg-background">
+      <div className="flex min-h-screen flex-col xl:flex-row">
         {/* 左侧边栏 */}
-        <div className="w-64 bg-white shadow-lg min-h-screen">
-          <div className="p-4">
-            <Link href="/events" className="inline-flex items-center text-blue-600 hover:text-blue-700 mb-6">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              返回赛事列表
-            </Link>
-            
+        <div className="w-full shrink-0 border-b border-border bg-card/95 shadow-sm backdrop-blur xl:min-h-screen xl:w-72 xl:border-b-0 xl:border-r">
+          <div className="flex h-full flex-col gap-6 p-4 sm:p-6">
+            <div className="flex items-start justify-between gap-3">
+              <Link href="/events" className="inline-flex items-center text-primary transition-colors hover:text-primary/80">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                返回赛事列表
+              </Link>
+              <ThemeSwitcher />
+            </div>
+
             {event.poster_url && (
-              <div className="mb-4">
-                <div className="relative w-full rounded-lg overflow-hidden bg-gray-100">
+              <div>
+                <div className="relative w-full overflow-hidden rounded-xl bg-muted">
                   <Image
                     src={event.poster_url}
                     alt={event.name}
@@ -141,11 +145,13 @@ export default function EventManagePage() {
                 </div>
               </div>
             )}
-            
-            <h2 className="font-semibold text-lg mb-2">{event.name}</h2>
-            <p className="text-sm text-gray-600 mb-4">类型: {event.type}</p>
-            
+
             <div className="space-y-2">
+              <h2 className="text-lg font-semibold text-foreground">{event.name}</h2>
+              <p className="text-sm text-muted-foreground">类型: {event.type}</p>
+            </div>
+
+            <div className="space-y-4">
               <Button
                 variant={activeTab === 'basic-info' ? 'default' : 'ghost'}
                 className="w-full justify-start text-sm"
@@ -154,10 +160,10 @@ export default function EventManagePage() {
                 <Settings className="h-4 w-4 mr-2" />
                 基本信息
               </Button>
-              
+
               <div>
-                <p className="text-xs text-gray-500 font-semibold mb-2">报名管理</p>
-                <div className="space-y-1">
+                <p className="mb-2 text-xs font-semibold text-muted-foreground">报名管理</p>
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
                   <Button
                     variant={activeTab === 'registration-list' ? 'default' : 'ghost'}
                     className="w-full justify-start text-sm"
@@ -194,7 +200,7 @@ export default function EventManagePage() {
         </div>
 
         {/* 右侧内容区 */}
-        <div className="flex-1 p-6">
+        <div className="flex-1 p-4 sm:p-6 lg:p-8">
           {activeTab === 'basic-info' && (
             <BasicInfoTab event={event} onUpdate={() => fetchEvent(event.id)} />
           )}

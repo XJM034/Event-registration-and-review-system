@@ -1,3 +1,5 @@
+import { getAdminSessionSecret } from './env'
+
 export const ADMIN_SESSION_COOKIE_NAME = 'admin-session'
 export const ADMIN_TAB_SESSION_COOKIE_NAME = 'admin-session-tab'
 
@@ -18,10 +20,7 @@ const decoder = new TextDecoder()
 let signingKeyPromise: Promise<CryptoKey> | null = null
 
 function getSecret() {
-  const secret = process.env.ADMIN_SESSION_SECRET
-    || process.env.JWT_SECRET
-    || process.env.SUPABASE_SERVICE_ROLE_KEY
-    || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY
+  const secret = getAdminSessionSecret()
 
   if (!secret) {
     throw new Error('Missing admin session secret')

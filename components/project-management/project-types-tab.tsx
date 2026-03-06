@@ -163,17 +163,17 @@ export default function ProjectTypesTab({ onUpdate }: ProjectTypesTabProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     )
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <p className="text-sm text-gray-600">共 {types.length} 个赛事类型</p>
-        <Button onClick={handleAdd}>
-          <Plus className="h-4 w-4 mr-2" />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-muted-foreground">共 {types.length} 个赛事类型</p>
+        <Button onClick={handleAdd} className="w-full sm:w-auto">
+          <Plus className="mr-2 h-4 w-4" />
           添加类型
         </Button>
       </div>
@@ -182,19 +182,19 @@ export default function ProjectTypesTab({ onUpdate }: ProjectTypesTabProps) {
         {types.map((type) => (
           <div
             key={type.id}
-            className="flex items-center justify-between p-4 bg-white border rounded-lg hover:shadow-sm transition-shadow"
+            className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 transition-shadow hover:shadow-sm sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="flex items-center space-x-4 flex-1">
               <div className="flex-1">
                 <h3 className="font-medium">{type.name}</h3>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-muted-foreground">
                   排序: {type.display_order} | 项目数: {type.projects?.[0]?.count || 0}
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:space-x-4">
+              <div className="flex items-center justify-between sm:justify-start sm:space-x-2">
                 <Label htmlFor={`enabled-${type.id}`} className="text-sm">
                   {type.is_enabled ? '已启用' : '已禁用'}
                 </Label>
@@ -205,13 +205,14 @@ export default function ProjectTypesTab({ onUpdate }: ProjectTypesTabProps) {
                 />
               </div>
 
-              <Button variant="ghost" size="sm" onClick={() => handleEdit(type)}>
+              <Button variant="ghost" size="sm" onClick={() => handleEdit(type)} className="justify-start sm:justify-center">
                 <Edit className="h-4 w-4" />
               </Button>
 
               <Button
                 variant="ghost"
                 size="sm"
+                className="justify-start sm:justify-center"
                 onClick={() => {
                   setDeletingType(type)
                   setShowDeleteDialog(true)

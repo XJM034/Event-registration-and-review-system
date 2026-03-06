@@ -30,7 +30,7 @@ import {
   Clock
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { getSessionUser } from '@/lib/supabase/client-auth'
+import { getSessionUserWithRetry } from '@/lib/supabase/client-auth'
 import Image from 'next/image'
 import { parseIdCard, validateAgainstDivisionRules } from '@/lib/id-card-validator'
 
@@ -125,6 +125,27 @@ interface AttachmentValue {
   mimeType: string
   uploadedAt: string
 }
+
+const ATTACHMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx']
+const ATTACHMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+])
+const DESKTOP_ATTACHMENT_ACCEPT = [
+  'application/pdf',
+  '.pdf',
+  'application/msword',
+  '.doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.docx',
+  'application/vnd.ms-excel',
+  '.xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.xlsx',
+].join(',')
 
 function inferPlayerGender(player: Player): 'male' | 'female' | undefined {
   const rawGender = String(player.gender || player.sex || '').trim()
@@ -276,7 +297,27 @@ export default function RegisterPage() {
   }, [event?.registration_settings, event?.registration_settings_by_division, selectedDivisionId])
 
   const activeTeamRequirements = parseTeamRequirements(activeRegistrationSettings?.team_requirements)
-  const attachmentAccept = '.pdf,.doc,.docx,.xls,.xlsx'
+  const attachmentAccept = useMemo<string | undefined>(() => {
+    if (typeof navigator === 'undefined') {
+      return DESKTOP_ATTACHMENT_ACCEPT
+    }
+
+    // Mobile browsers/webviews often mis-handle extension-only accept filters
+    // and incorrectly open the image picker. Let the system file chooser open
+    // first, then validate the file after selection.
+    const ua = navigator.userAgent.toLowerCase()
+    const isMobileFileChooser = /iphone|ipad|ipod|android|mobile|harmonyos/.test(ua)
+    return isMobileFileChooser ? undefined : DESKTOP_ATTACHMENT_ACCEPT
+  }, [])
+
+  const isValidAttachmentFile = (file: File) => {
+    if (ATTACHMENT_MIME_TYPES.has(file.type)) {
+      return true
+    }
+
+    const extension = file.name.split('.').pop()?.toLowerCase()
+    return extension ? ATTACHMENT_EXTENSIONS.includes(extension) : false
+  }
 
   const uploadPortalFile = async (file: File, bucket: string) => {
     const formData = new FormData()
@@ -510,14 +551,29 @@ export default function RegisterPage() {
     return () => clearInterval(interval)
   }, [registration?.id, players])
 
-  const fetchEventAndRegistration = async () => {
+  const fetchEventAndRegistration = async (retryCount = 0) => {
     try {
       setIsLoading(true)
       const supabase = createClient()
       
       // 获取当前用户
-      const { user } = await getSessionUser(supabase)
+      const { user, error: authError, isNetworkError } = await getSessionUserWithRetry(supabase, {
+        maxRetries: 2,
+        baseDelayMs: 400,
+      })
+
+      if (authError && isNetworkError) {
+        if (retryCount < 2) {
+          setTimeout(() => fetchEventAndRegistration(retryCount + 1), (retryCount + 1) * 900)
+        }
+        return
+      }
+
       if (!user) {
+        if (retryCount < 2) {
+          setTimeout(() => fetchEventAndRegistration(retryCount + 1), (retryCount + 1) * 700)
+          return
+        }
         router.push('/auth/login')
         return
       }
@@ -1372,8 +1428,8 @@ export default function RegisterPage() {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">加载中...</p>
+          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-primary"></div>
+          <p className="mt-4 text-muted-foreground">加载中...</p>
         </div>
       </div>
     )
@@ -1383,8 +1439,8 @@ export default function RegisterPage() {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
-          <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <p className="text-lg text-gray-600">赛事不存在</p>
+          <AlertCircle className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+          <p className="text-lg text-muted-foreground">赛事不存在</p>
           <Button className="mt-4" onClick={() => router.push('/portal')}>
             返回赛事列表
           </Button>
@@ -1423,8 +1479,8 @@ export default function RegisterPage() {
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-red-400 mx-auto mb-4" />
-          <p className="text-lg text-gray-600">报名已截止</p>
-          <p className="text-sm text-gray-500 mt-2">该比赛报名已截止，不能再进行报名</p>
+          <p className="text-lg text-muted-foreground">报名已截止</p>
+          <p className="mt-2 text-sm text-muted-foreground">该比赛报名已截止，不能再进行报名</p>
           <Button className="mt-4" onClick={() => router.push('/portal')}>
             返回赛事列表
           </Button>
@@ -1445,7 +1501,7 @@ export default function RegisterPage() {
         <div className="flex items-center justify-center h-96">
           <div className="text-center">
             <AlertCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
-            <p className="text-lg text-gray-600">您的报名已通过审核</p>
+            <p className="text-lg text-muted-foreground">您的报名已通过审核</p>
             <Button className="mt-4" onClick={() => router.push(`/portal/events/${eventId}`)}>
               查看报名详情
             </Button>
@@ -1457,7 +1513,7 @@ export default function RegisterPage() {
         <div className="flex items-center justify-center h-96">
           <div className="text-center">
             <AlertCircle className="h-12 w-12 text-blue-500 mx-auto mb-4" />
-            <p className="text-lg text-gray-600">您的报名已提交，请等待审核</p>
+            <p className="text-lg text-muted-foreground">您的报名已提交，请等待审核</p>
             <Button className="mt-4" onClick={() => router.push(`/portal/events/${eventId}`)}>
               查看报名状态
             </Button>
@@ -1473,12 +1529,12 @@ export default function RegisterPage() {
     <div className="space-y-6">
       {/* 赛事已结束提示 */}
       {isEventEndedView && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-4">
           <div className="flex items-start gap-2">
-            <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
+            <AlertCircle className="mt-0.5 h-5 w-5 text-destructive" />
             <div>
-              <h3 className="font-semibold text-red-800">该比赛报名已截止</h3>
-              <p className="text-red-600 mt-1">此赛事报名已截止，您只能查看报名信息，不能再次提交或修改。</p>
+              <h3 className="font-semibold text-destructive">该比赛报名已截止</h3>
+              <p className="mt-1 text-destructive">此赛事报名已截止，您只能查看报名信息，不能再次提交或修改。</p>
             </div>
           </div>
         </div>
@@ -1486,18 +1542,18 @@ export default function RegisterPage() {
 
       {/* 被驳回提示 */}
       {registration?.status === 'rejected' && registration?.rejection_reason && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-4">
           <div className="flex items-start gap-2">
-            <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
+            <AlertCircle className="mt-0.5 h-5 w-5 text-destructive" />
             <div className="flex-1">
-              <h3 className="font-semibold text-red-800">您的报名已被驳回</h3>
+              <h3 className="font-semibold text-destructive">您的报名已被驳回</h3>
               <div className="mt-2">
-                <p className="text-red-600 font-medium mb-2">驳回原因：</p>
-                <div className="text-red-600 whitespace-pre-line pl-4">
+                <p className="mb-2 font-medium text-destructive">驳回原因：</p>
+                <div className="whitespace-pre-line pl-4 text-destructive">
                   {registration.rejection_reason}
                 </div>
               </div>
-              <p className="text-sm text-red-500 mt-3">请根据以上驳回原因修改后重新提交</p>
+              <p className="mt-3 text-sm text-destructive">请根据以上驳回原因修改后重新提交</p>
             </div>
           </div>
         </div>
@@ -1505,13 +1561,13 @@ export default function RegisterPage() {
 
       {/* 已取消提示 - 仅在报名期内显示 */}
       {registration?.status === 'cancelled' && !isInReviewPeriod() && !isEventEndedView && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4">
           <div className="flex items-start gap-2">
-            <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+            <AlertCircle className="mt-0.5 h-5 w-5 text-amber-700 dark:text-amber-300" />
             <div>
-              <h3 className="font-semibold text-yellow-800">您的报名已取消</h3>
-              <p className="text-yellow-600 mt-1">您之前取消了这个报名，现在可以修改并重新提交</p>
-              <p className="text-sm text-yellow-500 mt-2">所有信息已保留，您可以继续编辑</p>
+              <h3 className="font-semibold text-amber-800 dark:text-amber-200">您的报名已取消</h3>
+              <p className="mt-1 text-amber-700 dark:text-amber-300">您之前取消了这个报名，现在可以修改并重新提交</p>
+              <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">所有信息已保留，您可以继续编辑</p>
             </div>
           </div>
         </div>
@@ -1519,12 +1575,12 @@ export default function RegisterPage() {
 
       {/* 已通过提示 */}
       {registration?.status === 'approved' && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-4">
           <div className="flex items-start gap-2">
-            <Check className="h-5 w-5 text-green-600 mt-0.5" />
+            <Check className="mt-0.5 h-5 w-5 text-emerald-700 dark:text-emerald-300" />
             <div>
-              <h3 className="font-semibold text-green-800">报名已通过审核</h3>
-              <p className="text-green-600 mt-1">当前为查看模式，无法进行修改；如需修改，可取消此条报名信息，重新提交报名。</p>
+              <h3 className="font-semibold text-emerald-800 dark:text-emerald-200">报名已通过审核</h3>
+              <p className="mt-1 text-emerald-700 dark:text-emerald-300">当前为查看模式，无法进行修改；如需修改，可取消此条报名信息，重新提交报名。</p>
             </div>
           </div>
         </div>
@@ -1532,20 +1588,20 @@ export default function RegisterPage() {
 
       {/* 待审核提示 */}
       {(registration?.status === 'pending' || registration?.status === 'submitted') && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
           <div className="flex items-start gap-2">
-            <Clock className="h-5 w-5 text-blue-600 mt-0.5" />
+            <Clock className="mt-0.5 h-5 w-5 text-primary" />
             <div>
-              <h3 className="font-semibold text-blue-800">报名正在审核中</h3>
-              <p className="text-blue-600 mt-1">当前为查看模式，无法修改或重新提交</p>
+              <h3 className="font-semibold text-primary">报名正在审核中</h3>
+              <p className="mt-1 text-primary/80">当前为查看模式，无法修改或重新提交</p>
             </div>
           </div>
         </div>
       )}
       
       {/* 头部 */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
           <Button
             variant="ghost"
             onClick={() => router.push(`/portal/events/${eventId}`)}
@@ -1554,16 +1610,17 @@ export default function RegisterPage() {
             <ArrowLeft className="h-4 w-4" />
             返回
           </Button>
-          <h1 className="text-2xl font-bold">{event.name} - 报名</h1>
+          <h1 className="text-xl font-bold sm:text-2xl">{event.name} - 报名</h1>
         </div>
         
         {/* 根据状态判断是否显示保存和提交按钮 */}
         {shouldShowActionButtons() && (
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Button
               variant="outline"
               onClick={handleSubmit(handleSaveDraft)}
               disabled={isSaving}
+              className="w-full sm:w-auto"
             >
               {isSaving ? (
                 <>
@@ -1580,6 +1637,7 @@ export default function RegisterPage() {
             <Button
               onClick={handleSubmit(handleSubmitRegistration)}
               disabled={isSubmitting}
+              className="w-full sm:w-auto"
             >
               {isSubmitting ? (
                 <>
@@ -1599,12 +1657,12 @@ export default function RegisterPage() {
 
       {/* 审核期内新建报名的提示 */}
       {isInReviewPeriod() && isNewRegistration && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+        <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/10 p-4">
           <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-destructive" />
             <div className="space-y-1">
-              <p className="font-semibold text-red-900">不能新建报名</p>
-              <p className="text-sm text-red-700">
+              <p className="font-semibold text-destructive">不能新建报名</p>
+              <p className="text-sm text-destructive">
                 报名已结束，现在处于审核期。审核期内不接受新的报名申请，只能重新提交被驳回的报名。
               </p>
             </div>
@@ -1614,7 +1672,7 @@ export default function RegisterPage() {
 
       {/* 报名表单 */}
       <Card>
-        <CardContent className="p-6">
+        <CardContent className="p-4 sm:p-6">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="team">
@@ -1634,15 +1692,15 @@ export default function RegisterPage() {
             
             <TabsContent value="team" className="mt-6">
               {event.divisions && event.divisions.length > 0 && (
-                <div className="mb-6 p-4 border rounded-lg bg-gray-50">
+                <div className="mb-6 rounded-lg border border-border/60 bg-muted/20 p-4">
                   <Label className="text-sm font-semibold">参赛组别 *</Label>
-                  <p className="text-xs text-gray-500 mt-1 mb-2">请选择当前报名对应的组别，队员限制将按此组别自动校验</p>
+                  <p className="mb-2 mt-1 text-xs text-muted-foreground">请选择当前报名对应的组别，队员限制将按此组别自动校验</p>
                   <Select
                     value={selectedDivisionId}
                     onValueChange={setSelectedDivisionId}
                     disabled={isEventEndedView}
                   >
-                    <SelectTrigger className="max-w-sm bg-white">
+                    <SelectTrigger className="max-w-sm bg-background">
                       <SelectValue placeholder="请选择组别" />
                     </SelectTrigger>
                     <SelectContent>
@@ -1907,6 +1965,11 @@ export default function RegisterPage() {
                                 onChange={async (e) => {
                                   const file = e.target.files?.[0]
                                   if (!file) return
+                                  if (!isValidAttachmentFile(file)) {
+                                    alert('仅支持 PDF、Word、Excel 文件')
+                                    e.target.value = ''
+                                    return
+                                  }
                                   try {
                                     setIsSubmitting(true)
                                     const data = await uploadPortalFile(file, 'team-documents')
@@ -1969,6 +2032,11 @@ export default function RegisterPage() {
                               onChange={async (e) => {
                                 const file = e.target.files?.[0]
                                 if (!file) return
+                                if (!isValidAttachmentFile(file)) {
+                                  alert('仅支持 PDF、Word、Excel 文件')
+                                  e.target.value = ''
+                                  return
+                                }
                                 try {
                                   setIsSubmitting(true)
                                   const data = await uploadPortalFile(file, 'team-documents')
@@ -2636,6 +2704,11 @@ export default function RegisterPage() {
                                                 onChange={async (e) => {
                                                   const file = e.target.files?.[0]
                                                   if (!file) return
+                                                  if (!isValidAttachmentFile(file)) {
+                                                    alert('仅支持 PDF、Word、Excel 文件')
+                                                    e.target.value = ''
+                                                    return
+                                                  }
                                                   try {
                                                     setIsSubmitting(true)
                                                     const data = await uploadPortalFile(file, 'team-documents')
@@ -2694,6 +2767,11 @@ export default function RegisterPage() {
                                               onChange={async (e) => {
                                                 const file = e.target.files?.[0]
                                                 if (!file) return
+                                                if (!isValidAttachmentFile(file)) {
+                                                  alert('仅支持 PDF、Word、Excel 文件')
+                                                  e.target.value = ''
+                                                  return
+                                                }
                                                 try {
                                                   setIsSubmitting(true)
                                                   const data = await uploadPortalFile(file, 'team-documents')

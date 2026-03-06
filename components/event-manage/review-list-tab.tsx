@@ -229,8 +229,8 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
       <Card>
         <CardContent className="flex items-center justify-center py-8">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">加载中...</p>
+            <div className="mx-auto h-12 w-12 animate-spin rounded-full border-b-2 border-primary"></div>
+            <p className="mt-4 text-muted-foreground">加载中...</p>
           </div>
         </CardContent>
       </Card>
@@ -241,7 +241,7 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
     <>
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <CardTitle className="flex items-center">
                 <Clock className="h-5 w-5 mr-2" />
@@ -249,7 +249,7 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
               </CardTitle>
               <CardDescription>等待审核的报名申请 ({registrations.length})</CardDescription>
             </div>
-            <Button variant="outline" onClick={handleDownload}>
+            <Button variant="outline" onClick={handleDownload} className="w-full md:w-auto">
               <Download className="h-4 w-4 mr-2" />
               下载 {selectedIds.length > 0 ? `(${selectedIds.length})` : ''}
             </Button>
@@ -257,63 +257,112 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
         </CardHeader>
         <CardContent>
           {registrations.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">暂无待审核的报名</div>
+            <div className="py-8 text-center text-muted-foreground">暂无待审核的报名</div>
           ) : (
-            <Table className="table-fixed">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-8 px-1">
-                    <Checkbox
-                      checked={selectedIds.length === registrations.length && registrations.length > 0}
-                      onCheckedChange={toggleSelectAll}
-                    />
-                  </TableHead>
-                  {displayFields.map((field) => (
-                    <TableHead key={field.id} className="w-[14%] px-1">
-                      {field.label}
-                    </TableHead>
-                  ))}
-                  <TableHead className="w-[20%] px-1">提交时间</TableHead>
-                  <TableHead className="w-[18%] px-1">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {registrations.map((registration) => {
-                  return (
-                    <TableRow key={registration.id}>
-                      <TableCell className="px-1 py-2">
-                        <Checkbox
-                          checked={selectedIds.includes(registration.id)}
-                          onCheckedChange={() => toggleSelection(registration.id)}
-                        />
-                      </TableCell>
-                      {displayFields.map((field) => {
-                        const value = getFieldValue(registration.team_data || {}, field)
+            <>
+              <div className="mb-4 flex items-center gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 md:hidden">
+                <Checkbox
+                  checked={selectedIds.length === registrations.length && registrations.length > 0}
+                  onCheckedChange={toggleSelectAll}
+                />
+                <span className="text-sm text-muted-foreground">全选当前列表</span>
+              </div>
 
-                        return (
-                          <TableCell key={field.id} className="px-1 py-2">
-                            <div className="whitespace-pre-wrap break-words text-sm" style={{ maxWidth: '160px', wordBreak: 'break-all' }}>
-                              {renderCellValue(value)}
+              <div className="space-y-3 md:hidden">
+                {registrations.map((registration) => (
+                  <div key={registration.id} className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-3">
+                        {displayFields.map((field) => {
+                          const value = getFieldValue(registration.team_data || {}, field)
+                          return (
+                            <div key={field.id}>
+                              <p className="text-xs text-muted-foreground">{field.label}</p>
+                              <p className="text-sm font-medium text-foreground">{renderCellValue(value)}</p>
                             </div>
-                          </TableCell>
-                        )
-                      })}
-                      <TableCell className="whitespace-nowrap px-1 py-2 text-xs">{formatDate(registration.submitted_at)}</TableCell>
-                      <TableCell className="px-1 py-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => router.push(`/events/${eventId}/registrations/${registration.id}/review`)}
-                        >
-                          <Eye className="h-4 w-4 mr-1" />
-                          审核
-                        </Button>
-                      </TableCell>
+                          )
+                        })}
+                        <div>
+                          <p className="text-xs text-muted-foreground">提交时间</p>
+                          <p className="text-sm text-foreground">{formatDate(registration.submitted_at)}</p>
+                        </div>
+                      </div>
+                      <Checkbox
+                        checked={selectedIds.includes(registration.id)}
+                        onCheckedChange={() => toggleSelection(registration.id)}
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-4 w-full"
+                      onClick={() => router.push(`/events/${eventId}/registrations/${registration.id}/review`)}
+                    >
+                      <Eye className="mr-1 h-4 w-4" />
+                      审核
+                    </Button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden overflow-hidden rounded-xl border border-border/60 md:block">
+                <Table className="table-fixed">
+                  <TableHeader>
+                    <TableRow className="bg-muted/40">
+                      <TableHead className="w-8 px-1">
+                        <Checkbox
+                          checked={selectedIds.length === registrations.length && registrations.length > 0}
+                          onCheckedChange={toggleSelectAll}
+                        />
+                      </TableHead>
+                      {displayFields.map((field) => (
+                        <TableHead key={field.id} className="w-[14%] px-1">
+                          {field.label}
+                        </TableHead>
+                      ))}
+                      <TableHead className="w-[20%] px-1">提交时间</TableHead>
+                      <TableHead className="w-[18%] px-1">操作</TableHead>
                     </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {registrations.map((registration) => {
+                      return (
+                        <TableRow key={registration.id} className="bg-background transition-colors hover:bg-accent/40">
+                          <TableCell className="px-1 py-2">
+                            <Checkbox
+                              checked={selectedIds.includes(registration.id)}
+                              onCheckedChange={() => toggleSelection(registration.id)}
+                            />
+                          </TableCell>
+                          {displayFields.map((field) => {
+                            const value = getFieldValue(registration.team_data || {}, field)
+
+                            return (
+                              <TableCell key={field.id} className="px-1 py-2">
+                                <div className="whitespace-pre-wrap break-words text-sm" style={{ maxWidth: '160px', wordBreak: 'break-all' }}>
+                                  {renderCellValue(value)}
+                                </div>
+                              </TableCell>
+                            )
+                          })}
+                          <TableCell className="whitespace-nowrap px-1 py-2 text-xs">{formatDate(registration.submitted_at)}</TableCell>
+                          <TableCell className="px-1 py-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => router.push(`/events/${eventId}/registrations/${registration.id}/review`)}
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              审核
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

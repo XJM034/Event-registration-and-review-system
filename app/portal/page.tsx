@@ -6,7 +6,7 @@ import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { createClient } from '@/lib/supabase/client'
-import { getSessionUser, withTimeout } from '@/lib/supabase/client-auth'
+import { getSessionUserWithRetry, withTimeout } from '@/lib/supabase/client-auth'
 import type { User } from '@supabase/supabase-js'
 import {
   Table,
@@ -58,10 +58,10 @@ const HOME_TABS: Array<{ value: HomeTab; label: string }> = [
 ]
 
 const PHASE_STYLE_MAP: Record<EventPhaseKey, string> = {
-  upcoming: 'border border-gray-200 bg-gray-100 text-gray-700',
-  registering: 'border border-green-200 bg-green-100 text-green-700',
-  reviewing: 'border border-yellow-200 bg-yellow-100 text-yellow-700',
-  ended: 'border border-gray-200 bg-gray-100 text-gray-600',
+  upcoming: 'border border-border bg-muted text-muted-foreground',
+  registering: 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  reviewing: 'border border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+  ended: 'border border-border bg-muted text-muted-foreground',
 }
 
 function normalizeHomeTab(tab: string | null): HomeTab {
@@ -200,10 +200,15 @@ export default function PortalHomePage() {
   const fetchEvents = async (retryCount = 0) => {
     try {
       const supabase = createClient()
-      const { user, error: sessionError, isNetworkError } = await getSessionUser(supabase)
+      const { user, error: sessionError, isNetworkError } = await getSessionUserWithRetry(supabase, {
+        maxRetries: 2,
+        baseDelayMs: 300,
+      })
 
-      if (sessionError && isNetworkError && retryCount < 2) {
-        setTimeout(() => fetchEvents(retryCount + 1), (retryCount + 1) * 700)
+      if (sessionError && isNetworkError) {
+        if (retryCount < 2) {
+          setTimeout(() => fetchEvents(retryCount + 1), (retryCount + 1) * 900)
+        }
         return
       }
 
@@ -239,7 +244,17 @@ export default function PortalHomePage() {
 
       if (!response.ok) {
         if (response.status === 401) {
-          const { user: verifiedUser } = await getSessionUser(supabase)
+          const { user: verifiedUser, error: verifyError, isNetworkError: verifyIsNetworkError } = await getSessionUserWithRetry(supabase, {
+            maxRetries: 1,
+            baseDelayMs: 300,
+          })
+
+          if (verifyError && verifyIsNetworkError) {
+            if (retryCount < 2) {
+              setTimeout(() => fetchEvents(retryCount + 1), (retryCount + 1) * 900)
+            }
+            return
+          }
 
           if (!verifiedUser) {
             router.push('/auth/login')
@@ -393,7 +408,7 @@ export default function PortalHomePage() {
         label: '查看我的报名',
         variant: 'outline' as ActionVariant,
         disabled: false,
-        className: 'border border-blue-200 bg-white text-blue-700 hover:bg-blue-50 hover:text-blue-700',
+        className: 'border border-primary/20 bg-background text-primary hover:bg-primary/10 hover:text-primary',
         onClick: () => router.push(`/portal/events/${event.id}?scrollTo=my-registration`),
       }
     }
@@ -403,7 +418,7 @@ export default function PortalHomePage() {
         label: '去报名',
         variant: 'default' as ActionVariant,
         disabled: false,
-        className: 'bg-blue-600 text-white hover:bg-blue-700',
+        className: 'bg-primary text-primary-foreground hover:bg-primary/90',
         onClick: () => router.push(`/portal/events/${event.id}?scrollTo=my-registration`),
       }
     }
@@ -413,7 +428,7 @@ export default function PortalHomePage() {
         label: '查看详情',
         variant: 'outline' as ActionVariant,
         disabled: false,
-        className: 'border border-yellow-300 bg-yellow-50 text-yellow-800 hover:bg-yellow-100 hover:text-yellow-900',
+        className: 'border border-amber-500/20 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200',
         onClick: () => router.push(`/portal/events/${event.id}`),
       }
     }
@@ -423,7 +438,7 @@ export default function PortalHomePage() {
         label: '报名未开始',
         variant: 'secondary' as ActionVariant,
         disabled: true,
-        className: 'bg-gray-100 text-gray-500',
+        className: 'bg-muted text-muted-foreground',
         onClick: () => undefined,
       }
     }
@@ -432,7 +447,7 @@ export default function PortalHomePage() {
       label: '已结束',
       variant: 'secondary' as ActionVariant,
       disabled: true,
-      className: 'bg-gray-100 text-gray-500',
+      className: 'bg-muted text-muted-foreground',
       onClick: () => undefined,
     }
   }
@@ -458,11 +473,11 @@ export default function PortalHomePage() {
     <div className="min-w-0 space-y-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="grid w-full grid-cols-4 md:w-[460px]">
+          <TabsList className="grid h-auto w-full grid-cols-2 md:w-[460px] md:grid-cols-4">
             {HOME_TABS.map((tab) => (
               <TabsTrigger key={tab.value} value={tab.value}>
                 {tab.label}
-                <span className="ml-1 text-xs text-gray-500">{tabCounts[tab.value]}</span>
+                <span className="ml-1 text-xs text-muted-foreground">{tabCounts[tab.value]}</span>
               </TabsTrigger>
             ))}
           </TabsList>
@@ -474,7 +489,7 @@ export default function PortalHomePage() {
               <Filter className="mr-2 h-4 w-4" />
               赛事类型
               {selectedEventTypes.length > 0 && (
-                <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
+                <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
                   {selectedEventTypes.length}
                 </span>
               )}
@@ -482,7 +497,7 @@ export default function PortalHomePage() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             {eventTypes.length === 0 ? (
-              <div className="px-2 py-1.5 text-sm text-gray-500">暂无赛事类型</div>
+              <div className="px-2 py-1.5 text-sm text-muted-foreground">暂无赛事类型</div>
             ) : (
               eventTypes.map((type) => (
                 <DropdownMenuCheckboxItem
@@ -500,9 +515,9 @@ export default function PortalHomePage() {
 
       <div key={activeTab} className="animate-in fade-in-0 duration-200">
         {filteredEvents.length === 0 ? (
-          <div className="rounded-lg border bg-white p-12">
-            <div className="text-center text-gray-500">
-              <Calendar className="mx-auto mb-3 h-10 w-10 text-gray-300" />
+          <div className="rounded-xl border border-border/60 bg-card p-12">
+            <div className="text-center text-muted-foreground">
+              <Calendar className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
               <p className="text-lg">暂无赛事活动</p>
             </div>
           </div>
@@ -516,13 +531,13 @@ export default function PortalHomePage() {
                 return (
                   <div
                     key={event.id}
-                    className="rounded-lg border bg-white p-4 shadow-sm transition-all duration-200 hover:shadow-md"
+                    className="rounded-xl border border-border/60 bg-card p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
                   >
                     <button
                       className="mb-3 flex w-full items-start gap-3 text-left"
                       onClick={() => handleEventClick(event.id)}
                     >
-                      <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-md bg-gray-100">
+                      <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-md bg-muted">
                         {event.poster_url ? (
                           <Image
                             src={event.poster_url}
@@ -533,18 +548,18 @@ export default function PortalHomePage() {
                             className="object-cover"
                           />
                         ) : (
-                          <div className="flex h-full w-full items-center justify-center text-gray-400">
+                          <div className="flex h-full w-full items-center justify-center text-muted-foreground">
                             <Calendar className="h-5 w-5" />
                           </div>
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-semibold text-gray-900">{event.name}</p>
-                        <p className="mt-1 text-xs text-gray-500">{formatDate(event.start_date)} - {formatDate(event.end_date)}</p>
-                        <p className="mt-1 truncate text-xs text-gray-500">{event.address || '地点待更新'}</p>
+                        <p className="truncate text-sm font-semibold text-foreground">{event.name}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{formatDate(event.start_date)} - {formatDate(event.end_date)}</p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">{event.address || '地点待更新'}</p>
                       </div>
                     </button>
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <span className={cn('rounded-full px-2.5 py-1 text-xs font-medium', PHASE_STYLE_MAP[phase.key])}>
                         {phase.label}
                       </span>
@@ -563,17 +578,17 @@ export default function PortalHomePage() {
               })}
             </div>
 
-            <div className="hidden min-w-0 overflow-hidden rounded-lg border bg-white md:block">
+            <div className="hidden min-w-0 overflow-hidden rounded-xl border border-border/60 bg-card md:block">
               <div className="max-h-[calc(100vh-220px)] w-full overflow-auto">
                 <Table className="min-w-[800px]">
                   <TableHeader>
-                    <TableRow className="bg-gray-50">
-                      <TableHead className="sticky top-0 z-10 bg-gray-50">封面</TableHead>
-                      <TableHead className="sticky top-0 z-10 bg-gray-50">名称</TableHead>
-                      <TableHead className="sticky top-0 z-10 bg-gray-50">类型</TableHead>
-                      <TableHead className="sticky top-0 z-10 bg-gray-50">比赛地点</TableHead>
-                      <TableHead className="sticky top-0 z-10 bg-gray-50">报名阶段</TableHead>
-                      <TableHead className="sticky top-0 z-10 bg-gray-50">操作</TableHead>
+                    <TableRow className="bg-muted/40">
+                      <TableHead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">封面</TableHead>
+                      <TableHead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">名称</TableHead>
+                      <TableHead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">类型</TableHead>
+                      <TableHead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">比赛地点</TableHead>
+                      <TableHead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">报名阶段</TableHead>
+                      <TableHead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -584,14 +599,11 @@ export default function PortalHomePage() {
                       return (
                         <TableRow
                           key={event.id}
-                          className={cn(
-                            index % 2 === 0 ? 'bg-[#ffffff]' : 'bg-[#f9f9f9]',
-                            'cursor-pointer transition-colors hover:bg-blue-50'
-                          )}
+                          className={cn(index % 2 === 0 ? 'bg-background' : 'bg-muted/20', 'cursor-pointer transition-colors hover:bg-accent/50')}
                           onClick={() => handleEventClick(event.id)}
                         >
                           <TableCell>
-                            <div className="relative h-14 w-14 overflow-hidden rounded-md bg-gray-100">
+                            <div className="relative h-14 w-14 overflow-hidden rounded-md bg-muted">
                               {event.poster_url ? (
                                 <Image
                                   src={event.poster_url}
@@ -602,18 +614,18 @@ export default function PortalHomePage() {
                                   className="object-cover"
                                 />
                               ) : (
-                                <div className="flex h-full w-full items-center justify-center text-gray-400">
+                                <div className="flex h-full w-full items-center justify-center text-muted-foreground">
                                   <Calendar className="h-5 w-5" />
                                 </div>
                               )}
                             </div>
                           </TableCell>
                           <TableCell>
-                            <div className="max-w-[280px] truncate font-medium text-gray-900">{event.name}</div>
+                            <div className="max-w-[280px] truncate font-medium text-foreground">{event.name}</div>
                           </TableCell>
                           <TableCell>{event.type}</TableCell>
                           <TableCell>
-                            <div className="max-w-[260px] truncate text-gray-600">{event.address || '-'}</div>
+                            <div className="max-w-[260px] truncate text-muted-foreground">{event.address || '-'}</div>
                           </TableCell>
                           <TableCell>
                             <span className={cn('rounded-full px-2.5 py-1 text-xs font-medium', PHASE_STYLE_MAP[phase.key])}>
