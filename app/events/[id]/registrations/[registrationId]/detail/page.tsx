@@ -326,7 +326,7 @@ export default function RegistrationDetailPage() {
 
     const builtInLabelMap: Record<string, string> = {
       name: '姓名',
-      id_number: '身份证号码',
+      id_number: '证件号码',
       gender: '性别',
       id_photo: '证件照',
       emergency_contact: '紧急联系人',
@@ -469,15 +469,15 @@ export default function RegistrationDetailPage() {
 
     if ((field?.type === 'attachment' || (!field && isAttachmentObject(normalizedValue))) && isAttachmentObject(normalizedValue)) {
       return (
-        <div className="border rounded p-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-gray-500" />
-            <div>
-              <p className="text-sm font-medium">{normalizedValue.name || '附件'}</p>
+        <div className="flex flex-col gap-3 rounded border p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-2">
+            <FileText className="h-4 w-4 shrink-0 text-gray-500" />
+            <div className="min-w-0">
+              <p className="break-all text-sm font-medium">{normalizedValue.name || '附件'}</p>
               <p className="text-xs text-gray-500">{formatFileSize(normalizedValue.size)}</p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" asChild>
               <a href={getPreviewUrl(normalizedValue.url, normalizedValue.name)} target="_blank" rel="noopener noreferrer">预览</a>
             </Button>
@@ -498,15 +498,18 @@ export default function RegistrationDetailPage() {
       return (
         <div className="space-y-2">
           {files.map((file, idx) => (
-            <div key={`${file.url}-${idx}`} className="border rounded p-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-gray-500" />
-                <div>
-                  <p className="text-sm font-medium">{file.name || `附件${idx + 1}`}</p>
+            <div
+              key={`${file.url}-${idx}`}
+              className="flex flex-col gap-3 rounded border p-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <FileText className="h-4 w-4 shrink-0 text-gray-500" />
+                <div className="min-w-0">
+                  <p className="break-all text-sm font-medium">{file.name || `附件${idx + 1}`}</p>
                   <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" asChild>
                   <a href={getPreviewUrl(file.url, file.name)} target="_blank" rel="noopener noreferrer">预览</a>
                 </Button>
@@ -550,10 +553,10 @@ export default function RegistrationDetailPage() {
   })
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-gray-50 px-3 py-4 sm:p-6">
       <div className="max-w-6xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
-          <Button variant="outline" onClick={() => router.push(registrationListPath)}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Button className="w-full sm:w-auto" variant="outline" onClick={() => router.push(registrationListPath)}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             返回报名列表
           </Button>
@@ -564,7 +567,7 @@ export default function RegistrationDetailPage() {
             <CardTitle>报名详情（页面模式）</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-2 gap-4 border rounded-lg p-4">
+            <div className="grid grid-cols-1 gap-4 rounded-lg border p-4 sm:grid-cols-2">
               <div>
                 <Label>提交时间</Label>
                 <p className="mt-1 text-sm text-gray-700">{formatDateTime(registration.submitted_at)}</p>
@@ -577,11 +580,15 @@ export default function RegistrationDetailPage() {
 
             <div className="border rounded-lg p-4">
               <h3 className="font-semibold text-lg mb-4">队伍信息</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {getRenderableEntries(registration.team_data || {}, teamFields).map((entry) => (
                   <div
                     key={entry.key}
-                    className={entry.type === 'image' || entry.type === 'attachment' || entry.type === 'attachments' ? 'col-span-2' : ''}
+                    className={
+                      entry.type === 'image' || entry.type === 'attachment' || entry.type === 'attachments'
+                        ? 'sm:col-span-2'
+                        : ''
+                    }
                   >
                     <Label>{entry.label}</Label>
                     <div className="mt-1">{renderFieldValue(entry.value, entry.key, teamFields)}</div>
@@ -604,11 +611,15 @@ export default function RegistrationDetailPage() {
                     return (
                       <div key={`${roleId}-${safeIndex}`} className="border rounded-lg p-4">
                         <h4 className="font-medium mb-4">{playerName}</h4>
-                        <div className="grid grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                           {getRenderableEntries(player, roleFields).map((entry) => (
                             <div
                               key={entry.key}
-                              className={entry.type === 'image' || entry.type === 'attachment' || entry.type === 'attachments' ? 'col-span-3' : ''}
+                              className={
+                                entry.type === 'image' || entry.type === 'attachment' || entry.type === 'attachments'
+                                  ? 'sm:col-span-2 xl:col-span-3'
+                                  : ''
+                              }
                             >
                               <Label>{entry.label}</Label>
                               <div className="mt-1">{renderFieldValue(entry.value, entry.key, roleFields)}</div>

@@ -300,13 +300,13 @@ export default function ProjectsTab({ refreshKey, onUpdate }: ProjectsTabProps) 
           </DialogHeader>
 
           <div className="space-y-4">
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="project_type_id">所属类型 *</Label>
               <Select
                 value={formData.project_type_id}
                 onValueChange={(value) => setFormData({ ...formData, project_type_id: value })}
               >
-                <SelectTrigger>
+                <SelectTrigger className="h-11 w-full">
                   <SelectValue placeholder="选择类型" />
                 </SelectTrigger>
                 <SelectContent>
@@ -319,17 +319,18 @@ export default function ProjectsTab({ refreshKey, onUpdate }: ProjectsTabProps) 
               </Select>
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="name">项目名称 *</Label>
               <Input
                 id="name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 placeholder="例如：棍网球、篮球、足球"
+                className="h-11"
               />
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="display_order">排序</Label>
               <Input
                 id="display_order"
@@ -338,6 +339,7 @@ export default function ProjectsTab({ refreshKey, onUpdate }: ProjectsTabProps) 
                 onChange={(e) =>
                   setFormData({ ...formData, display_order: parseInt(e.target.value) || 0 })
                 }
+                className="h-11"
               />
             </div>
           </div>

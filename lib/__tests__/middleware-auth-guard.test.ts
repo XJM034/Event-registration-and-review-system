@@ -60,7 +60,7 @@ describe('middleware auth guard', () => {
     })
   })
 
-  it('redirects /portal to /events when an admin session is active', async () => {
+  it('allows /portal when a coach session is active even if an admin session cookie exists', async () => {
     const request = new NextRequest('https://example.com/portal', {
       headers: {
         cookie: 'admin-session=valid-admin-token',
@@ -69,11 +69,11 @@ describe('middleware auth guard', () => {
 
     const response = await middleware(request)
 
-    expect(response.status).toBe(307)
-    expect(response.headers.get('location')).toBe('https://example.com/events')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('location')).toBeNull()
   })
 
-  it('blocks /api/portal when an admin session is active', async () => {
+  it('allows /api/portal when a coach session is active even if an admin session cookie exists', async () => {
     const request = new NextRequest('https://example.com/api/portal/registrations', {
       headers: {
         cookie: 'admin-session=valid-admin-token',
@@ -81,9 +81,8 @@ describe('middleware auth guard', () => {
     })
 
     const response = await middleware(request)
-    const payload = await response.json()
 
-    expect(response.status).toBe(403)
-    expect(payload).toEqual({ error: 'Forbidden' })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('location')).toBeNull()
   })
 })

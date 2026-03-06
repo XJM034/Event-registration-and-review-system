@@ -455,7 +455,7 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
           </DialogHeader>
 
           <div className="space-y-4">
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="project_type_id">所属类型 *</Label>
               <Select
                 value={formData.project_type_id}
@@ -468,7 +468,7 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
                   })
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger className="h-11 w-full">
                   <SelectValue placeholder="选择类型" />
                 </SelectTrigger>
                 <SelectContent>
@@ -481,13 +481,13 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
               </Select>
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="project_id">所属项目 *</Label>
               <Select
                 value={formData.project_id}
                 onValueChange={(value) => setFormData({ ...formData, project_id: value })}
               >
-                <SelectTrigger>
+                <SelectTrigger className="h-11 w-full">
                   <SelectValue placeholder={formData.project_type_id ? '选择项目' : '请先选择类型'} />
                 </SelectTrigger>
                 <SelectContent>
@@ -500,17 +500,18 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
               </Select>
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="name">组别名称 *</Label>
               <Input
                 id="name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 placeholder="例如：U12组、U15组、成人组"
+                className="h-11"
               />
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="description">描述</Label>
               <Textarea
                 id="description"
@@ -525,7 +526,7 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
               <h4 className="font-medium mb-3">报名限制规则</h4>
 
               <div className="space-y-3">
-                <div>
+                <div className="space-y-2">
                   <Label htmlFor="gender">性别限制</Label>
                   <Select
                     value={formData.rules.gender}
@@ -533,7 +534,7 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
                       setFormData({ ...formData, rules: { ...formData.rules, gender: value } })
                     }
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="h-11 w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

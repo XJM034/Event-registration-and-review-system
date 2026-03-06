@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Checkbox } from '@/components/ui/checkbox'
 import { Clock, Download, Eye } from 'lucide-react'
 import ExportConfigDialog, { ExportConfig } from './export-config-dialog'
+import { buildPrioritizedTeamFields, DEFAULT_TEAM_FIELDS, getTeamFieldValue, TeamDisplayField } from './team-display-fields'
 
 interface Registration {
   id: string
@@ -15,30 +16,15 @@ interface Registration {
   submitted_at: string
 }
 
-interface RegistrationField {
-  id: string
-  label: string
-  type?: string
-}
-
 interface ReviewListTabProps {
   eventId: string
   onReviewComplete?: () => void
 }
 
-const DEFAULT_TEAM_FIELDS: RegistrationField[] = [
-  { id: 'participationGroup', label: '组别' },
-  { id: 'unit', label: '参赛单位' },
-  { id: 'name', label: '队伍名称' },
-  { id: 'contact', label: '联系人' },
-]
-
-const GROUP_FIELD_LABELS = ['组别', '队伍组别']
-
 export default function ReviewListTab({ eventId }: ReviewListTabProps) {
   const router = useRouter()
   const [registrations, setRegistrations] = useState<Registration[]>([])
-  const [teamFields, setTeamFields] = useState<RegistrationField[]>([])
+  const [teamFields, setTeamFields] = useState<TeamDisplayField[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [showExportDialog, setShowExportDialog] = useState(false)
@@ -57,7 +43,7 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
           setTeamFields(DEFAULT_TEAM_FIELDS)
           return
         }
-        const fields: RegistrationField[] = teamRequirements.allFields || [
+        const fields: TeamDisplayField[] = teamRequirements.allFields || [
           ...(teamRequirements.commonFields || []),
           ...(teamRequirements.customFields || []),
         ]
@@ -92,45 +78,8 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
   }, [fetchRegistrations, fetchRegistrationSettings])
 
   const displayFields = useMemo(() => {
-    if (teamFields.length === 0) {
-      return DEFAULT_TEAM_FIELDS
-    }
-
-    const priorityFieldIds = ['group', 'unit', 'name', 'contact']
-    const priorityFields = priorityFieldIds
-      .map(id => {
-        let field = teamFields.find(field => field.id === id)
-        if (!field && id === 'group') {
-          const groupField = teamFields.find(field => GROUP_FIELD_LABELS.includes(field.label))
-          if (groupField) {
-            field = { ...groupField, id: 'participationGroup', label: '组别' }
-          } else {
-            field = DEFAULT_TEAM_FIELDS[0]
-          }
-        }
-        return field
-      })
-      .filter((field): field is RegistrationField => field !== undefined)
-
-    if (priorityFields.length < 4) {
-      const otherFields = teamFields
-        .filter(field =>
-          !priorityFieldIds.includes(field.id) &&
-          !['image', 'attachment', 'attachments'].includes(field.type || '')
-        )
-        .slice(0, 4 - priorityFields.length)
-      return [...priorityFields, ...otherFields]
-    }
-
-    return priorityFields
+    return buildPrioritizedTeamFields(teamFields)
   }, [teamFields])
-
-  const getFieldValue = useCallback((teamData: Record<string, unknown>, field: RegistrationField) => {
-    if (field.id === 'participationGroup' || GROUP_FIELD_LABELS.includes(field.label)) {
-      return teamData?.participationGroup ?? teamData?.group ?? teamData?.division_name ?? teamData?.divisionName ?? '-'
-    }
-    return teamData?.[field.id]
-  }, [])
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString('zh-CN', {
@@ -274,7 +223,7 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-3">
                         {displayFields.map((field) => {
-                          const value = getFieldValue(registration.team_data || {}, field)
+                          const value = getTeamFieldValue(registration.team_data || {}, field)
                           return (
                             <div key={field.id}>
                               <p className="text-xs text-muted-foreground">{field.label}</p>
@@ -335,7 +284,7 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
                             />
                           </TableCell>
                           {displayFields.map((field) => {
-                            const value = getFieldValue(registration.team_data || {}, field)
+                            const value = getTeamFieldValue(registration.team_data || {}, field)
 
                             return (
                               <TableCell key={field.id} className="px-1 py-2">

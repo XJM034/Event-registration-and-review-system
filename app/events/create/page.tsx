@@ -575,7 +575,7 @@ export default function CreateEventPage() {
               {/* 赛事类型 - 三级联动 */}
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
+                  <div className="space-y-2">
                     <Label>赛事类型 *</Label>
                     <Select
                       onValueChange={(value) => {
@@ -588,7 +588,7 @@ export default function CreateEventPage() {
                       value={selectedTypeId}
                       disabled={loadingConfig}
                     >
-                      <SelectTrigger className="mt-1">
+                      <SelectTrigger className="h-11 w-full">
                         <SelectValue placeholder={loadingConfig ? '加载中...' : '选择赛事类型'} />
                       </SelectTrigger>
                       <SelectContent>
@@ -599,13 +599,13 @@ export default function CreateEventPage() {
                         ))}
                       </SelectContent>
                     </Select>
-                    {errors.type && (
-                      <p className="text-red-600 text-sm mt-1">{errors.type.message}</p>
+                  {errors.type && (
+                      <p className="text-red-600 text-sm">{errors.type.message}</p>
                     )}
                   </div>
 
                   {filteredProjects.length > 0 && (
-                    <div>
+                    <div className="space-y-2">
                       <Label>具体项目 *</Label>
                       <Select
                         onValueChange={(value) => {
@@ -614,7 +614,7 @@ export default function CreateEventPage() {
                         }}
                         value={selectedProjectId}
                       >
-                        <SelectTrigger className="mt-1">
+                        <SelectTrigger className="h-11 w-full">
                           <SelectValue placeholder="选择具体项目" />
                         </SelectTrigger>
                         <SelectContent>
@@ -631,10 +631,10 @@ export default function CreateEventPage() {
 
                 {/* 组别多选 */}
                 {filteredDivisions.length > 0 && (
-                  <div>
-                    <Label>组别选择 *</Label>
-                    <p className="text-sm text-gray-500 mb-2">选择该赛事包含的组别，每个组别可独立配置报名设置</p>
-                    <div className="border rounded-md p-4 space-y-2 max-h-60 overflow-y-auto">
+                <div className="space-y-2">
+                  <Label>组别选择 *</Label>
+                  <p className="text-sm text-gray-500">选择该赛事包含的组别，每个组别可独立配置报名设置</p>
+                  <div className="border rounded-md p-4 space-y-2 max-h-60 overflow-y-auto">
                       {filteredDivisions.map((division) => (
                         <div key={division.id} className="flex items-center space-x-2">
                           <Checkbox
@@ -658,7 +658,7 @@ export default function CreateEventPage() {
                       ))}
                     </div>
                     {selectedDivisionIds.length > 0 && (
-                      <p className="text-sm text-blue-600 mt-1">
+                      <p className="text-sm text-blue-600">
                         已选择 {selectedDivisionIds.length} 个组别
                       </p>
                     )}

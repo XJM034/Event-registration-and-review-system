@@ -12,6 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Eye, Download, Plus, X, CheckCircle, UserPlus } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import ExportConfigDialog, { ExportConfig } from './export-config-dialog'
+import { buildPrioritizedTeamFields, DEFAULT_TEAM_FIELDS, getTeamFieldValue, TeamDisplayField } from './team-display-fields'
 
 interface Registration {
   id: string
@@ -26,15 +27,6 @@ interface RegistrationListTabProps {
   eventId: string
 }
 
-const DEFAULT_TEAM_FIELDS = [
-  { id: 'participationGroup', label: '组别' },
-  { id: 'unit', label: '参赛单位' },
-  { id: 'name', label: '队伍名称' },
-  { id: 'contact', label: '联系人' },
-]
-
-const GROUP_FIELD_LABELS = ['组别', '队伍组别']
-
 export default function RegistrationListTab({ eventId }: RegistrationListTabProps) {
   const router = useRouter()
   const [registrations, setRegistrations] = useState<Registration[]>([])
@@ -46,7 +38,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
   const [showExportDialog, setShowExportDialog] = useState(false)
   const [rejectionReason, setRejectionReason] = useState('')
   const [processingId, setProcessingId] = useState<string | null>(null)
-  const [teamFields, setTeamFields] = useState<any[]>([]) // 存储队伍报名要求字段（表格显示用）
+  const [teamFields, setTeamFields] = useState<TeamDisplayField[]>([]) // 存储队伍报名要求字段（表格显示用）
   const [lastFetchTime, setLastFetchTime] = useState(0) // 记录上次获取设置的时间
   
   // 新增报名表单数据
@@ -102,7 +94,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
 
         if (settings?.team_requirements) {
           const teamReq = settings.team_requirements
-          const fields = teamReq.allFields || [
+          const fields: TeamDisplayField[] = teamReq.allFields || [
             ...(teamReq.commonFields || []),
             ...(teamReq.customFields || [])
           ]
@@ -112,35 +104,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
             return
           }
 
-          const priorityFieldIds = ['group', 'unit', 'name', 'contact']
-          const priorityFields = priorityFieldIds
-            .map(id => {
-              let field = fields.find((field: any) => field.id === id)
-              if (!field && id === 'group') {
-                const groupField = fields.find((field: any) =>
-                  GROUP_FIELD_LABELS.includes(field.label)
-                )
-                if (groupField) {
-                  field = { ...groupField, id: 'participationGroup', label: '组别' }
-                } else {
-                  field = DEFAULT_TEAM_FIELDS[0]
-                }
-              }
-              return field
-            })
-            .filter((field: any) => field !== undefined)
-
-          if (priorityFields.length < 4) {
-            const otherFields = fields
-              .filter((field: any) =>
-                !priorityFieldIds.includes(field.id) &&
-                !['image', 'attachment', 'attachments'].includes(field.type || '')
-              )
-              .slice(0, 4 - priorityFields.length)
-            setTeamFields([...priorityFields, ...otherFields])
-          } else {
-            setTeamFields(priorityFields)
-          }
+          setTeamFields(buildPrioritizedTeamFields(fields))
         } else {
           setTeamFields(DEFAULT_TEAM_FIELDS)
         }
@@ -151,13 +115,6 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
       console.error('Error fetching registration settings:', error)
       setTeamFields(DEFAULT_TEAM_FIELDS)
     }
-  }
-
-  const getFieldValue = (teamData: Record<string, unknown>, field: { id: string; label: string }) => {
-    if (field.id === 'participationGroup' || GROUP_FIELD_LABELS.includes(field.label)) {
-      return teamData?.participationGroup ?? teamData?.group ?? teamData?.division_name ?? teamData?.divisionName ?? '-'
-    }
-    return teamData?.[field.id]
   }
 
   const fetchRegistrations = async () => {
@@ -430,7 +387,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-3">
                         {teamFields.map((field) => {
-                          const rawValue = getFieldValue(registration.team_data || {}, field)
+                          const rawValue = getTeamFieldValue(registration.team_data || {}, field)
                           const value = rawValue === null || rawValue === undefined ? '-' : String(rawValue)
                           return (
                             <div key={field.id}>
@@ -506,7 +463,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                         </TableCell>
                         {/* 动态显示队伍数据的前3个字段 */}
                         {teamFields.map((field, index) => {
-                          const rawValue = getFieldValue(registration.team_data || {}, field)
+                          const rawValue = getTeamFieldValue(registration.team_data || {}, field)
                           const value = rawValue === null || rawValue === undefined ? '-' : String(rawValue)
                           const displayValue = value.length > 8
                             ? value.substring(0, 8) + '\n' + value.substring(8)

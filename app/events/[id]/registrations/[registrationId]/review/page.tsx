@@ -335,7 +335,7 @@ export default function ReviewRegistrationPage() {
 
     const builtInLabelMap: Record<string, string> = {
       name: '姓名',
-      id_number: '身份证号码',
+      id_number: '证件号码',
       gender: '性别',
       id_photo: '证件照',
       emergency_contact: '紧急联系人',
@@ -478,15 +478,15 @@ export default function ReviewRegistrationPage() {
 
     if ((field?.type === 'attachment' || (!field && isAttachmentObject(normalizedValue))) && isAttachmentObject(normalizedValue)) {
       return (
-        <div className="border rounded p-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-gray-500" />
-            <div>
-              <p className="text-sm font-medium">{normalizedValue.name || '附件'}</p>
+        <div className="flex flex-col gap-3 rounded border p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-2">
+            <FileText className="h-4 w-4 shrink-0 text-gray-500" />
+            <div className="min-w-0">
+              <p className="break-all text-sm font-medium">{normalizedValue.name || '附件'}</p>
               <p className="text-xs text-gray-500">{formatFileSize(normalizedValue.size)}</p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" asChild>
               <a href={getPreviewUrl(normalizedValue.url, normalizedValue.name)} target="_blank" rel="noopener noreferrer">预览</a>
             </Button>
@@ -507,15 +507,18 @@ export default function ReviewRegistrationPage() {
       return (
         <div className="space-y-2">
           {files.map((file, idx) => (
-            <div key={`${file.url}-${idx}`} className="border rounded p-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-gray-500" />
-                <div>
-                  <p className="text-sm font-medium">{file.name || `附件${idx + 1}`}</p>
+            <div
+              key={`${file.url}-${idx}`}
+              className="flex flex-col gap-3 rounded border p-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <FileText className="h-4 w-4 shrink-0 text-gray-500" />
+                <div className="min-w-0">
+                  <p className="break-all text-sm font-medium">{file.name || `附件${idx + 1}`}</p>
                   <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" asChild>
                   <a href={getPreviewUrl(file.url, file.name)} target="_blank" rel="noopener noreferrer">预览</a>
                 </Button>
@@ -632,19 +635,23 @@ export default function ReviewRegistrationPage() {
   })
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-gray-50 px-3 py-4 sm:p-6">
       <div className="max-w-6xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
-          <Button variant="outline" onClick={() => router.push(reviewListPath)}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <Button className="w-full sm:w-auto" variant="outline" onClick={() => router.push(reviewListPath)}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             返回审核列表
           </Button>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={handleReject} disabled={processing}>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <Button className="w-full sm:w-auto" variant="outline" onClick={handleReject} disabled={processing}>
               <X className="h-4 w-4 mr-1" />
               驳回
             </Button>
-            <Button className="bg-green-600 hover:bg-green-700" onClick={handleApprove} disabled={processing}>
+            <Button
+              className="w-full bg-green-600 hover:bg-green-700 sm:w-auto"
+              onClick={handleApprove}
+              disabled={processing}
+            >
               <Check className="h-4 w-4 mr-1" />
               通过
             </Button>
@@ -657,12 +664,12 @@ export default function ReviewRegistrationPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="border rounded-lg p-4">
-              <div className="flex items-center justify-between mb-4">
+              <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <h3 className="font-semibold text-lg">队伍信息</h3>
                 <RadioGroup
                   value={reviewStatus.team?.status || 'unchecked'}
                   onValueChange={(value) => updateReviewStatus('team', value as ReviewDecision)}
-                  className="flex gap-4"
+                  className="grid gap-3 sm:grid-flow-col sm:auto-cols-max sm:gap-4"
                 >
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="approved" id="team-approved" />
@@ -695,11 +702,15 @@ export default function ReviewRegistrationPage() {
                 </Alert>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {getRenderableEntries(registration.team_data || {}, teamFields).map((entry) => (
                   <div
                     key={entry.key}
-                    className={entry.type === 'image' || entry.type === 'attachment' || entry.type === 'attachments' ? 'col-span-2' : ''}
+                    className={
+                      entry.type === 'image' || entry.type === 'attachment' || entry.type === 'attachments'
+                        ? 'sm:col-span-2'
+                        : ''
+                    }
                   >
                     <Label>{entry.label}</Label>
                     <div className="mt-1">{renderFieldValue(entry.value, entry.key, teamFields)}</div>
@@ -722,12 +733,12 @@ export default function ReviewRegistrationPage() {
 
                     return (
                       <div key={`${roleId}-${safeIndex}`} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-4">
+                        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                           <h4 className="font-medium">{playerName}</h4>
                           <RadioGroup
                             value={reviewStatus[playerKey]?.status || 'unchecked'}
                             onValueChange={(value) => updateReviewStatus(playerKey, value as ReviewDecision)}
-                            className="flex gap-4"
+                            className="grid gap-3 sm:grid-flow-col sm:auto-cols-max sm:gap-4"
                           >
                             <div className="flex items-center space-x-2">
                               <RadioGroupItem value="approved" id={`${playerKey}-approved`} />
@@ -760,11 +771,15 @@ export default function ReviewRegistrationPage() {
                           </Alert>
                         )}
 
-                        <div className="grid grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
                           {getRenderableEntries(player, roleFields).map((entry) => (
                             <div
                               key={entry.key}
-                              className={entry.type === 'image' || entry.type === 'attachment' || entry.type === 'attachments' ? 'col-span-3' : ''}
+                              className={
+                                entry.type === 'image' || entry.type === 'attachment' || entry.type === 'attachments'
+                                  ? 'sm:col-span-2 xl:col-span-3'
+                                  : ''
+                              }
                             >
                               <Label>{entry.label}</Label>
                               <div className="mt-1">{renderFieldValue(entry.value, entry.key, roleFields)}</div>

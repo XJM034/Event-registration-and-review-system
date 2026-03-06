@@ -45,10 +45,10 @@ export default function ProjectManagementPage() {
           </CardHeader>
           <CardContent>
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-1 gap-1 sm:grid-cols-3">
-                <TabsTrigger value="types">赛事类型</TabsTrigger>
-                <TabsTrigger value="projects">具体项目</TabsTrigger>
-                <TabsTrigger value="divisions">组别设置</TabsTrigger>
+              <TabsList className="grid h-auto w-full auto-rows-fr grid-cols-1 gap-1 p-1 sm:grid-cols-3">
+                <TabsTrigger className="min-h-10 whitespace-normal px-3 text-sm leading-5" value="types">赛事类型</TabsTrigger>
+                <TabsTrigger className="min-h-10 whitespace-normal px-3 text-sm leading-5" value="projects">具体项目</TabsTrigger>
+                <TabsTrigger className="min-h-10 whitespace-normal px-3 text-sm leading-5" value="divisions">组别设置</TabsTrigger>
               </TabsList>
 
               <TabsContent value="types">
