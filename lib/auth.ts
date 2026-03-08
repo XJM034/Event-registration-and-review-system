@@ -135,11 +135,6 @@ export async function isSuperAdmin(): Promise<boolean> {
 
 // 获取当前教练会话（使用 Supabase Auth）
 export async function getCurrentCoachSession() {
-  const adminSession = await getCurrentAdminSession()
-  if (adminSession?.user) {
-    return null
-  }
-
   const supabase = await createSupabaseServer()
   const { data: { session } } = await supabase.auth.getSession()
 

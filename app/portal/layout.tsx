@@ -41,7 +41,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { getSessionUserWithRetry, withTimeout } from '@/lib/supabase/client-auth'
+import { getSessionUserWithRetry, isTimeoutError, withTimeout } from '@/lib/supabase/client-auth'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 
 interface PortalLayoutProps {
@@ -151,24 +151,34 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
       authRetryCountRef.current = 0
 
       // 获取教练信息
-      const { data: coach, error: coachError } = await withTimeout(
-        supabase
-          .from('coaches')
-          .select('*')
-          .eq('auth_id', sessionUser.id)
-          .single(),
-        4000,
-        'Coach profile lookup timed out'
-      )
+      try {
+        const { data: coach, error: coachError } = await withTimeout(
+          supabase
+            .from('coaches')
+            .select('*')
+            .eq('auth_id', sessionUser.id)
+            .single(),
+          4000,
+          'Coach profile lookup timed out'
+        )
 
-      if (coachError) {
+        if (coachError) {
+          setUser(sessionUser)
+          return
+        }
+
+        setUser(coach || sessionUser)
+      } catch (error) {
+        if (!isTimeoutError(error)) {
+          console.error('获取教练资料失败:', error)
+        }
         setUser(sessionUser)
         return
       }
-
-      setUser(coach || sessionUser)
     } catch (error) {
-      console.error('获取用户信息失败:', error)
+      if (!isTimeoutError(error)) {
+        console.error('获取用户信息失败:', error)
+      }
     }
   }
 
