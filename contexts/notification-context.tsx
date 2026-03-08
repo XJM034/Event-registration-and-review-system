@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { getSessionUser, withTimeout } from '@/lib/supabase/client-auth'
+import { getSessionUser, isTimeoutError, withTimeout } from '@/lib/supabase/client-auth'
 
 interface NotificationContextType {
   unreadCount: number
@@ -44,17 +44,28 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           return
         }
 
-        const { data: coach, error: coachError } = await withTimeout(
-          supabase
-            .from('coaches')
-            .select('id')
-            .eq('auth_id', user.id)
-            .maybeSingle(),
-          4000,
-          'Unread-count coach lookup timed out'
-        )
+        let coach: { id: string } | null = null
+        try {
+          const coachResult = await withTimeout(
+            supabase
+              .from('coaches')
+              .select('id')
+              .eq('auth_id', user.id)
+              .maybeSingle(),
+            4000,
+            'Unread-count coach lookup timed out'
+          )
 
-        if (coachError) {
+          if (coachResult.error) {
+            setUnreadCount(0)
+            return
+          }
+
+          coach = coachResult.data
+        } catch (error) {
+          if (!isTimeoutError(error)) {
+            console.error('Error fetching coach for unread count:', error)
+          }
           setUnreadCount(0)
           return
         }
@@ -64,15 +75,28 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           return
         }
 
-        const { count, error: countError } = await withTimeout(
-          supabase
-            .from('notifications')
-            .select('*', { count: 'exact', head: true })
-            .eq('coach_id', coach.id)
-            .eq('is_read', false),
-          4000,
-          'Unread-count notifications lookup timed out'
-        )
+        let count = 0
+        let countError: unknown = null
+        try {
+          const countResult = await withTimeout(
+            supabase
+              .from('notifications')
+              .select('*', { count: 'exact', head: true })
+              .eq('coach_id', coach.id)
+              .eq('is_read', false),
+            4000,
+            'Unread-count notifications lookup timed out'
+          )
+
+          count = countResult.count || 0
+          countError = countResult.error
+        } catch (error) {
+          if (!isTimeoutError(error)) {
+            console.error('Error fetching unread notifications count:', error)
+          }
+          setUnreadCount(0)
+          return
+        }
 
         if (countError) {
           console.error('Error fetching unread count:', countError)

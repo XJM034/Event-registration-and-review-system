@@ -37,7 +37,8 @@ import {
   Share2,
   Copy,
   Check,
-  Clock
+  Clock,
+  Download,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { getSessionUserWithRetry } from '@/lib/supabase/client-auth'
@@ -189,6 +190,36 @@ interface ShareDialogTarget {
   playerLabel: string
 }
 
+type CoachTemplateDocumentType = 'registration_form' | 'athlete_info_form'
+type CoachTemplateExportFormat = 'pdf'
+
+function normalizeFieldConfig(field: FieldConfig): FieldConfig {
+  if (field.id === 'player_number' && field.label !== '比赛服号码') {
+    return { ...field, label: '比赛服号码' }
+  }
+  return field
+}
+
+function normalizeFieldList(fields?: FieldConfig[]): FieldConfig[] {
+  return (fields || []).map(normalizeFieldConfig)
+}
+
+function normalizePlayerRequirements(
+  value?: PlayerRequirementsConfig | null
+): PlayerRequirementsConfig | undefined {
+  if (!value) return undefined
+
+  return {
+    ...value,
+    roles: (value.roles || []).map((role) => ({
+      ...role,
+      commonFields: normalizeFieldList(role.commonFields),
+      customFields: normalizeFieldList(role.customFields),
+      allFields: normalizeFieldList(role.allFields),
+    })),
+  }
+}
+
 function parseTeamRequirements(
   value?: TeamRequirementsConfig | string | null
 ): TeamRequirementsConfig | undefined {
@@ -198,7 +229,13 @@ function parseTeamRequirements(
     try {
       const parsed = JSON.parse(value)
       if (parsed && typeof parsed === 'object') {
-        return parsed as TeamRequirementsConfig
+        const config = parsed as TeamRequirementsConfig
+        return {
+          ...config,
+          commonFields: normalizeFieldList(config.commonFields),
+          customFields: normalizeFieldList(config.customFields),
+          allFields: normalizeFieldList(config.allFields),
+        }
       }
       return undefined
     } catch {
@@ -206,7 +243,12 @@ function parseTeamRequirements(
     }
   }
 
-  return value
+  return {
+    ...value,
+    commonFields: normalizeFieldList(value.commonFields),
+    customFields: normalizeFieldList(value.customFields),
+    allFields: normalizeFieldList(value.allFields),
+  }
 }
 
 function getMergedFields(config?: {
@@ -214,10 +256,12 @@ function getMergedFields(config?: {
   commonFields?: FieldConfig[]
   customFields?: FieldConfig[]
 }): FieldConfig[] {
-  const raw = config?.allFields || [
-    ...(config?.commonFields || []),
-    ...(config?.customFields || [])
-  ]
+  const raw = config?.allFields && config.allFields.length > 0
+    ? config.allFields
+    : [
+        ...(config?.commonFields || []),
+        ...(config?.customFields || []),
+      ]
 
   return raw.filter((field): field is FieldConfig => Boolean(field?.id))
 }
@@ -332,6 +376,7 @@ function isFieldRequiredForValues(field: FieldConfig, values: Record<string, any
 
 function getFieldDisplayLabel(field: FieldConfig): string {
   if (field.id === 'id_number') return '证件号码'
+  if (field.id === 'player_number') return '比赛服号码'
   return field.label || field.id
 }
 
@@ -341,6 +386,8 @@ const VALIDATION_MESSAGE_ERROR_CLASS = 'rounded border border-destructive/20 bg-
 const VALIDATION_MESSAGE_SUCCESS_CLASS = 'rounded border border-emerald-500/20 bg-emerald-500/10 p-2 text-emerald-700 dark:text-emerald-300'
 const MUTED_BADGE_CLASS = 'rounded bg-muted px-2 py-1 text-xs text-muted-foreground'
 const INFO_BADGE_CLASS = 'rounded bg-sky-500/10 px-2 py-1 text-xs text-sky-700 dark:text-sky-300'
+const PLAYER_FIELD_WRAPPER_CLASS = 'space-y-2'
+const PLAYER_FIELD_LABEL_CLASS = 'flex min-h-6 flex-wrap items-center gap-2 text-sm font-medium leading-none'
 
 // 动态生成表单 schema
 const createTeamSchema = (fields: any[]) => {
@@ -420,20 +467,30 @@ export default function RegisterPage() {
   const [selectedDivisionId, setSelectedDivisionId] = useState<string>('')
   const [shareDialogTarget, setShareDialogTarget] = useState<ShareDialogTarget | null>(null)
   const [isGeneratingShareLink, setIsGeneratingShareLink] = useState(false)
+  const [exportingTemplateKey, setExportingTemplateKey] = useState<string | null>(null)
 
   const activeRegistrationSettings = useMemo<RegistrationSettingsConfig | null>(() => {
     const settingsByDivision = event?.registration_settings_by_division || []
+    const normalizeSettings = (settings?: RegistrationSettingsConfig | null) => {
+      if (!settings) return null
+      return {
+        ...settings,
+        team_requirements: parseTeamRequirements(settings.team_requirements),
+        player_requirements: normalizePlayerRequirements(settings.player_requirements),
+      }
+    }
+
     if (settingsByDivision.length === 0) {
-      return event?.registration_settings || null
+      return normalizeSettings(event?.registration_settings)
     }
 
     const preferredDivisionId = selectedDivisionId || event?.registration_settings?.division_id || null
     if (preferredDivisionId) {
       const matched = settingsByDivision.find((setting) => setting.division_id === preferredDivisionId)
-      if (matched) return matched
+      if (matched) return normalizeSettings(matched)
     }
 
-    return event?.registration_settings || settingsByDivision[0] || null
+    return normalizeSettings(event?.registration_settings || settingsByDivision[0] || null)
   }, [event?.registration_settings, event?.registration_settings_by_division, selectedDivisionId])
 
   const activeTeamRequirements = parseTeamRequirements(activeRegistrationSettings?.team_requirements)
@@ -555,6 +612,92 @@ export default function RegisterPage() {
     if (!isInReviewPeriod()) return true
 
     return true
+  }
+
+  const extractDownloadFileName = (contentDisposition: string | null, fallback: string) => {
+    if (!contentDisposition) return fallback
+
+    const utf8Match = contentDisposition.match(/filename="([^"]+)"/i)
+    if (utf8Match?.[1]) {
+      try {
+        return decodeURIComponent(utf8Match[1])
+      } catch {
+        return utf8Match[1]
+      }
+    }
+
+    return fallback
+  }
+
+  const handleTemplateExport = async (
+    documentType: CoachTemplateDocumentType,
+    format: CoachTemplateExportFormat,
+  ) => {
+    if (!registration?.id) {
+      alert('请先保存草稿或提交报名后，再导出模板文件')
+      return
+    }
+
+    const exportKey = `${documentType}:${format}`
+    setExportingTemplateKey(exportKey)
+
+    try {
+      const baseUrl = `/api/portal/registrations/${registration.id}/template-export?documentType=${documentType}&format=${format}`
+      const previewResponse = await fetch(`${baseUrl}&preview=1`)
+      const previewResult = await previewResponse.json().catch(() => null)
+
+      if (!previewResponse.ok || !previewResult?.success) {
+        throw new Error(previewResult?.error || '导出预检查失败')
+      }
+
+      const blockingIssues: string[] = Array.isArray(previewResult.data?.blockingIssues)
+        ? previewResult.data.blockingIssues
+        : []
+      if (blockingIssues.length > 0) {
+        alert(`当前无法导出：\n\n${blockingIssues.join('\n')}`)
+        return
+      }
+
+      const warnings: string[] = Array.isArray(previewResult.data?.warnings)
+        ? previewResult.data.warnings
+        : []
+
+      if (warnings.length > 0) {
+        const confirmed = window.confirm(
+          `检测到以下待补充项，导出的文件将保留空位供教练后续补充：\n\n${warnings.join('\n')}\n\n是否继续导出？`
+        )
+        if (!confirmed) return
+      }
+
+      const response = await fetch(baseUrl)
+      if (!response.ok) {
+        const errorResult = await response.json().catch(() => null)
+        throw new Error(errorResult?.error || '导出失败')
+      }
+
+      const blob = await response.blob()
+      const fallbackName = documentType === 'registration_form'
+        ? '报名表.pdf'
+        : '运动员信息表.pdf'
+      const fileName = extractDownloadFileName(
+        response.headers.get('Content-Disposition'),
+        fallbackName,
+      )
+
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error('模板导出失败:', error)
+      alert(error instanceof Error ? error.message : '模板导出失败，请稍后重试')
+    } finally {
+      setExportingTemplateKey(null)
+    }
   }
 
   // 获取字段配置 - 使用管理端设置的字段顺序
@@ -1887,6 +2030,65 @@ export default function RegisterPage() {
         </div>
       )}
 
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">模板导出</CardTitle>
+          <CardDescription>
+            报名记录保存为草稿或已提交后，可按模板导出报名表和运动员信息表。缺失字段会先提醒，导出文件中对应位置留空。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!registration?.id ? (
+            <div className="rounded-lg border border-dashed border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+              请先保存草稿或提交报名，再导出模板文件。
+            </div>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {[
+                {
+                  type: 'registration_form' as const,
+                  title: '报名表',
+                  description: '导出参赛单位、队伍、组别、领队/教练信息和队员报名信息。',
+                },
+                {
+                  type: 'athlete_info_form' as const,
+                  title: '运动员信息表',
+                  description: '导出领队、教练、队员证件照、姓名和队员比赛服号码。',
+                },
+              ].map((item) => (
+                <div key={item.type} className="rounded-lg border border-border/60 p-4">
+                  <div className="space-y-1">
+                    <div className="font-semibold">{item.title}</div>
+                    <p className="text-sm text-muted-foreground">{item.description}</p>
+                  </div>
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full sm:w-auto"
+                      disabled={Boolean(exportingTemplateKey)}
+                      onClick={() => handleTemplateExport(item.type, 'pdf')}
+                    >
+                      {exportingTemplateKey === `${item.type}:pdf` ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          导出中...
+                        </>
+                      ) : (
+                        <>
+                          <Download className="mr-2 h-4 w-4" />
+                          下载 PDF
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* 报名表单 */}
       <Card>
         <CardContent className="p-4 sm:p-6">
@@ -2595,8 +2797,8 @@ export default function RegisterPage() {
                                     }
 
                                     return (
-                                      <div key={`${field.id}-${index}`}>
-                                        <Label className="flex flex-wrap items-center gap-2 text-sm font-medium leading-none">
+                                      <div key={`${field.id}-${index}`} className={PLAYER_FIELD_WRAPPER_CLASS}>
+                                        <Label className={PLAYER_FIELD_LABEL_CLASS}>
                                           {fieldLabel}{isFieldRequired && ' *'}
                                           {isIdNumberField && useIdentityDocumentValidation && (
                                             <span className={MUTED_BADGE_CLASS}>
@@ -2619,7 +2821,7 @@ export default function RegisterPage() {
                                           maxLength={isIdNumberField && useIdentityDocumentValidation ? 18 : undefined}
                                           disabled={isEventEndedView}
                                           readOnly={isEventEndedView}
-                                          className={`mt-1 ${
+                                          className={`h-11 w-full ${
                                             isIdNumberField && useIdentityDocumentValidation && (!idValidation.valid || idRuleErrors.length > 0)
                                               ? VALIDATION_INPUT_ERROR_CLASS
                                             : isIdNumberField && useIdentityDocumentValidation && idValidation.valid && player[field.id]
@@ -2700,8 +2902,8 @@ export default function RegisterPage() {
                                     }
 
                                     return (
-                                      <div key={`${field.id}-${index}`}>
-                                        <Label className="flex flex-wrap items-center gap-2 text-sm font-medium leading-none">
+                                      <div key={`${field.id}-${index}`} className={PLAYER_FIELD_WRAPPER_CLASS}>
+                                        <Label className={PLAYER_FIELD_LABEL_CLASS}>
                                           {fieldLabel}{isFieldRequired && ' *'}
                                           {birthdateAgeRequirement && (
                                             <span className={INFO_BADGE_CLASS}>
@@ -2727,7 +2929,7 @@ export default function RegisterPage() {
                                           onChange={(e) => updatePlayer(player.id, field.id, e.target.value)}
                                           disabled={isEventEndedView}
                                           readOnly={isEventEndedView}
-                                          className={`mt-1 ${
+                                          className={`h-11 w-full ${
                                             birthdateAgeStatus === 'too_young' || birthdateAgeStatus === 'too_old'
                                               ? VALIDATION_INPUT_ERROR_CLASS
                                               : birthdateAgeStatus === 'valid'
@@ -2755,8 +2957,8 @@ export default function RegisterPage() {
                                     const currentGender = player[field.id]
 
                                     return (
-                                      <div key={`${field.id}-${index}`}>
-                                        <Label className="flex flex-wrap items-center gap-2 text-sm font-medium leading-none">
+                                      <div key={`${field.id}-${index}`} className={PLAYER_FIELD_WRAPPER_CLASS}>
+                                        <Label className={PLAYER_FIELD_LABEL_CLASS}>
                                           {fieldLabel}{isFieldRequired && ' *'}
                                           {genderRequirement && (
                                             <span className={INFO_BADGE_CLASS}>
@@ -2769,7 +2971,7 @@ export default function RegisterPage() {
                                           onValueChange={(value) => updatePlayer(player.id, field.id, value)}
                                           disabled={isEventEndedView}
                                         >
-                                          <SelectTrigger className={`mt-2 h-11 w-full ${
+                                          <SelectTrigger className={`h-11 w-full ${
                                             genderRequirement && currentGender &&
                                             currentGender !== (playerRequirements.genderRequirement === 'male' ? '男' : '女')
                                               ? VALIDATION_INPUT_ERROR_CLASS
@@ -2803,9 +3005,9 @@ export default function RegisterPage() {
                                     return null
                                   case 'image':
                                     return (
-                                      <div key={`${field.id}-${index}`}>
-                                        <Label>{fieldLabel}{isFieldRequired && ' *'}</Label>
-                                        <div className="mt-2">
+                                      <div key={`${field.id}-${index}`} className={PLAYER_FIELD_WRAPPER_CLASS}>
+                                        <Label className={PLAYER_FIELD_LABEL_CLASS}>{fieldLabel}{isFieldRequired && ' *'}</Label>
+                                        <div>
                                           {player[field.id] ? (
                                             <div className="relative w-32 h-32 border rounded-lg overflow-hidden">
                                               <Image
@@ -2883,9 +3085,9 @@ export default function RegisterPage() {
                                   case 'attachment':
                                     const playerAttachment = player[field.id] as AttachmentValue | undefined
                                     return (
-                                      <div key={`${field.id}-${index}`}>
-                                        <Label>{fieldLabel}{isFieldRequired && ' *'}</Label>
-                                        <div className="mt-2 space-y-2">
+                                      <div key={`${field.id}-${index}`} className={PLAYER_FIELD_WRAPPER_CLASS}>
+                                        <Label className={PLAYER_FIELD_LABEL_CLASS}>{fieldLabel}{isFieldRequired && ' *'}</Label>
+                                        <div className="space-y-2">
                                           {playerAttachment?.url ? (
                                             <div className="border rounded-lg p-3 flex items-center justify-between">
                                               <div className="text-sm">
@@ -2946,9 +3148,9 @@ export default function RegisterPage() {
                                   case 'attachments':
                                     const playerAttachments = (player[field.id] as AttachmentValue[] | undefined) || []
                                     return (
-                                      <div key={`${field.id}-${index}`} className="md:col-span-2">
-                                        <Label>{fieldLabel}{isFieldRequired && ' *'}</Label>
-                                        <div className="mt-2 space-y-2">
+                                      <div key={`${field.id}-${index}`} className="space-y-2 md:col-span-2">
+                                        <Label className={PLAYER_FIELD_LABEL_CLASS}>{fieldLabel}{isFieldRequired && ' *'}</Label>
+                                        <div className="space-y-2">
                                           {playerAttachments.map((item, itemIndex) => (
                                             <div key={`${item.path}-${itemIndex}`} className="border rounded-lg p-3 flex items-center justify-between">
                                               <div className="text-sm">

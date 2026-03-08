@@ -4,6 +4,16 @@ import { createClient } from '@/lib/supabase/client'
 const DEFAULT_TIMEOUT_MS = 8000
 const DEFAULT_RETRY_DELAY_MS = 400
 
+export class TimeoutError extends Error {
+  timeoutMs: number
+
+  constructor(message: string, timeoutMs: number) {
+    super(message)
+    this.name = 'TimeoutError'
+    this.timeoutMs = timeoutMs
+  }
+}
+
 type SessionUserResult = {
   user: User | null
   error: unknown
@@ -48,6 +58,10 @@ export function isAuthNetworkError(error: unknown) {
   )
 }
 
+export function isTimeoutError(error: unknown): error is TimeoutError {
+  return error instanceof TimeoutError
+}
+
 export async function withTimeout<T>(
   promise: PromiseLike<T>,
   timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -57,7 +71,7 @@ export async function withTimeout<T>(
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      reject(new Error(timeoutMessage))
+      reject(new TimeoutError(timeoutMessage, timeoutMs))
     }, timeoutMs)
   })
 
@@ -70,7 +84,7 @@ export async function withTimeout<T>(
   }
 }
 
-export async function getSessionUser(supabase = createClient()): Promise<SessionUserResult> {
+export async function getSessionUser(supabase: SessionClient = createClient()): Promise<SessionUserResult> {
   try {
     const { data: { session }, error } = await withTimeout(
       supabase.auth.getSession(),

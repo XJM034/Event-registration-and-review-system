@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { getSessionUser, getSessionUserWithRetry } from '../supabase/client-auth'
+import {
+  getSessionUser,
+  getSessionUserWithRetry,
+  isTimeoutError,
+  TimeoutError,
+  withTimeout,
+} from '../supabase/client-auth'
 
 type SessionResponse = {
   data: {
@@ -136,5 +142,25 @@ describe('getSessionUserWithRetry', () => {
     expect(result.user).toBeNull()
     expect(result.isNetworkError).toBe(true)
     expect(supabase.auth.getSession).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('withTimeout', () => {
+  it('rejects with TimeoutError when the promise exceeds the limit', async () => {
+    await expect(
+      withTimeout(new Promise(() => {}), 1, 'Custom timeout message')
+    ).rejects.toBeInstanceOf(TimeoutError)
+
+    await expect(
+      withTimeout(new Promise(() => {}), 1, 'Custom timeout message')
+    ).rejects.toMatchObject({
+      message: 'Custom timeout message',
+      timeoutMs: 1,
+    })
+  })
+
+  it('exposes a helper to detect timeout errors', () => {
+    expect(isTimeoutError(new TimeoutError('timeout', 1000))).toBe(true)
+    expect(isTimeoutError(new Error('timeout'))).toBe(false)
   })
 })

@@ -14,6 +14,14 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Loader2, Upload, Calendar, MapPin, Phone, FileText, Link2, ExternalLink, Paperclip, Download, X } from 'lucide-react'
 import Image from 'next/image'
 import { toSafeHttpUrl } from '@/lib/url-security'
+import type { EventReferenceTemplate, ReferenceTemplateType } from '@/lib/types'
+import {
+  findDuplicateSpecialTemplateTypes,
+  getReferenceTemplateTypeLabel,
+  inferReferenceTemplateType,
+  parseReferenceTemplates,
+  REFERENCE_TEMPLATE_TYPE_OPTIONS,
+} from '@/lib/reference-templates'
 
 interface ProjectType {
   id: string
@@ -37,15 +45,6 @@ interface DivisionItem {
   description?: string
   display_order: number
   is_enabled: boolean
-}
-
-interface EventReferenceTemplate {
-  name: string
-  path: string
-  url: string
-  size: number
-  mimeType: string
-  uploadedAt: string
 }
 
 const TEMPLATE_FILE_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'gif', 'webp']
@@ -81,20 +80,6 @@ const DESKTOP_TEMPLATE_ACCEPT = [
   'image/webp',
   '.webp',
 ].join(',')
-
-function parseReferenceTemplates(value: unknown): EventReferenceTemplate[] {
-  if (!value) return []
-  if (Array.isArray(value)) return value as EventReferenceTemplate[]
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value)
-      return Array.isArray(parsed) ? parsed as EventReferenceTemplate[] : []
-    } catch {
-      return []
-    }
-  }
-  return []
-}
 
 function resolveTemplateStoragePath(template: EventReferenceTemplate): string | null {
   if (typeof template.path === 'string' && template.path.trim()) {
@@ -368,7 +353,10 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
     }
   }
 
-  const uploadReferenceTemplate = async (file: File): Promise<EventReferenceTemplate | null> => {
+  const uploadReferenceTemplate = async (
+    file: File,
+    templateType: ReferenceTemplateType,
+  ): Promise<EventReferenceTemplate | null> => {
     try {
       const formData = new FormData()
       formData.append('file', file)
@@ -384,6 +372,7 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
         size: Number(result.data.size || file.size || 0),
         mimeType: result.data.mimeType || file.type || '',
         uploadedAt: new Date().toISOString(),
+        templateType,
       }
     } catch (uploadError) {
       console.error('Upload template error:', uploadError)
@@ -418,7 +407,9 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
 
     setUploadingTemplates(true)
     try {
-      const uploadResults = await Promise.all(files.map((file) => uploadReferenceTemplate(file)))
+      const uploadResults = await Promise.all(
+        files.map((file) => uploadReferenceTemplate(file, inferReferenceTemplateType(file.name)))
+      )
       const successFiles = uploadResults.filter((item): item is EventReferenceTemplate => Boolean(item))
 
       if (successFiles.length > 0) {
@@ -442,6 +433,14 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
         prev.includes(storagePath) ? prev : [...prev, storagePath]
       )
     }
+  }
+
+  const updateReferenceTemplateType = (index: number, templateType: ReferenceTemplateType) => {
+    setReferenceTemplates((prev) =>
+      prev.map((item, templateIndex) => (
+        templateIndex === index ? { ...item, templateType } : item
+      ))
+    )
   }
 
   const deleteReferenceTemplatePaths = async (paths: string[]): Promise<string | null> => {
@@ -470,6 +469,18 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
     setError('')
 
     try {
+      const duplicateTemplateTypes = findDuplicateSpecialTemplateTypes(
+        referenceTemplates.map((item) => ({
+          name: item.name,
+          templateType: item.templateType,
+        }))
+      )
+
+      if (duplicateTemplateTypes.length > 0) {
+        setError(`同一赛事仅允许上传一份${duplicateTemplateTypes.map(getReferenceTemplateTypeLabel).join('、')}`)
+        return
+      }
+
       let poster_url = event.poster_url
       if (posterFile) {
         const uploadedUrl = await uploadPoster(posterFile)
@@ -541,15 +552,15 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           <input type="hidden" {...register('type')} />
 
-          <div>
+          <div className="space-y-2">
             <Label htmlFor="name">赛事名称 *</Label>
-            <Input id="name" {...register('name')} placeholder="输入完整的赛事名称" className="mt-1" />
-            {errors.name && <p className="text-red-600 text-sm mt-1">{errors.name.message}</p>}
+            <Input id="name" {...register('name')} placeholder="输入完整的赛事名称" className="h-11 w-full" />
+            {errors.name && <p className="text-red-600 text-sm">{errors.name.message}</p>}
           </div>
 
-          <div>
+          <div className="space-y-2">
             <Label>赛事海报</Label>
-            <div className="mt-2">
+            <div>
               {posterPreview ? (
                 <div className="relative w-40 h-40 border rounded-lg overflow-hidden">
                   <Image src={posterPreview} alt="海报预览" fill className="object-cover" />
@@ -568,12 +579,12 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
             </div>
           </div>
 
-          <div>
+          <div className="space-y-2">
             <Label className="flex items-center">
               <Paperclip className="h-4 w-4 mr-1" />
               参考模板
             </Label>
-            <p className="mb-2 mt-1 text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               支持多个模板，教练可在门户赛事详情下载（PDF、DOC、DOCX、XLS、XLSX、图片，单个不超过 20MB）
             </p>
             <div className="relative rounded-lg border-2 border-dashed border-border p-4 text-center transition-colors hover:border-primary/40 hover:bg-muted/20">
@@ -591,36 +602,55 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
             </div>
 
             {referenceTemplates.length > 0 && (
-              <div className="mt-3 space-y-2">
+              <div className="space-y-2">
                 {referenceTemplates.map((file, index) => {
                   const safePreviewUrl = toSafeHttpUrl(file.url)
 
                   return (
-                    <div key={`${file.path}-${index}`} className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
-                      <div className="min-w-0">
+                    <div key={`${file.path}-${index}`} className="flex flex-col gap-3 rounded-md border border-border/60 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium truncate">{file.name}</p>
                         <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {safePreviewUrl && (
-                          <a
-                            href={safePreviewUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center text-xs text-primary hover:text-primary/80"
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <div className="min-w-[170px]">
+                          <Select
+                            value={file.templateType || inferReferenceTemplateType(file.name)}
+                            onValueChange={(value: ReferenceTemplateType) => updateReferenceTemplateType(index, value)}
                           >
-                            <Download className="h-3 w-3 mr-1" />
-                            预览
-                          </a>
-                        )}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeReferenceTemplate(file, index)}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
+                            <SelectTrigger className="h-9 w-full">
+                              <SelectValue placeholder="选择模板用途" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {REFERENCE_TEMPLATE_TYPE_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {safePreviewUrl && (
+                            <a
+                              href={safePreviewUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center text-xs text-primary hover:text-primary/80"
+                            >
+                              <Download className="h-3 w-3 mr-1" />
+                              预览
+                            </a>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeReferenceTemplate(file, index)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   )
@@ -713,50 +743,50 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="start_date">开始时间 *</Label>
-              <Input id="start_date" type="date" {...register('start_date')} className="mt-1" />
-              {errors.start_date && <p className="text-red-600 text-sm mt-1">{errors.start_date.message}</p>}
+              <Input id="start_date" type="date" {...register('start_date')} className="h-11 w-full" />
+              {errors.start_date && <p className="text-red-600 text-sm">{errors.start_date.message}</p>}
             </div>
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="end_date">结束时间 *</Label>
-              <Input id="end_date" type="date" {...register('end_date')} className="mt-1" />
-              {errors.end_date && <p className="text-red-600 text-sm mt-1">{errors.end_date.message}</p>}
-              {dateError && <p className="text-amber-600 text-sm mt-1">{dateError}</p>}
+              <Input id="end_date" type="date" {...register('end_date')} className="h-11 w-full" />
+              {errors.end_date && <p className="text-red-600 text-sm">{errors.end_date.message}</p>}
+              {dateError && <p className="text-amber-600 text-sm">{dateError}</p>}
             </div>
           </div>
 
-          <div>
+          <div className="space-y-2">
             <Label htmlFor="address" className="flex items-center">
               <MapPin className="h-4 w-4 mr-1" />赛事地址
             </Label>
-            <Input id="address" {...register('address')} placeholder="比赛举办地址" className="mt-1" />
+            <Input id="address" {...register('address')} placeholder="比赛举办地址" className="h-11 w-full" />
           </div>
 
-          <div>
+          <div className="space-y-2">
             <Label htmlFor="phone" className="flex items-center">
               <Phone className="h-4 w-4 mr-1" />咨询电话
             </Label>
-            <Input id="phone" {...register('phone')} placeholder="联系电话" className="mt-1" />
+            <Input id="phone" {...register('phone')} placeholder="联系电话" className="h-11 w-full" />
           </div>
 
-          <div>
+          <div className="space-y-2">
             <Label htmlFor="details" className="flex items-center">
               <FileText className="h-4 w-4 mr-1" />赛事详情
             </Label>
             <Textarea id="details" {...register('details')}
               placeholder="详细描述赛事规则、奖项设置等信息。支持插入链接，格式：https://..."
-              className="mt-1 min-h-32" />
+              className="min-h-32" />
             <LinkPreview links={detailsLinks} />
           </div>
 
-          <div>
+          <div className="space-y-2">
             <Label htmlFor="requirements" className="flex items-center">
               <FileText className="h-4 w-4 mr-1" />报名要求
             </Label>
             <Textarea id="requirements" {...register('requirements')}
               placeholder="详细描述参赛要求、资格条件、注意事项等信息。支持插入链接，格式：https://..."
-              className="mt-1 min-h-32" />
+              className="min-h-32" />
             <LinkPreview links={requirementsLinks} />
           </div>
 

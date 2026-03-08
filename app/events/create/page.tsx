@@ -15,6 +15,13 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { ArrowLeft, Upload, Loader2, Calendar, MapPin, Phone, FileText, Paperclip, X, Download } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
+import type { EventReferenceTemplate, ReferenceTemplateType } from '@/lib/types'
+import {
+  findDuplicateSpecialTemplateTypes,
+  getReferenceTemplateTypeLabel,
+  inferReferenceTemplateType,
+  REFERENCE_TEMPLATE_TYPE_OPTIONS,
+} from '@/lib/reference-templates'
 
 interface ProjectType {
   id: string
@@ -40,13 +47,9 @@ interface Division {
   is_enabled: boolean
 }
 
-interface EventReferenceTemplate {
-  name: string
-  path: string
-  url: string
-  size: number
-  mimeType: string
-  uploadedAt: string
+interface PendingReferenceTemplate {
+  file: File
+  templateType: ReferenceTemplateType
 }
 
 const TEMPLATE_FILE_EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'gif', 'webp']
@@ -109,7 +112,7 @@ export default function CreateEventPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [posterFile, setPosterFile] = useState<File | null>(null)
   const [posterPreview, setPosterPreview] = useState<string | null>(null)
-  const [referenceTemplateFiles, setReferenceTemplateFiles] = useState<File[]>([])
+  const [referenceTemplateFiles, setReferenceTemplateFiles] = useState<PendingReferenceTemplate[]>([])
   const [uploadingTemplates, setUploadingTemplates] = useState(false)
   const [error, setError] = useState('')
   const [dateError, setDateError] = useState('')
@@ -261,7 +264,10 @@ export default function CreateEventPage() {
     }
   }
 
-  const uploadReferenceTemplate = async (file: File): Promise<EventReferenceTemplate | null> => {
+  const uploadReferenceTemplate = async (
+    file: File,
+    templateType: ReferenceTemplateType,
+  ): Promise<EventReferenceTemplate | null> => {
     try {
       const formData = new FormData()
       formData.append('file', file)
@@ -284,6 +290,7 @@ export default function CreateEventPage() {
         size: Number(result.data.size || file.size || 0),
         mimeType: result.data.mimeType || file.type || '',
         uploadedAt: new Date().toISOString(),
+        templateType,
       }
     } catch (uploadError) {
       console.error('Upload template error:', uploadError)
@@ -316,7 +323,13 @@ export default function CreateEventPage() {
       return
     }
 
-    setReferenceTemplateFiles((prev) => [...prev, ...files])
+    setReferenceTemplateFiles((prev) => [
+      ...prev,
+      ...files.map((file) => ({
+        file,
+        templateType: inferReferenceTemplateType(file.name),
+      })),
+    ])
     setError('')
     e.target.value = ''
   }
@@ -329,6 +342,14 @@ export default function CreateEventPage() {
     const fileUrl = URL.createObjectURL(file)
     window.open(fileUrl, '_blank', 'noopener,noreferrer')
     setTimeout(() => URL.revokeObjectURL(fileUrl), 60_000)
+  }
+
+  const updateReferenceTemplateType = (index: number, templateType: ReferenceTemplateType) => {
+    setReferenceTemplateFiles((prev) =>
+      prev.map((item, fileIndex) => (
+        fileIndex === index ? { ...item, templateType } : item
+      ))
+    )
   }
 
   const deleteReferenceTemplatePaths = async (paths: string[]) => {
@@ -367,6 +388,19 @@ export default function CreateEventPage() {
     let uploadedReferenceTemplates: EventReferenceTemplate[] = []
 
     try {
+      const duplicateTemplateTypes = findDuplicateSpecialTemplateTypes(
+        referenceTemplateFiles.map((item) => ({
+          name: item.file.name,
+          templateType: item.templateType,
+        }))
+      )
+
+      if (duplicateTemplateTypes.length > 0) {
+        throw new Error(
+          `同一赛事仅允许上传一份${duplicateTemplateTypes.map(getReferenceTemplateTypeLabel).join('、')}`
+        )
+      }
+
       let poster_url = null
 
       // 如果有海报文件，先上传
@@ -380,7 +414,7 @@ export default function CreateEventPage() {
       if (referenceTemplateFiles.length > 0) {
         setUploadingTemplates(true)
         const uploadResults = await Promise.all(
-          referenceTemplateFiles.map((file) => uploadReferenceTemplate(file))
+          referenceTemplateFiles.map((item) => uploadReferenceTemplate(item.file, item.templateType))
         )
         uploadedReferenceTemplates = uploadResults.filter((item): item is EventReferenceTemplate => Boolean(item))
         if (uploadedReferenceTemplates.length !== referenceTemplateFiles.length) {
@@ -456,23 +490,23 @@ export default function CreateEventPage() {
 
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
               {/* 赛事名称 */}
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="name">赛事名称 *</Label>
                 <Input
                   id="name"
                   {...register('name')}
                   placeholder="输入完整的赛事名称"
-                  className="mt-1"
+                  className="h-11 w-full"
                 />
                 {errors.name && (
-                  <p className="text-red-600 text-sm mt-1">{errors.name.message}</p>
+                  <p className="text-red-600 text-sm">{errors.name.message}</p>
                 )}
               </div>
 
               {/* 赛事海报上传 */}
-              <div>
+              <div className="space-y-2">
                 <Label>赛事海报</Label>
-                <div className="mt-2">
+                <div>
                   {posterPreview ? (
                     <div className="relative w-40 h-40 border rounded-lg overflow-hidden">
                       <Image
@@ -511,12 +545,12 @@ export default function CreateEventPage() {
               </div>
 
               {/* 参考模板（多附件） */}
-              <div>
+              <div className="space-y-2">
                 <Label className="flex items-center">
                   <Paperclip className="h-4 w-4 mr-1" />
                   参考模板
                 </Label>
-                <p className="text-xs text-gray-500 mt-1 mb-2">
+                <p className="text-xs text-gray-500">
                   支持选择多个模板文件，提交创建时自动上传（PDF、DOC、DOCX、XLS、XLSX、图片，单个不超过 20MB）
                 </p>
                 <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
@@ -534,37 +568,56 @@ export default function CreateEventPage() {
                 </div>
 
                 {referenceTemplateFiles.length > 0 && (
-                  <div className="mt-3 space-y-2">
-                    {referenceTemplateFiles.map((file, index) => (
+                  <div className="space-y-2">
+                    {referenceTemplateFiles.map((item, index) => (
                       <div
-                        key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
-                        className="flex items-center justify-between border rounded-md px-3 py-2"
+                        key={`${item.file.name}-${item.file.size}-${item.file.lastModified}-${index}`}
+                        className="flex flex-col gap-3 rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
                       >
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{file.name}</p>
-                          <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{item.file.name}</p>
+                          <p className="text-xs text-gray-500">{formatFileSize(item.file.size)}</p>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="text-blue-600 hover:text-blue-700"
-                            onClick={() => previewReferenceTemplate(file)}
-                            disabled={isSubmitting}
-                          >
-                            <Download className="h-3 w-3 mr-1" />
-                            预览
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeReferenceTemplate(index)}
-                            disabled={isSubmitting}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                          <div className="min-w-[170px]">
+                            <Select
+                              value={item.templateType}
+                              onValueChange={(value: ReferenceTemplateType) => updateReferenceTemplateType(index, value)}
+                            >
+                              <SelectTrigger className="h-9 w-full">
+                                <SelectValue placeholder="选择模板用途" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {REFERENCE_TEMPLATE_TYPE_OPTIONS.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="text-blue-600 hover:text-blue-700"
+                              onClick={() => previewReferenceTemplate(item.file)}
+                              disabled={isSubmitting}
+                            >
+                              <Download className="h-3 w-3 mr-1" />
+                              预览
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeReferenceTemplate(index)}
+                              disabled={isSubmitting}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -668,38 +721,38 @@ export default function CreateEventPage() {
 
               {/* 时间设置 */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+                <div className="space-y-2">
                   <Label htmlFor="start_date">开始时间 *</Label>
                   <Input
                     id="start_date"
                     type="date"
                     {...register('start_date')}
-                    className="mt-1"
+                    className="h-11 w-full"
                   />
                   {errors.start_date && (
-                    <p className="text-red-600 text-sm mt-1">{errors.start_date.message}</p>
+                    <p className="text-red-600 text-sm">{errors.start_date.message}</p>
                   )}
                 </div>
 
-                <div>
+                <div className="space-y-2">
                   <Label htmlFor="end_date">结束时间 *</Label>
                   <Input
                     id="end_date"
                     type="date"
                     {...register('end_date')}
-                    className="mt-1"
+                    className="h-11 w-full"
                   />
                   {errors.end_date && (
-                    <p className="text-red-600 text-sm mt-1">{errors.end_date.message}</p>
+                    <p className="text-red-600 text-sm">{errors.end_date.message}</p>
                   )}
                   {dateError && (
-                    <p className="text-amber-600 text-sm mt-1">{dateError}</p>
+                    <p className="text-amber-600 text-sm">{dateError}</p>
                   )}
                 </div>
               </div>
 
               {/* 赛事地址 */}
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="address" className="flex items-center">
                   <MapPin className="h-4 w-4 mr-1" />
                   赛事地址
@@ -708,15 +761,15 @@ export default function CreateEventPage() {
                   id="address"
                   {...register('address')}
                   placeholder="比赛举办地址"
-                  className="mt-1"
+                  className="h-11 w-full"
                 />
                 {errors.address && (
-                  <p className="text-red-600 text-sm mt-1">{errors.address.message}</p>
+                  <p className="text-red-600 text-sm">{errors.address.message}</p>
                 )}
               </div>
 
               {/* 咨询电话 */}
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="phone" className="flex items-center">
                   <Phone className="h-4 w-4 mr-1" />
                   咨询电话
@@ -725,15 +778,15 @@ export default function CreateEventPage() {
                   id="phone"
                   {...register('phone')}
                   placeholder="联系电话"
-                  className="mt-1"
+                  className="h-11 w-full"
                 />
                 {errors.phone && (
-                  <p className="text-red-600 text-sm mt-1">{errors.phone.message}</p>
+                  <p className="text-red-600 text-sm">{errors.phone.message}</p>
                 )}
               </div>
 
               {/* 赛事详情 */}
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="details" className="flex items-center">
                   <FileText className="h-4 w-4 mr-1" />
                   赛事详情
@@ -742,15 +795,15 @@ export default function CreateEventPage() {
                   id="details"
                   {...register('details')}
                   placeholder="详细描述赛事规则、奖项设置等信息"
-                  className="mt-1 min-h-32"
+                  className="min-h-32"
                 />
                 {errors.details && (
-                  <p className="text-red-600 text-sm mt-1">{errors.details.message}</p>
+                  <p className="text-red-600 text-sm">{errors.details.message}</p>
                 )}
               </div>
 
               {/* 报名要求 */}
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="requirements" className="flex items-center">
                   <FileText className="h-4 w-4 mr-1" />
                   报名要求
@@ -759,10 +812,10 @@ export default function CreateEventPage() {
                   id="requirements"
                   {...register('requirements')}
                   placeholder="填写参赛队伍和人员的具体要求，如年龄限制、资格要求、每队人数等"
-                  className="mt-1 min-h-32"
+                  className="min-h-32"
                 />
                 {errors.requirements && (
-                  <p className="text-red-600 text-sm mt-1">{errors.requirements.message}</p>
+                  <p className="text-red-600 text-sm">{errors.requirements.message}</p>
                 )}
               </div>
 

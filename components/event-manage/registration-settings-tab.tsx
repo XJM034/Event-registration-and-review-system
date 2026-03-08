@@ -29,6 +29,14 @@ import {
   useSortable,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { PDFDocument } from 'pdf-lib'
+import type {
+  EventDocumentTemplateSnapshot,
+  EventDocumentTemplateState,
+  EventReferenceTemplate,
+  ReferenceTemplateType,
+} from '@/lib/types'
+import { normalizeReferenceTemplate } from '@/lib/reference-templates'
 
 interface FieldConfig {
   id: string
@@ -151,6 +159,10 @@ interface TeamRequirements {
   registrationStartDate?: string
   registrationEndDate?: string
   reviewEndDate?: string  // 审核结束时间
+  registrationFormTemplate?: EventReferenceTemplate | null
+  athleteInfoTemplate?: EventReferenceTemplate | null
+  registrationFormTemplateState?: EventDocumentTemplateState | null
+  athleteInfoTemplateState?: EventDocumentTemplateState | null
 }
 
 interface RoleConfig {
@@ -195,6 +207,154 @@ interface EventDivision {
   }
 }
 
+type TemplateFieldKey = 'registrationFormTemplate' | 'athleteInfoTemplate'
+type TemplateStateFieldKey = 'registrationFormTemplateState' | 'athleteInfoTemplateState'
+
+const PDF_TEMPLATE_ACCEPT = '.pdf,application/pdf'
+const TEMPLATE_PAGE_RULES: Record<ReferenceTemplateType, { pageCount: number }> = {
+  generic: { pageCount: 1 },
+  registration_form: { pageCount: 1 },
+  athlete_info_form: { pageCount: 2 },
+}
+const TEMPLATE_PAGE_SIZE = { width: 595.28, height: 841.89 }
+const TEMPLATE_PAGE_TOLERANCE = 8
+const TEMPLATE_FIELD_CONFIG: Record<
+  TemplateFieldKey,
+  {
+    label: string
+    templateType: ReferenceTemplateType
+    helperText: string
+    stateKey: TemplateStateFieldKey
+  }
+> = {
+  registrationFormTemplate: {
+    label: '报名表模板',
+    templateType: 'registration_form',
+    helperText: '上传空白框架 PDF，导出时会把队员、教练、领队信息注入该模板。',
+    stateKey: 'registrationFormTemplateState',
+  },
+  athleteInfoTemplate: {
+    label: '运动员信息表模板',
+    templateType: 'athlete_info_form',
+    helperText: '上传空白框架 PDF，导出时会把证件照、姓名和比赛服号码注入该模板。',
+    stateKey: 'athleteInfoTemplateState',
+  },
+}
+
+function formatFileSize(size: number) {
+  if (size <= 0) return '0 B'
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function isPdfTemplateFile(file: File) {
+  return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+}
+
+function resolveTemplateStoragePath(template?: EventReferenceTemplate | null): string | null {
+  const path = String(template?.path || '').trim()
+  return path || null
+}
+
+function normalizeDocumentTemplate(
+  value: unknown,
+  templateType: ReferenceTemplateType,
+): EventReferenceTemplate | null {
+  const template = normalizeReferenceTemplate(
+    value && typeof value === 'object'
+      ? { ...(value as Partial<EventReferenceTemplate>), templateType }
+      : null,
+  )
+  return template ? { ...template, templateType } : null
+}
+
+function normalizeFieldLabel(field: FieldConfig): FieldConfig {
+  if (field.id === 'player_number' && field.label !== '比赛服号码') {
+    return { ...field, label: '比赛服号码' }
+  }
+  return field
+}
+
+function normalizeFieldList(fields?: FieldConfig[]): FieldConfig[] {
+  return (fields || []).map(normalizeFieldLabel)
+}
+
+function normalizeTemplateSnapshot(
+  value: unknown,
+  templateType: ReferenceTemplateType,
+): EventDocumentTemplateSnapshot | null {
+  if (!value || typeof value !== 'object') return null
+
+  const snapshot = value as Partial<EventDocumentTemplateSnapshot>
+  const template = normalizeDocumentTemplate(snapshot.template, templateType)
+
+  return {
+    template,
+    title: typeof snapshot.title === 'string' ? snapshot.title : '',
+    attachmentLabel: typeof snapshot.attachmentLabel === 'string' ? snapshot.attachmentLabel : '',
+    updatedAt: typeof snapshot.updatedAt === 'string' ? snapshot.updatedAt : undefined,
+    publishedAt: typeof snapshot.publishedAt === 'string' ? snapshot.publishedAt : undefined,
+  }
+}
+
+function normalizeTemplateState(
+  value: unknown,
+  templateType: ReferenceTemplateType,
+  legacyTemplate?: unknown,
+): EventDocumentTemplateState | null {
+  const published = normalizeTemplateSnapshot(
+    value && typeof value === 'object' ? (value as Partial<EventDocumentTemplateState>).published : null,
+    templateType,
+  )
+  const draft = normalizeTemplateSnapshot(
+    value && typeof value === 'object' ? (value as Partial<EventDocumentTemplateState>).draft : null,
+    templateType,
+  )
+  const backup = normalizeTemplateSnapshot(
+    value && typeof value === 'object' ? (value as Partial<EventDocumentTemplateState>).backup : null,
+    templateType,
+  )
+
+  const legacyNormalized = normalizeDocumentTemplate(legacyTemplate, templateType)
+  const publishedSnapshot = published
+    ? {
+        ...published,
+        template: published.template || legacyNormalized || null,
+      }
+    : (
+      legacyNormalized
+        ? {
+            template: legacyNormalized,
+            title: '',
+            attachmentLabel: '',
+          }
+        : null
+    )
+
+  if (!publishedSnapshot && !draft && !backup) {
+    return null
+  }
+
+  return {
+    published: publishedSnapshot,
+    draft,
+    backup,
+  }
+}
+
+function getPublishedTemplate(state?: EventDocumentTemplateState | null): EventReferenceTemplate | null {
+  return state?.published?.template || null
+}
+
+function syncPublishedTemplateFields(requirements: TeamRequirements): TeamRequirements {
+  return {
+    ...requirements,
+    registrationFormTemplate: getPublishedTemplate(requirements.registrationFormTemplateState) || null,
+    athleteInfoTemplate: getPublishedTemplate(requirements.athleteInfoTemplateState) || null,
+  }
+}
+
 export default function RegistrationSettingsTab({ eventId, eventStartDate }: RegistrationSettingsTabProps) {
   const [initialDataLoaded, setInitialDataLoaded] = useState(false) // 添加初始数据加载状态
   const [eventDivisions, setEventDivisions] = useState<EventDivision[]>([])
@@ -210,7 +370,11 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
     customFields: [],
     registrationStartDate: '',
     registrationEndDate: '',
-    reviewEndDate: ''
+    reviewEndDate: '',
+    registrationFormTemplate: null,
+    athleteInfoTemplate: null,
+    registrationFormTemplateState: null,
+    athleteInfoTemplateState: null,
   })
 
   const [playerRequirements, setPlayerRequirements] = useState<PlayerRequirements>({
@@ -224,7 +388,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           { id: 'age', label: '年龄', type: 'text', required: true, canRemove: false },
           { id: 'id_type', label: '证件类型', type: 'select', required: true, options: ['身份证', '其他'] },
           { id: 'id_number', label: '证件号码', type: 'text', required: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
-          { id: 'player_number', label: '参赛号码', type: 'text', required: true },
+          { id: 'player_number', label: '比赛服号码', type: 'text', required: true },
           { id: 'emergency_contact', label: '紧急联系人', type: 'text', required: true },
           { id: 'contact_phone', label: '联系电话', type: 'text', required: true },
           { id: 'id_photo', label: '证件照', type: 'image', required: false }
@@ -236,7 +400,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           { id: 'age', label: '年龄', type: 'text', required: true, isCommon: true, canRemove: false },
           { id: 'id_type', label: '证件类型', type: 'select', required: true, options: ['身份证', '其他'], isCommon: true },
           { id: 'id_number', label: '证件号码', type: 'text', required: true, isCommon: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
-          { id: 'player_number', label: '参赛号码', type: 'text', required: true, isCommon: true },
+          { id: 'player_number', label: '比赛服号码', type: 'text', required: true, isCommon: true },
           { id: 'emergency_contact', label: '紧急联系人', type: 'text', required: true, isCommon: true },
           { id: 'contact_phone', label: '联系电话', type: 'text', required: true, isCommon: true },
           { id: 'id_photo', label: '证件照', type: 'image', required: false, isCommon: true }
@@ -321,6 +485,9 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
   const [regStartError, setRegStartError] = useState('')
   const [regEndError, setRegEndError] = useState('')
   const [reviewEndError, setReviewEndError] = useState('')
+  const [uploadingTemplateKey, setUploadingTemplateKey] = useState<TemplateFieldKey | null>(null)
+  const [previewingTemplateKey, setPreviewingTemplateKey] = useState<TemplateFieldKey | null>(null)
+  const [pendingDeleteTemplatePaths, setPendingDeleteTemplatePaths] = useState<string[]>([])
 
   useEffect(() => {
     // 先加载赛事关联的组别
@@ -367,6 +534,282 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
     const month = String(date.getMonth() + 1).padStart(2, '0')
     const day = String(date.getDate()).padStart(2, '0')
     return `${year}-${month}-${day}`
+  }
+
+  const getTemplateState = (requirements: TeamRequirements, key: TemplateFieldKey) => {
+    const { stateKey } = TEMPLATE_FIELD_CONFIG[key]
+    return requirements[stateKey] || null
+  }
+
+  const applyTemplateState = (
+    requirements: TeamRequirements,
+    key: TemplateFieldKey,
+    nextState: EventDocumentTemplateState | null,
+  ): TeamRequirements => {
+    const { stateKey } = TEMPLATE_FIELD_CONFIG[key]
+    return syncPublishedTemplateFields({
+      ...requirements,
+      [stateKey]: nextState,
+    } as TeamRequirements)
+  }
+
+  const validateTemplatePdf = async (
+    file: File,
+    templateType: ReferenceTemplateType,
+  ) => {
+    const rule = TEMPLATE_PAGE_RULES[templateType]
+    const bytes = await file.arrayBuffer()
+    const pdf = await PDFDocument.load(bytes)
+
+    if (rule && pdf.getPageCount() !== rule.pageCount) {
+      throw new Error(`页数不符合要求：当前 ${pdf.getPageCount()} 页，${templateType === 'athlete_info_form' ? '运动员信息表模板必须为 2 页' : '报名表模板必须为 1 页'}`)
+    }
+
+    pdf.getPages().forEach((page, index) => {
+      const width = page.getWidth()
+      const height = page.getHeight()
+      const widthDiff = Math.abs(width - TEMPLATE_PAGE_SIZE.width)
+      const heightDiff = Math.abs(height - TEMPLATE_PAGE_SIZE.height)
+      if (widthDiff > TEMPLATE_PAGE_TOLERANCE || heightDiff > TEMPLATE_PAGE_TOLERANCE) {
+        throw new Error(`第 ${index + 1} 页尺寸不符合 A4 规范，请基于官方模板修改后重新上传`)
+      }
+    })
+  }
+
+  const uploadDocumentTemplate = async (
+    file: File,
+    templateType: ReferenceTemplateType,
+  ): Promise<EventReferenceTemplate | null> => {
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('bucket', 'team-documents')
+
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const result = await response.json()
+      if (!result.success) {
+        throw new Error(result.error || '模板上传失败')
+      }
+
+      return {
+        name: result.data.originalName || file.name,
+        path: result.data.path,
+        url: result.data.url,
+        size: Number(result.data.size || file.size || 0),
+        mimeType: result.data.mimeType || file.type || '',
+        uploadedAt: new Date().toISOString(),
+        templateType,
+      }
+    } catch (error) {
+      console.error('Upload document template error:', error)
+      return null
+    }
+  }
+
+  const handleTemplateUpload = async (
+    key: TemplateFieldKey,
+    fileList: FileList | null,
+    input: HTMLInputElement,
+  ) => {
+    const file = fileList?.[0]
+    if (!file) return
+
+    if (!isPdfTemplateFile(file)) {
+      alert('模板仅支持 PDF 文件')
+      input.value = ''
+      return
+    }
+
+    const templateConfig = TEMPLATE_FIELD_CONFIG[key]
+    setUploadingTemplateKey(key)
+    try {
+      await validateTemplatePdf(file, templateConfig.templateType)
+
+      const uploadedTemplate = await uploadDocumentTemplate(file, templateConfig.templateType)
+      if (!uploadedTemplate) {
+        alert(`${templateConfig.label}上传失败，请重试`)
+        return
+      }
+
+      setTeamRequirements((prev) => {
+        const previousTemplate = getTemplateState(prev, key)?.draft?.template || null
+        const previousPath = resolveTemplateStoragePath(previousTemplate)
+        if (previousPath) {
+          setPendingDeleteTemplatePaths((paths) => (paths.includes(previousPath) ? paths : [...paths, previousPath]))
+        }
+
+        const currentState = getTemplateState(prev, key)
+        return applyTemplateState(prev, key, {
+          published: currentState?.published || null,
+          backup: currentState?.backup || null,
+          draft: {
+            template: uploadedTemplate,
+            title: '',
+            attachmentLabel: '',
+            updatedAt: new Date().toISOString(),
+          },
+        })
+      })
+    } catch (error) {
+      console.error('Validate or upload template error:', error)
+      alert(error instanceof Error ? error.message : `${templateConfig.label}上传失败，请重试`)
+    } finally {
+      setUploadingTemplateKey(null)
+      input.value = ''
+    }
+  }
+
+  const previewTemplate = async (
+    key: TemplateFieldKey,
+    snapshot?: EventDocumentTemplateSnapshot | null,
+  ) => {
+    if (!snapshot?.template) return
+
+    const previewWindow = window.open('', '_blank')
+    if (!previewWindow) {
+      alert('浏览器阻止了预览窗口，请允许弹窗后重试')
+      return
+    }
+
+    previewWindow.document.title = '模板预览'
+    previewWindow.document.body.innerHTML = '<p style="padding: 16px; font-family: sans-serif;">正在生成预览，请稍候...</p>'
+
+    setPreviewingTemplateKey(key)
+
+    try {
+      const templateType = TEMPLATE_FIELD_CONFIG[key].templateType
+      if (templateType !== 'registration_form' && templateType !== 'athlete_info_form') {
+        throw new Error('模板类型无效')
+      }
+
+      const referenceTemplates = (Object.keys(TEMPLATE_FIELD_CONFIG) as TemplateFieldKey[])
+        .map((templateKey) => {
+          if (templateKey === key) return snapshot.template
+          const otherState = getTemplateState(teamRequirements, templateKey)
+          return otherState?.draft?.template || otherState?.published?.template || null
+        })
+        .filter((template): template is EventReferenceTemplate => Boolean(template))
+
+      const response = await fetch(`/api/events/${eventId}/registration-settings/template-preview`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          documentType: templateType,
+          template: snapshot.template,
+          referenceTemplates,
+          divisionId: selectedDivisionId,
+        }),
+      })
+
+      if (!response.ok) {
+        const result = await response.json().catch(() => null)
+        throw new Error(result?.error || '模板预览失败')
+      }
+
+      const blob = await response.blob()
+      const previewUrl = window.URL.createObjectURL(blob)
+      previewWindow.location.href = previewUrl
+      window.setTimeout(() => {
+        window.URL.revokeObjectURL(previewUrl)
+      }, 60_000)
+    } catch (error) {
+      previewWindow.close()
+      console.error('Preview template error:', error)
+      alert(error instanceof Error ? error.message : '模板预览失败，请稍后重试')
+    } finally {
+      setPreviewingTemplateKey(null)
+    }
+  }
+
+  const removeDraftTemplate = (key: TemplateFieldKey) => {
+    setTeamRequirements((prev) => {
+      const existingTemplate = getTemplateState(prev, key)?.draft?.template || null
+      const storagePath = resolveTemplateStoragePath(existingTemplate)
+      if (storagePath) {
+        setPendingDeleteTemplatePaths((paths) => (paths.includes(storagePath) ? paths : [...paths, storagePath]))
+      }
+
+      const currentState = getTemplateState(prev, key)
+      return applyTemplateState(prev, key, {
+        published: currentState?.published || null,
+        backup: currentState?.backup || null,
+        draft: null,
+      })
+    })
+  }
+
+  const publishDraftTemplate = (key: TemplateFieldKey) => {
+    setTeamRequirements((prev) => {
+      const currentState = getTemplateState(prev, key)
+      const draft = currentState?.draft
+      if (!draft) return prev
+
+      const nextPublished: EventDocumentTemplateSnapshot = {
+        template: draft.template || currentState?.published?.template || null,
+        title: '',
+        attachmentLabel: '',
+        updatedAt: draft.updatedAt || new Date().toISOString(),
+        publishedAt: new Date().toISOString(),
+      }
+
+      const nextBackup = currentState?.published
+        ? {
+            ...currentState.published,
+            updatedAt: currentState.published.updatedAt || new Date().toISOString(),
+          }
+        : null
+
+      return applyTemplateState(prev, key, {
+        published: nextPublished,
+        backup: nextBackup,
+        draft: null,
+      })
+    })
+    alert('草稿已发布到当前页面，请继续点击页面底部“保存设置”后，教练端导出才会切换到新模板')
+  }
+
+  const rollbackPublishedTemplate = (key: TemplateFieldKey) => {
+    setTeamRequirements((prev) => {
+      const currentState = getTemplateState(prev, key)
+      if (!currentState?.backup) return prev
+
+      return applyTemplateState(prev, key, {
+        published: currentState.backup,
+        backup: currentState.published || null,
+        draft: currentState.draft || null,
+      })
+    })
+    alert('已回退当前页面中的模板版本，请继续点击页面底部“保存设置”后，教练端导出才会生效')
+  }
+
+  const deleteTemplatePaths = async (paths: string[]) => {
+    if (paths.length === 0) return
+
+    try {
+      const response = await fetch('/api/upload', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bucket: 'team-documents',
+          paths,
+        }),
+      })
+
+      const result = await response.json().catch(() => null)
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || '模板文件删除失败')
+      }
+    } catch (error) {
+      console.error('Delete document template error:', error)
+    }
   }
 
   // 实时验证报名时间
@@ -505,6 +948,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
 
   const fetchSettings = async (divisionId?: string | null) => {
     try {
+      setPendingDeleteTemplatePaths([])
       let url = `/api/events/${eventId}/registration-settings`
       if (divisionId) {
         url += `?division_id=${divisionId}`
@@ -524,11 +968,37 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           customFields: [],
           registrationStartDate: '',
           registrationEndDate: '',
-          reviewEndDate: ''
+          reviewEndDate: '',
+          registrationFormTemplate: null,
+          athleteInfoTemplate: null,
+          registrationFormTemplateState: null,
+          athleteInfoTemplateState: null,
         }
 
+        loadedTeamReq.registrationFormTemplate = normalizeDocumentTemplate(
+          loadedTeamReq.registrationFormTemplate,
+          'registration_form',
+        )
+        loadedTeamReq.athleteInfoTemplate = normalizeDocumentTemplate(
+          loadedTeamReq.athleteInfoTemplate,
+          'athlete_info_form',
+        )
+        loadedTeamReq.registrationFormTemplateState = normalizeTemplateState(
+          loadedTeamReq.registrationFormTemplateState,
+          'registration_form',
+          loadedTeamReq.registrationFormTemplate,
+        )
+        loadedTeamReq.athleteInfoTemplateState = normalizeTemplateState(
+          loadedTeamReq.athleteInfoTemplateState,
+          'athlete_info_form',
+          loadedTeamReq.athleteInfoTemplate,
+        )
+        loadedTeamReq.commonFields = normalizeFieldList(loadedTeamReq.commonFields)
+        loadedTeamReq.customFields = normalizeFieldList(loadedTeamReq.customFields)
+        loadedTeamReq.allFields = normalizeFieldList(loadedTeamReq.allFields)
+
         // 如果没有allFields，从commonFields和customFields创建
-        if (!loadedTeamReq.allFields) {
+        if (!loadedTeamReq.allFields || loadedTeamReq.allFields.length === 0) {
           loadedTeamReq.allFields = [
             ...(loadedTeamReq.commonFields || []).map(f => ({ ...f, isCommon: true })),
             ...(loadedTeamReq.customFields || []).map(f => ({ ...f, isCommon: false }))
@@ -543,20 +1013,25 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         // 为每个角色创建allFields如果不存在
         if (loadedPlayerReq.roles) {
           loadedPlayerReq.roles = loadedPlayerReq.roles.map((role) => {
-            const customFields = role.customFields || []
+            const commonFields = normalizeFieldList(role.commonFields)
+            const customFields = normalizeFieldList(role.customFields)
+            const allFields = normalizeFieldList(role.allFields)
             if (!role.allFields) {
               return {
                 ...role,
+                commonFields,
                 customFields,
                 allFields: [
-                  ...(role.commonFields || []).map(f => ({ ...f, isCommon: true })),
+                  ...commonFields.map(f => ({ ...f, isCommon: true })),
                   ...customFields.map(f => ({ ...f, isCommon: false }))
                 ]
               }
             }
             return {
               ...role,
-              customFields
+              commonFields,
+              customFields,
+              allFields
             }
           })
         }
@@ -576,7 +1051,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
               { id: 'age', label: '年龄', type: 'text' as const, required: true, canRemove: false },
               { id: 'id_type', label: '证件类型', type: 'select' as const, required: true, options: ['身份证', '其他'] },
               { id: 'id_number', label: '证件号码', type: 'text' as const, required: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
-              { id: 'player_number', label: '参赛号码', type: 'text' as const, required: true },
+              { id: 'player_number', label: '比赛服号码', type: 'text' as const, required: true },
               { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: true },
               { id: 'contact_phone', label: '联系电话', type: 'text' as const, required: true },
               { id: 'id_photo', label: '证件照', type: 'image' as const, required: false }
@@ -588,7 +1063,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
               { id: 'age', label: '年龄', type: 'text' as const, required: true, isCommon: true, canRemove: false },
               { id: 'id_type', label: '证件类型', type: 'select' as const, required: true, options: ['身份证', '其他'], isCommon: true },
               { id: 'id_number', label: '证件号码', type: 'text' as const, required: true, isCommon: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
-              { id: 'player_number', label: '参赛号码', type: 'text' as const, required: true, isCommon: true },
+              { id: 'player_number', label: '比赛服号码', type: 'text' as const, required: true, isCommon: true },
               { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: true, isCommon: true },
               { id: 'contact_phone', label: '联系电话', type: 'text' as const, required: true, isCommon: true },
               { id: 'id_photo', label: '证件照', type: 'image' as const, required: false, isCommon: true }
@@ -666,7 +1141,11 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           ],
           registrationStartDate: '',
           registrationEndDate: '',
-          reviewEndDate: ''
+          reviewEndDate: '',
+          registrationFormTemplate: null,
+          athleteInfoTemplate: null,
+          registrationFormTemplateState: null,
+          athleteInfoTemplateState: null,
         }
         setTeamRequirements(defaultTeamReq)
       }
@@ -693,7 +1172,11 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         ],
         registrationStartDate: '',
         registrationEndDate: '',
-        reviewEndDate: ''
+        reviewEndDate: '',
+        registrationFormTemplate: null,
+        athleteInfoTemplate: null,
+        registrationFormTemplateState: null,
+        athleteInfoTemplateState: null,
       }
       setTeamRequirements(defaultTeamReq)
       setInitialDataLoaded(true)
@@ -770,13 +1253,13 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
     setIsLoading(true)
     try {
       // 确保allFields是最新的
-      const teamReqToSave = {
+      const teamReqToSave = syncPublishedTemplateFields({
         ...teamRequirements,
         allFields: teamRequirements.allFields || [
           ...teamRequirements.commonFields.map(f => ({ ...f, isCommon: true })),
           ...teamRequirements.customFields.map(f => ({ ...f, isCommon: false }))
         ]
-      }
+      })
 
       // 确保每个角色的allFields是最新的
       const playerReqToSave = {
@@ -805,6 +1288,10 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
       const result = await response.json()
       
       if (result.success) {
+        if (pendingDeleteTemplatePaths.length > 0) {
+          await deleteTemplatePaths(pendingDeleteTemplatePaths)
+          setPendingDeleteTemplatePaths([])
+        }
         alert('报名设置保存成功')
         // 重新加载数据以确保状态同步
         await fetchSettings(selectedDivisionId)
@@ -843,7 +1330,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         { id: 'age', label: '年龄', type: 'text' as const, required: true, canRemove: false },
         { id: 'id_type', label: '证件类型', type: 'select' as const, required: true, options: ['身份证', '其他'] },
         { id: 'id_number', label: '证件号码', type: 'text' as const, required: true, conditionalRequired: { dependsOn: 'id_type', values: ['身份证'] } },
-        { id: 'player_number', label: '参赛号码', type: 'text' as const, required: true },
+        { id: 'player_number', label: '比赛服号码', type: 'text' as const, required: true },
         { id: 'emergency_contact', label: '紧急联系人', type: 'text' as const, required: true },
         { id: 'contact_phone', label: '联系电话', type: 'text' as const, required: true },
         { id: 'id_photo', label: '证件照', type: 'image' as const, required: false }
@@ -1393,7 +1880,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           <TabsContent value="team" className="space-y-4">
             {/* 报名时间设置 - 移除标题，直接显示 */}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="reg-start" className="text-sm font-semibold">
                   报名开始时间 <span className="text-red-500">*</span>
                 </Label>
@@ -1405,11 +1892,11 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                     ...prev,
                     registrationStartDate: e.target.value
                   }))}
-                  className="mt-1"
+                  className="h-11 w-full"
                   required
                 />
               </div>
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="reg-end" className="text-sm font-semibold">
                   报名结束时间 <span className="text-red-500">*</span>
                 </Label>
@@ -1421,21 +1908,21 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                     ...prev,
                     registrationEndDate: e.target.value
                   }))}
-                  className="mt-1"
+                  className="h-11 w-full"
                   required
                 />
                 {regEndError && (
-                  <p className="text-amber-600 text-sm mt-1">{regEndError}</p>
+                  <p className="text-amber-600 text-sm">{regEndError}</p>
                 )}
               </div>
             </div>
 
             {/* 审核结束时间 */}
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="review-end" className="text-sm font-semibold">
                 审核结束时间 <span className="text-red-500">*</span>
               </Label>
-              <p className="mb-2 mt-1 text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 报名截止后的审核缓冲期，期间用户仅能重新提交被驳回的报名，不能新建报名
               </p>
               <Input
@@ -1446,12 +1933,152 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                   ...prev,
                   reviewEndDate: e.target.value
                 }))}
-                className="max-w-md"
+                className="h-11 w-full max-w-md"
                 required
               />
               {reviewEndError && (
-                <p className="text-amber-600 text-sm mt-1">{reviewEndError}</p>
+                <p className="text-amber-600 text-sm">{reviewEndError}</p>
               )}
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <h3 className="text-sm font-semibold">导出模板</h3>
+                <p className="text-xs text-muted-foreground">
+                  在此上传报名表模板和运动员信息表模板。请先下载标准模板，在原 PDF 基础上修改后再上传；教练保存草稿或提交报名后，系统会把已填写的人员信息注入模板导出。
+                </p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                {(Object.keys(TEMPLATE_FIELD_CONFIG) as TemplateFieldKey[]).map((key) => {
+                  const config = TEMPLATE_FIELD_CONFIG[key]
+                  const templateState = getTemplateState(teamRequirements, key)
+                  const publishedSnapshot = templateState?.published || null
+                  const draftSnapshot = templateState?.draft || null
+                  const backupSnapshot = templateState?.backup || null
+                  const previewSnapshot = draftSnapshot || publishedSnapshot || null
+                  const inputId = `document-template-${key}`
+
+                  return (
+                    <div key={key} className="rounded-lg border border-border/60 bg-card p-4">
+                      <input
+                        id={inputId}
+                        type="file"
+                        accept={PDF_TEMPLATE_ACCEPT}
+                        className="hidden"
+                        onChange={(e) => handleTemplateUpload(key, e.target.files, e.currentTarget)}
+                      />
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium">{config.label}</p>
+                        <p className="text-xs text-muted-foreground">{config.helperText}</p>
+                      </div>
+
+                      <div className="mt-3 grid gap-3">
+                        <div className="rounded-md border border-border/60 bg-muted/20 p-3">
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <p className="text-sm font-medium">当前已发布</p>
+                            {publishedSnapshot?.publishedAt && (
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(publishedSnapshot.publishedAt).toLocaleString('zh-CN')}
+                              </span>
+                            )}
+                          </div>
+                          {publishedSnapshot?.template ? (
+                            <div className="space-y-1">
+                              <p className="text-sm font-medium break-all">{publishedSnapshot.template.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {formatFileSize(publishedSnapshot.template.size)} · {publishedSnapshot.template.mimeType || 'application/pdf'}
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">尚未发布</p>
+                          )}
+                        </div>
+
+                        <div className="rounded-md border border-dashed border-border/60 bg-muted/20 p-3">
+                          <p className="mb-2 text-sm font-medium">草稿</p>
+                          {draftSnapshot?.template ? (
+                            <div className="space-y-1">
+                              <p className="text-sm font-medium break-all">{draftSnapshot.template.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {formatFileSize(draftSnapshot.template.size)} · {draftSnapshot.template.mimeType || 'application/pdf'}
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">未创建草稿，请上传新的标准化 PDF 模板生成草稿</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 rounded-md border border-dashed border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground space-y-1">
+                        <p>修改规范：</p>
+                        <p>1. 请先下载标准模板，在原 PDF 基础上修改后再上传。</p>
+                        <p>2. 仅建议修改标题、附件编号等文案，不要移动表格线、照片框和字段位置。</p>
+                        <p>3. 请保持 A4 尺寸和原始页数，不要通过 Word/WPS 重排版后再导出。</p>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => window.open(`/api/document-templates/base?documentType=${TEMPLATE_FIELD_CONFIG[key].templateType}`, '_blank', 'noopener,noreferrer')}
+                        >
+                          下载标准模板
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => document.getElementById(inputId)?.click()}
+                          disabled={uploadingTemplateKey !== null}
+                        >
+                          {uploadingTemplateKey === key ? '上传中...' : draftSnapshot?.template ? '替换草稿 PDF' : '上传草稿 PDF'}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => previewTemplate(key, previewSnapshot)}
+                          disabled={!previewSnapshot?.template || previewingTemplateKey !== null}
+                        >
+                          {previewingTemplateKey === key ? '预览生成中...' : '预览当前版本'}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => removeDraftTemplate(key)}
+                          disabled={!draftSnapshot}
+                        >
+                          清空草稿
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="default"
+                          onClick={() => publishDraftTemplate(key)}
+                          disabled={!draftSnapshot || (!draftSnapshot.template && !publishedSnapshot?.template)}
+                        >
+                          发布草稿
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => rollbackPublishedTemplate(key)}
+                          disabled={!backupSnapshot}
+                        >
+                          回退上一版
+                        </Button>
+                      </div>
+
+                      {backupSnapshot?.template && (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          上一版备份：{backupSnapshot.template.name}
+                        </p>
+                      )}
+                      <p className="mt-2 text-xs font-medium text-amber-700">
+                        说明：仅上传或预览不会影响教练端。必须先点“发布草稿”，再点页面底部“保存设置”后，新模板才会正式生效。
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
 
             <div>

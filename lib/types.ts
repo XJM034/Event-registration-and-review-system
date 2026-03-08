@@ -1,5 +1,7 @@
 // 数据库表类型定义
 
+export type ReferenceTemplateType = 'generic' | 'registration_form' | 'athlete_info_form'
+
 export interface AdminUser {
   id: string;
   phone: string;
@@ -40,6 +42,21 @@ export interface EventReferenceTemplate {
   size: number;
   mimeType: string;
   uploadedAt: string;
+  templateType?: ReferenceTemplateType;
+}
+
+export interface EventDocumentTemplateSnapshot {
+  template?: EventReferenceTemplate | null;
+  title?: string;
+  attachmentLabel?: string;
+  updatedAt?: string;
+  publishedAt?: string;
+}
+
+export interface EventDocumentTemplateState {
+  published?: EventDocumentTemplateSnapshot | null;
+  draft?: EventDocumentTemplateSnapshot | null;
+  backup?: EventDocumentTemplateSnapshot | null;
 }
 
 export interface RegistrationSettings {
@@ -92,6 +109,10 @@ export interface TeamRequirements {
   registrationStartDate?: string;
   registrationEndDate?: string;
   reviewEndDate?: string;
+  registrationFormTemplate?: EventReferenceTemplate | null;
+  athleteInfoTemplate?: EventReferenceTemplate | null;
+  registrationFormTemplateState?: EventDocumentTemplateState | null;
+  athleteInfoTemplateState?: EventDocumentTemplateState | null;
 }
 
 export interface RoleConfig {
