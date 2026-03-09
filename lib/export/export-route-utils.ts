@@ -13,20 +13,33 @@ export interface ExportRequest {
 
 export interface ExportField {
   id: string
+  label?: string
   type?: string
-  [key: string]: unknown
 }
 
 export interface ExportRole {
   id: string
+  name?: string
   allFields?: ExportField[]
   commonFields?: ExportField[]
   customFields?: ExportField[]
-  [key: string]: unknown
 }
 
 const EXPORT_SCOPES: ExportConfig['exportScope'][] = ['selected', 'approved', 'pending', 'all']
 const GROUP_BY_OPTIONS: ExportConfig['groupBy'][] = ['none', 'division', 'unit', 'division_unit']
+const TEAM_FIELD_PRIORITY = ['unit', 'name', 'contact', 'phone', 'logo']
+const PLAYER_FIELD_PRIORITY = [
+  'name',
+  'gender',
+  'age',
+  'player_number',
+  'contact',
+  'id_type',
+  'id_number',
+  'emergency_contact',
+  'contact_phone',
+  'id_photo',
+]
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -75,18 +88,46 @@ const normalizeRoleFields = (role: ExportRole): ExportField[] =>
     ...(role.customFields || []),
   ]
 
+const sortFieldsByPriority = <T extends ExportField>(
+  fields: T[],
+  priority: string[]
+): T[] => {
+  const priorityIndex = new Map(priority.map((fieldId, index) => [fieldId, index]))
+
+  return [...fields].sort((a, b) => {
+    const aRank = priorityIndex.get(a.id) ?? Number.MAX_SAFE_INTEGER
+    const bRank = priorityIndex.get(b.id) ?? Number.MAX_SAFE_INTEGER
+
+    if (aRank !== bRank) return aRank - bRank
+
+    const aLabel = typeof a.label === 'string' && a.label.trim() ? a.label.trim() : a.id
+    const bLabel = typeof b.label === 'string' && b.label.trim() ? b.label.trim() : b.id
+    const labelCompare = aLabel.localeCompare(bLabel, 'zh-CN')
+    if (labelCompare !== 0) return labelCompare
+
+    return a.id.localeCompare(b.id, 'zh-CN')
+  })
+}
+
+export const sortTeamFieldsForExport = <T extends ExportField>(fields: T[]) =>
+  sortFieldsByPriority(fields, TEAM_FIELD_PRIORITY)
+
+export const sortPlayerFieldsForExport = <T extends ExportField>(fields: T[]) =>
+  sortFieldsByPriority(fields, PLAYER_FIELD_PRIORITY)
+
 export const applyExportFieldFilters = (
   allTeamFields: ExportField[],
   allPlayerRoles: ExportRole[],
   config: ExportConfig
 ) => {
+  const sortedTeamFields = sortTeamFieldsForExport(allTeamFields)
   const nextTeamFields =
     config.teamFields === undefined
-      ? [...allTeamFields]
-      : allTeamFields.filter((field) => config.teamFields!.includes(field.id))
+      ? sortedTeamFields
+      : sortedTeamFields.filter((field) => config.teamFields!.includes(field.id))
 
   const nextPlayerRoles = allPlayerRoles.map((role) => {
-    const roleFields = normalizeRoleFields(role)
+    const roleFields = sortPlayerFieldsForExport(normalizeRoleFields(role))
     const nextFields =
       config.playerFields === undefined
         ? roleFields

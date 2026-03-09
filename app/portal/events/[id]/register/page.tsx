@@ -43,7 +43,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { getSessionUserWithRetry } from '@/lib/supabase/client-auth'
 import Image from 'next/image'
-import { parseIdCard, validateAgainstDivisionRules } from '@/lib/id-card-validator'
+import { formatGender, parseIdCard, validateAgainstDivisionRules } from '@/lib/id-card-validator'
 
 interface DivisionRules {
   gender?: 'male' | 'female' | 'mixed' | 'none'
@@ -159,10 +159,16 @@ const DESKTOP_ATTACHMENT_ACCEPT = [
   '.xlsx',
 ].join(',')
 
-function inferPlayerGender(player: Player): 'male' | 'female' | undefined {
-  const rawGender = String(player.gender || player.sex || '').trim()
+function normalizeGenderValue(value: unknown): 'male' | 'female' | undefined {
+  const rawGender = String(value || '').trim()
   if (rawGender === '男' || rawGender.toLowerCase() === 'male') return 'male'
   if (rawGender === '女' || rawGender.toLowerCase() === 'female') return 'female'
+  return undefined
+}
+
+function inferPlayerGender(player: Player): 'male' | 'female' | undefined {
+  const manualGender = normalizeGenderValue(player.gender || player.sex)
+  if (manualGender) return manualGender
 
   const idNumber = String(player.id_number || '').trim()
   if (isIdentityDocumentSelected(player) && idNumber.length === 18) {
@@ -349,6 +355,45 @@ function parseAgeValue(value: unknown): number | undefined {
   if (!Number.isInteger(age) || age < 0) return undefined
 
   return age
+}
+
+function getIdCardGenderValidation(
+  values: Record<string, any>,
+  genderFieldId: 'gender' | 'sex'
+): { status: 'idle' | 'valid' | 'invalid'; message: string } {
+  if (!isIdentityDocumentSelected(values)) {
+    return { status: 'idle', message: '' }
+  }
+
+  const idNumber = String(values.id_number || '').trim()
+  if (!idNumber) {
+    return { status: 'idle', message: '' }
+  }
+
+  const parsedIdCard = parseIdCard(idNumber)
+  if (!parsedIdCard.isValid || !parsedIdCard.gender) {
+    return { status: 'idle', message: '' }
+  }
+
+  const selectedGender = normalizeGenderValue(
+    values[genderFieldId] || values[genderFieldId === 'gender' ? 'sex' : 'gender']
+  )
+  if (!selectedGender) {
+    return { status: 'idle', message: '' }
+  }
+
+  const idCardGenderText = formatGender(parsedIdCard.gender)
+  if (selectedGender !== parsedIdCard.gender) {
+    return {
+      status: 'invalid',
+      message: `身份证号对应性别为 ${idCardGenderText}，与填写性别不一致`,
+    }
+  }
+
+  return {
+    status: 'valid',
+    message: `身份证号对应性别为 ${idCardGenderText}，与填写性别一致`,
+  }
 }
 
 function isIdentityDocumentSelected(values: { id_type?: unknown }): boolean {
@@ -1326,10 +1371,11 @@ export default function RegisterPage() {
       }
 
       if ((field === 'gender' || field === 'sex') && activeDivisionRules.gender && activeDivisionRules.gender !== 'none' && activeDivisionRules.gender !== 'mixed') {
-        const requiredGender = activeDivisionRules.gender === 'male' ? '男' : '女'
-        if (value && value !== requiredGender) {
+        const requiredGender = activeDivisionRules.gender === 'male' ? 'male' : 'female'
+        const selectedGender = normalizeGenderValue(value)
+        if (selectedGender && selectedGender !== requiredGender) {
           setTimeout(() => {
-            alert(`注意：该组别仅限${requiredGender}队员，队员 ${playerIndex + 1} 当前为${value}`)
+            alert(`注意：该组别仅限${formatGender(requiredGender)}队员，队员 ${playerIndex + 1} 当前为${formatGender(selectedGender)}`)
           }, 100)
         }
       }
@@ -1372,18 +1418,23 @@ export default function RegisterPage() {
           return false
         }
 
+        const enteredGender = normalizeGenderValue(player.gender || player.sex)
+        if (enteredGender && idCardInfo.isValid && idCardInfo.gender && enteredGender !== idCardInfo.gender) {
+          alert(`队员 ${i + 1} 填写性别为 ${formatGender(enteredGender)}，但身份证号对应性别为 ${formatGender(idCardInfo.gender)}，请核对后再提交`)
+          return false
+        }
+
         continue
       }
 
       if (activeDivisionRules.gender && activeDivisionRules.gender !== 'none' && activeDivisionRules.gender !== 'mixed') {
-        const requiredGender = activeDivisionRules.gender === 'male' ? '男' : '女'
-        const playerGender = player.gender || player.sex
+        const playerGender = normalizeGenderValue(player.gender || player.sex)
         if (!playerGender) {
           alert(`队员 ${i + 1} 必须填写性别信息`)
           return false
         }
-        if (playerGender !== requiredGender) {
-          alert(`该组别仅限${requiredGender}队员，但队员 ${i + 1} 的性别为${playerGender}`)
+        if (playerGender !== activeDivisionRules.gender) {
+          alert(`该组别仅限${formatGender(activeDivisionRules.gender)}队员，但队员 ${i + 1} 的性别为${formatGender(playerGender)}`)
           return false
         }
       }
@@ -2954,7 +3005,18 @@ export default function RegisterPage() {
                                     // 检查是否是性别字段并有要求
                                     const isGenderField = field.id === 'gender' || field.id === 'sex'
                                     const genderRequirement = isGenderField && playerRequirements?.genderRequirement && playerRequirements.genderRequirement !== 'none'
-                                    const currentGender = player[field.id]
+                                    const requiredGender = genderRequirement ? playerRequirements.genderRequirement : undefined
+                                    const currentGender = normalizeGenderValue(player[field.id])
+                                    const idCardGenderValidation = isGenderField
+                                      ? getIdCardGenderValidation(player, field.id as 'gender' | 'sex')
+                                      : { status: 'idle' as const, message: '' }
+                                    const hasGenderRequirementError = Boolean(
+                                      requiredGender &&
+                                      currentGender &&
+                                      currentGender !== requiredGender
+                                    )
+                                    const showGenderIdSuccess = idCardGenderValidation.status === 'valid' && !hasGenderRequirementError
+                                    const shouldShowGenderIdMessage = idCardGenderValidation.status === 'invalid' || showGenderIdSuccess
 
                                     return (
                                       <div key={`${field.id}-${index}`} className={PLAYER_FIELD_WRAPPER_CLASS}>
@@ -2972,9 +3034,10 @@ export default function RegisterPage() {
                                           disabled={isEventEndedView}
                                         >
                                           <SelectTrigger className={`h-11 w-full ${
-                                            genderRequirement && currentGender &&
-                                            currentGender !== (playerRequirements.genderRequirement === 'male' ? '男' : '女')
+                                            hasGenderRequirementError || idCardGenderValidation.status === 'invalid'
                                               ? VALIDATION_INPUT_ERROR_CLASS
+                                              : showGenderIdSuccess
+                                              ? VALIDATION_INPUT_SUCCESS_CLASS
                                               : ''
                                           }`}>
                                             <SelectValue placeholder={`请选择${fieldLabel}`} />
@@ -2992,9 +3055,17 @@ export default function RegisterPage() {
                                             })}
                                           </SelectContent>
                                         </Select>
-                                        {genderRequirement && currentGender &&
-                                         currentGender !== (playerRequirements.genderRequirement === 'male' ? '男' : '女') && (
-                                          <p className="text-red-600 text-xs mt-1">
+                                        {shouldShowGenderIdMessage && (
+                                          <p className={`text-xs mt-1 font-medium ${
+                                            idCardGenderValidation.status === 'invalid'
+                                              ? VALIDATION_MESSAGE_ERROR_CLASS
+                                              : VALIDATION_MESSAGE_SUCCESS_CLASS
+                                          }`}>
+                                            {idCardGenderValidation.message}
+                                          </p>
+                                        )}
+                                        {hasGenderRequirementError && (
+                                          <p className={`text-xs mt-1 font-medium ${VALIDATION_MESSAGE_ERROR_CLASS}`}>
                                             此赛事要求所有队员必须为{playerRequirements.genderRequirement === 'male' ? '男性' : '女性'}
                                           </p>
                                         )}
