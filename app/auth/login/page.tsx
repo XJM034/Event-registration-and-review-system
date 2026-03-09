@@ -231,7 +231,7 @@ export default function UnifiedLoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">棍网球报名系统</CardTitle>
+          <CardTitle className="text-2xl font-bold">赛事报名系统</CardTitle>
           <CardDescription>
             请输入您的手机号和密码登录
           </CardDescription>
@@ -290,12 +290,6 @@ export default function UnifiedLoginPage() {
 
           <div className="mt-6 text-center text-sm text-gray-600">
             <p>账号请联系管理员开通</p>
-            <p className="mt-2 text-xs text-gray-500">
-              默认密码：admin123（管理员）/ user123（教练）
-            </p>
-            <p className="text-xs text-gray-500">
-              登录后请及时修改密码
-            </p>
           </div>
         </CardContent>
       </Card>
