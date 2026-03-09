@@ -1,20 +1,28 @@
 # 体育赛事报名与审核系统
 
-基于 Next.js 15 + Supabase/MemFire 的体育赛事报名与审核管理系统。
+基于 Next.js 15 + Supabase/MemFire 的赛事报名、审核与导出系统，当前包含 3 个主要入口：
 
-## 功能特性
+- 管理端：赛事管理、动态表单配置、报名审核、导出、账号管理
+- 门户端：赛事浏览、在线报名、我的报名、通知、模板导出
+- 队员分享页：无需登录的队员信息填写页面
 
-- **管理端**：赛事管理、动态表单配置、报名审核、数据导出
-- **门户端**：赛事浏览、在线报名、通知系统、个人中心
-- **队员分享**：无需登录的队员信息填写页面
+## 主要能力
+
+- 赛事管理：创建/编辑赛事、设置可见性、绑定组别
+- 动态表单：队伍字段、队员角色字段、报名/审核时间配置
+- 审核流程：待审核列表、队伍/队员级审核、驳回原因生成
+- 数据导出：管理员导出报名压缩包，教练可导出模板 PDF
+- 账号管理：管理员个人账号维护；超级管理员可管理教练/管理员账号
+- 项目管理：超级管理员维护项目类型、项目、组别三级结构
 
 ## 技术栈
 
-- **框架**：Next.js 15 (App Router) + React 19 + TypeScript
-- **数据库**：Supabase/MemFire (PostgreSQL)
-- **UI**：Tailwind CSS + shadcn/ui + Radix UI
-- **表单**：react-hook-form + zod
-- **其他**：@dnd-kit (拖拽排序)、xlsx (数据导出)
+- Next.js 15（App Router）+ React 19 + TypeScript
+- Supabase / MemFire（Postgres、Auth、Storage）
+- Tailwind CSS + shadcn/ui + Radix UI
+- react-hook-form + zod
+- @dnd-kit（拖拽排序）
+- xlsx + jszip + pdf-lib（导出与模板处理）
 
 ## 快速开始
 
@@ -22,12 +30,10 @@
 
 ```bash
 git clone <repository-url>
-cd dubai
+cd las-vegas
 ```
 
 ### 2. 安装依赖
-
-项目使用 pnpm 作为包管理器：
 
 ```bash
 pnpm install
@@ -35,150 +41,172 @@ pnpm install
 
 ### 3. 配置环境变量
 
-复制环境变量模板并填入真实值：
+仓库已提供 `.env.example`：
 
 ```bash
 cp .env.example .env.local
 ```
 
-编辑 `.env.local` 文件，填入以下必需的环境变量：
+至少需要配置以下变量：
 
 ```bash
-# Supabase/MemFire 配置
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.baseapi.memfiredb.com
+
+# 两个 public key 名称是历史兼容别名，填其中一个即可；
+# `pnpm env:sync` / `pnpm dev` 会自动补齐另一个
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
-# NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY 可与上面保持相同；脚本会自动同步
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY=your_anon_key_here
 
-# Service Role Key（用于文件上传和审核操作）
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
-
-# JWT Secret（用于管理员会话加密）
 JWT_SECRET=your_jwt_secret_here
 ```
 
-填完一次后，执行：
+可选变量：
+
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:3000
+VERCEL_URL=your-domain.example.com
+```
+
+填好一次后，建议执行：
 
 ```bash
 pnpm env:sync
 ```
 
-这会把当前正确的环境变量同步到当前机器的 `~/.config/event-registration-and-review-system/las-vegas.env`。后续在这台机器上重新 clone 仓库或新建 workspace 时，`pnpm dev` / `pnpm build` / `pnpm test` 会自动补齐 `.env.local`，不需要再手动复制。
+这会把当前正确的环境变量同步到当前机器的 `~/.config/event-registration-and-review-system/las-vegas.env`，后续在同一台机器上重新 clone 或新建 workspace 时，`pnpm dev` / `pnpm build` / `pnpm test` 会自动补齐 `.env.local`。
 
-**获取 Supabase/MemFire 配置：**
+### 4. 初始化数据库
 
-1. 登录 [MemFire 控制台](https://memfiredb.com)
-2. 选择你的项目
-3. 进入 Settings > API
-4. 复制 URL、anon key 和 service_role key
+首次搭建环境，至少需要执行这些脚本：
 
-**生成 JWT Secret：**
+1. `docs/sql/actual-supabase-schema.sql`
+   作用：导入当前项目使用的完整数据库结构快照
+2. `docs/sql/create-buckets-simple.sql`
+   作用：创建 `event-posters`、`registration-files`、`player-photos`、`team-documents` 4 个 Storage bucket
+3. `docs/sql/create-auth-accounts.sql`（如果你需要初始化默认测试账号）
+   作用：创建仓库 SQL 脚本内置的管理员/教练默认账号
 
-```bash
-node -e "console.log(require('crypto').randomBytes(64).toString('base64'))"
-```
+如果你是从旧库迁移，而不是全新初始化，请优先查看 `docs/sql/` 目录里的增量脚本，而不是直接重复执行全量脚本。
 
-### 4. 启动开发服务器
+### 5. 启动开发服务器
 
 ```bash
 pnpm dev
 ```
 
-访问 http://localhost:3000
+打开 `http://localhost:3000/auth/login`。
 
-## 测试账号
+## 当前登录说明
 
-根据 `CLAUDE.md` 文档，系统已预置以下测试账号：
+- 当前受支持的登录入口是 `/auth/login`
+- 管理员登录后会创建独立的 `admin-session`
+- 教练登录后会持久化 Supabase session
+- `/auth/register`、`/auth/update-password`、`/auth/confirm` 等页面虽然仍在仓库中，但当前不属于主流程，且大多会被 `middleware.ts` 拦截
 
-**超级管理员**：
-- 手机号：`18140044662` 或 `13164550100`
-- 密码：`admin123`
+## 测试账号说明
 
-**教练账号**：
-- 手机号：`13800000001` ~ `13800000005`
-- 密码：`user123`
+### 当前联调稳定账号
 
-## 项目结构
+以下 3 个账号由当前测试环境维护，后续手工联调可优先使用：
 
-```
-app/
-├── auth/              # 认证相关页面（登录、注册等）
-├── events/            # 管理端赛事管理
-├── portal/            # 门户端（教练）
-├── player-share/      # 队员分享填写页
-└── api/               # API 路由
+- 超级管理员：`18140044662` / `000000`
+- 普通管理员：`15196653658` / `000000`
+- 教练：`13800000001` / `000000`
 
-components/
-├── event-manage/      # 赛事管理组件
-├── ui/                # shadcn/ui 组件
-└── ...
+### 仓库初始化默认账号
 
-lib/
-├── auth.ts            # 认证工具函数
-├── supabase/          # Supabase 客户端配置
-└── types.ts           # TypeScript 类型定义
+`docs/sql/create-auth-accounts.sql` 初始化出来的默认账号仍然是：
 
-docs/
-├── CLAUDE.md          # 详细的项目文档
-├── STORAGE_SETUP.md   # Storage 配置说明
-└── sql/               # 数据库脚本
-```
+- 超级管理员：`18140044662` / `admin123`
+- 超级管理员：`13164550100` / `admin123`
+- 教练：`13800000001` ~ `13800000005` / `user123`
+
+通过 `/admin/account-management` 创建账号、重置密码后，实际测试环境中的账号口令可能与 SQL 默认值不同。
 
 ## 常用命令
 
 ```bash
-# 开发
 pnpm dev
-
-# 构建
-pnpm build
-
-# 生产运行
-pnpm start
-
-# 代码检查
 pnpm lint
+pnpm test
+pnpm build
+pnpm start
+pnpm env:sync
+pnpm test:template-e2e
 ```
 
-## 数据库设置
+## 项目结构
 
-首次部署需要执行以下 SQL 脚本：
+```text
+app/
+├── auth/                         # 登录与遗留认证页面
+├── events/                       # 管理端赛事管理
+├── portal/                       # 教练门户端
+├── player-share/                 # 公开队员分享页
+└── api/                          # API 路由
 
-1. **创建数据库结构**：`docs/sql/actual-supabase-schema.sql`
-2. **创建 Storage Buckets**：`docs/sql/create-buckets-simple.sql`
-3. **配置 Storage 策略**：`docs/sql/storage-policies.sql`（可选）
+components/
+├── event-manage/                 # 赛事管理组件
+├── account-management/           # 账号管理组件
+├── project-management/           # 项目/组别管理组件
+└── ui/                           # shadcn/ui 组件
 
-## 详细文档
+lib/
+├── auth.ts                       # 服务端认证与会话工具
+├── export/                       # 导出相关工具
+├── supabase/                     # Supabase 客户端封装
+└── template-document-export.ts   # 模板导出能力
 
-完整的项目文档请参考：
-- **CLAUDE.md**：项目架构、功能说明、开发指南
-- **STORAGE_SETUP.md**：文件存储配置说明
+docs/
+├── README.md                     # 文档索引
+├── STORAGE_SETUP.md              # Storage 配置说明
+└── sql/                          # SQL 脚本与 schema 快照
+```
 
-## 故障排查
+## 关键文档
 
-### Bucket not found
+- `CLAUDE.md`：最完整的项目工作说明、API 清单、已知不一致
+- `docs/README.md`：文档索引
+- `docs/STORAGE_SETUP.md`：Storage bucket 配置说明
+- `SECURITY.md`：安全配置与检查清单
 
-执行 `docs/sql/create-buckets-simple.sql` 创建必需的 Storage buckets。
+## 常见问题
 
-### 上传失败 / 500 错误
+### 1. Bucket not found
 
-检查 `.env.local` 中的 `SUPABASE_SERVICE_ROLE_KEY` 是否正确配置。
+通常是还没创建 Storage bucket。执行 `docs/sql/create-buckets-simple.sql`，或参考 `docs/STORAGE_SETUP.md`。
 
-### 页面重定向到登录
+### 2. 上传失败 / 500
 
-检查 `middleware.ts` 中的路由保护规则，确认路径是否在白名单中。
+优先检查 `SUPABASE_SERVICE_ROLE_KEY` 是否已正确配置。管理端上传、门户上传、审核通知写入都依赖它。
+
+### 3. 页面一直跳到登录页
+
+优先检查：
+
+- 是否访问了不在 `middleware.ts` `publicPaths` 中的页面
+- 是否缺少教练 Supabase session 或管理员 `admin-session`
+- 是否误用了遗留认证页面（如 `/auth/register`）
+
+### 4. 登录后管理员/教练跳错端
+
+检查 `auth.users.raw_user_meta_data.role` 是否正确，以及 `admin_users` / `coaches` 是否已通过触发器同步成功。
 
 ## 环境变量说明
 
 | 变量名 | 说明 | 必需 |
 |--------|------|------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase/MemFire 项目 URL | ✅ |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key | ✅ |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY` | Supabase anon key（代码主要使用此变量） | ✅ |
-| `SUPABASE_SERVICE_ROLE_KEY` | Service role key（服务端操作） | ✅ |
-| `JWT_SECRET` | JWT 加密密钥 | ✅ |
-| `NEXT_PUBLIC_API_URL` | API 基础 URL | ❌ |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY` | 主 public key 变量名 | ✅ |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 历史兼容别名；填任一 public key 后脚本会自动补齐 | ✅ |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role key（上传、审核、账号管理等服务端操作） | ✅ |
+| `JWT_SECRET` | 管理员旁路会话加密密钥 | ✅ |
+| `NEXT_PUBLIC_API_URL` | 可选兼容变量，当前主代码未直接依赖 | ❌ |
+| `VERCEL_URL` | Next.js `metadataBase` 可选配置 | ❌ |
 
-## License
+## 补充说明
 
-[MIT](LICENSE)
+- 管理员导出接口当前始终返回 `zip`，不是按是否有附件切换 `xlsx` / `zip`
+- 队员分享页当前前端会尝试复用 `/api/portal/upload`，但该接口受教练登录态保护；这一点已记录在 `CLAUDE.md` 的“已知不一致”中
+- 如需最准确的实现说明，请以 `CLAUDE.md` 和 `docs/sql/actual-supabase-schema.sql` 为准
