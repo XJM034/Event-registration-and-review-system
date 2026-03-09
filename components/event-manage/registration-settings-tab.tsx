@@ -43,6 +43,7 @@ interface FieldConfig {
   label: string
   type: 'text' | 'image' | 'select' | 'multiselect' | 'date' | 'attachment' | 'attachments'
   required: boolean
+  requiredLocked?: boolean
   options?: string[]
   isCommon?: boolean  // 添加标记来区分常用项和自定义项
   conditionalRequired?: {  // 新增：条件必填配置
@@ -88,7 +89,7 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, can
 
   const handleRemoveClick = () => {
     if (!canRemove) {
-      alert('该字段为必填字段，不能删除')
+      alert('该字段不可删除')
       return
     }
     if (onRemove) {
@@ -112,7 +113,7 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, can
         </button>
         <span className="text-sm font-medium">{field.label}</span>
         {!canRemove && (
-          <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">必填</span>
+          <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">不可删除</span>
         )}
         <span className="text-xs text-muted-foreground">
           ({typeLabels[field.type] || field.type})
@@ -134,6 +135,7 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, can
         <label className="flex items-center space-x-2">
           <Checkbox
             checked={field.required}
+            disabled={field.requiredLocked}
             onCheckedChange={onToggleRequired}
           />
           <span className="text-sm">必填</span>
@@ -207,6 +209,31 @@ interface EventDivision {
   }
 }
 
+function normalizeRoleConfig(role: RoleConfig): RoleConfig {
+  return {
+    ...role,
+    commonFields: normalizeRoleFieldList(role.id, role.commonFields),
+    customFields: normalizeRoleFieldList(role.id, role.customFields),
+    allFields: role.allFields ? normalizeRoleFieldList(role.id, role.allFields) : role.allFields,
+  }
+}
+
+function normalizeTeamRequirementsConfig(requirements: TeamRequirements): TeamRequirements {
+  return {
+    ...requirements,
+    commonFields: normalizeTeamFieldList(requirements.commonFields),
+    customFields: normalizeTeamFieldList(requirements.customFields),
+    allFields: requirements.allFields ? normalizeTeamFieldList(requirements.allFields) : requirements.allFields,
+  }
+}
+
+function normalizePlayerRequirementsConfig(requirements: PlayerRequirements): PlayerRequirements {
+  return {
+    ...requirements,
+    roles: requirements.roles.map(normalizeRoleConfig),
+  }
+}
+
 type TemplateFieldKey = 'registrationFormTemplate' | 'athleteInfoTemplate'
 type TemplateStateFieldKey = 'registrationFormTemplateState' | 'athleteInfoTemplateState'
 
@@ -218,6 +245,12 @@ const TEMPLATE_PAGE_RULES: Record<ReferenceTemplateType, { pageCount: number }> 
 }
 const TEMPLATE_PAGE_SIZE = { width: 595.28, height: 841.89 }
 const TEMPLATE_PAGE_TOLERANCE = 8
+const TEAM_LOCKED_REQUIRED_FIELDS = new Set(['unit', 'name', 'contact'])
+const PLAYER_LOCKED_REQUIRED_FIELDS = new Set(['name', 'gender', 'age', 'player_number'])
+const STAFF_LOCKED_REQUIRED_FIELDS = new Set(['name', 'contact'])
+const TEAM_NON_REMOVABLE_FIELDS = new Set(['unit', 'name', 'contact'])
+const PLAYER_NON_REMOVABLE_FIELDS = new Set(['name', 'gender', 'age', 'player_number', 'id_photo'])
+const STAFF_NON_REMOVABLE_FIELDS = new Set(['name', 'contact', 'id_photo'])
 const TEMPLATE_FIELD_CONFIG: Record<
   TemplateFieldKey,
   {
@@ -278,6 +311,41 @@ function normalizeFieldLabel(field: FieldConfig): FieldConfig {
 
 function normalizeFieldList(fields?: FieldConfig[]): FieldConfig[] {
   return (fields || []).map(normalizeFieldLabel)
+}
+
+function applyFieldRequirementPolicy(field: FieldConfig, roleId?: string): FieldConfig {
+  const normalized = normalizeFieldLabel(field)
+  const requiredLocked =
+    roleId === 'team'
+      ? TEAM_LOCKED_REQUIRED_FIELDS.has(normalized.id)
+      : roleId === 'player'
+      ? PLAYER_LOCKED_REQUIRED_FIELDS.has(normalized.id)
+      : roleId === 'coach' || roleId === 'leader'
+      ? STAFF_LOCKED_REQUIRED_FIELDS.has(normalized.id)
+      : false
+  const nonRemovable =
+    roleId === 'team'
+      ? TEAM_NON_REMOVABLE_FIELDS.has(normalized.id)
+      : roleId === 'player'
+      ? PLAYER_NON_REMOVABLE_FIELDS.has(normalized.id)
+      : roleId === 'coach' || roleId === 'leader'
+      ? STAFF_NON_REMOVABLE_FIELDS.has(normalized.id)
+      : false
+
+  return {
+    ...normalized,
+    required: requiredLocked ? true : Boolean(normalized.required),
+    requiredLocked,
+    canRemove: nonRemovable ? false : normalized.canRemove,
+  }
+}
+
+function normalizeTeamFieldList(fields?: FieldConfig[]): FieldConfig[] {
+  return normalizeFieldList(fields).map((field) => applyFieldRequirementPolicy(field, 'team'))
+}
+
+function normalizeRoleFieldList(roleId: string, fields?: FieldConfig[]): FieldConfig[] {
+  return normalizeFieldList(fields).map((field) => applyFieldRequirementPolicy(field, roleId))
 }
 
 function normalizeTemplateSnapshot(
@@ -359,7 +427,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
   const [initialDataLoaded, setInitialDataLoaded] = useState(false) // 添加初始数据加载状态
   const [eventDivisions, setEventDivisions] = useState<EventDivision[]>([])
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
-  const [teamRequirements, setTeamRequirements] = useState<TeamRequirements>({
+  const [teamRequirements, setTeamRequirements] = useState<TeamRequirements>(() => normalizeTeamRequirementsConfig({
     commonFields: [
       { id: 'unit', label: '参赛单位', type: 'text', required: true, canRemove: false },
       { id: 'name', label: '队伍名称', type: 'text', required: true, canRemove: false },
@@ -375,9 +443,9 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
     athleteInfoTemplate: null,
     registrationFormTemplateState: null,
     athleteInfoTemplateState: null,
-  })
+  }))
 
-  const [playerRequirements, setPlayerRequirements] = useState<PlayerRequirements>({
+  const [playerRequirements, setPlayerRequirements] = useState<PlayerRequirements>(() => normalizePlayerRequirementsConfig({
     roles: [
       {
         id: 'player',
@@ -449,7 +517,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
     countRequirementEnabled: false,
     minCount: 11,
     maxCount: 20
-  })
+  }))
 
   const [isLoading, setIsLoading] = useState(false)
   const [newFieldType, setNewFieldType] = useState<'text' | 'image' | 'select' | 'multiselect' | 'date' | 'attachment' | 'attachments'>('text')
@@ -993,9 +1061,9 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           'athlete_info_form',
           loadedTeamReq.athleteInfoTemplate,
         )
-        loadedTeamReq.commonFields = normalizeFieldList(loadedTeamReq.commonFields)
-        loadedTeamReq.customFields = normalizeFieldList(loadedTeamReq.customFields)
-        loadedTeamReq.allFields = normalizeFieldList(loadedTeamReq.allFields)
+        loadedTeamReq.commonFields = normalizeTeamFieldList(loadedTeamReq.commonFields)
+        loadedTeamReq.customFields = normalizeTeamFieldList(loadedTeamReq.customFields)
+        loadedTeamReq.allFields = normalizeTeamFieldList(loadedTeamReq.allFields)
 
         // 如果没有allFields，从commonFields和customFields创建
         if (!loadedTeamReq.allFields || loadedTeamReq.allFields.length === 0) {
@@ -1005,7 +1073,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           ]
         }
 
-        setTeamRequirements(loadedTeamReq)
+        setTeamRequirements(normalizeTeamRequirementsConfig(loadedTeamReq))
 
         // 确保player_requirements始终包含roles数组
         const loadedPlayerReq = (result.data.player_requirements || {}) as Partial<PlayerRequirements>
@@ -1013,9 +1081,9 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         // 为每个角色创建allFields如果不存在
         if (loadedPlayerReq.roles) {
           loadedPlayerReq.roles = loadedPlayerReq.roles.map((role) => {
-            const commonFields = normalizeFieldList(role.commonFields)
-            const customFields = normalizeFieldList(role.customFields)
-            const allFields = normalizeFieldList(role.allFields)
+            const commonFields = normalizeRoleFieldList(role.id, role.commonFields)
+            const customFields = normalizeRoleFieldList(role.id, role.customFields)
+            const allFields = normalizeRoleFieldList(role.id, role.allFields)
             if (!role.allFields) {
               return {
                 ...role,
@@ -1116,11 +1184,11 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           });
         }
 
-        setPlayerRequirements({
+        setPlayerRequirements(normalizePlayerRequirementsConfig({
           ...playerRequirements,
           ...loadedPlayerReq,
           roles: rolesWithDefault
-        })
+        }))
       } else {
         // 如果没有保存的数据，使用默认值并标记为已加载
         const defaultTeamReq: TeamRequirements = {
@@ -1147,7 +1215,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           registrationFormTemplateState: null,
           athleteInfoTemplateState: null,
         }
-        setTeamRequirements(defaultTeamReq)
+        setTeamRequirements(normalizeTeamRequirementsConfig(defaultTeamReq))
       }
 
       setInitialDataLoaded(true)  // 标记初始数据已加载
@@ -1178,7 +1246,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         registrationFormTemplateState: null,
         athleteInfoTemplateState: null,
       }
-      setTeamRequirements(defaultTeamReq)
+      setTeamRequirements(normalizeTeamRequirementsConfig(defaultTeamReq))
       setInitialDataLoaded(true)
     }
   }
@@ -1253,16 +1321,16 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
     setIsLoading(true)
     try {
       // 确保allFields是最新的
-      const teamReqToSave = syncPublishedTemplateFields({
+      const teamReqToSave = syncPublishedTemplateFields(normalizeTeamRequirementsConfig({
         ...teamRequirements,
         allFields: teamRequirements.allFields || [
           ...teamRequirements.commonFields.map(f => ({ ...f, isCommon: true })),
           ...teamRequirements.customFields.map(f => ({ ...f, isCommon: false }))
         ]
-      })
+      }))
 
       // 确保每个角色的allFields是最新的
-      const playerReqToSave = {
+      const playerReqToSave = normalizePlayerRequirementsConfig({
         ...playerRequirements,
         roles: playerRequirements.roles.map(role => ({
           ...role,
@@ -1271,7 +1339,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
             ...role.customFields.map(f => ({ ...f, isCommon: false }))
           ]
         }))
-      }
+      })
       
       const response = await fetch(`/api/events/${eventId}/registration-settings`, {
         method: 'POST',
@@ -1352,7 +1420,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
       return
     }
 
-    const newRole: RoleConfig = {
+    const newRole: RoleConfig = normalizeRoleConfig({
       id: newRoleId,
       name: normalizedRoleName,
       commonFields: defaultCommonFields,
@@ -1361,9 +1429,9 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
       minPlayers: 1,
       maxPlayers: 10,
       isDeletable: true
-    }
+    })
 
-    setPlayerRequirements(prev => ({
+    setPlayerRequirements(prev => normalizePlayerRequirementsConfig({
       ...prev,
       roles: [...prev.roles, newRole]
     }))
@@ -1649,6 +1717,13 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
   const toggleRequired = (type: 'team' | 'player', fieldId: string, isCommon: boolean) => {
     if (type === 'team') {
       setTeamRequirements(prev => {
+        const targetField = prev.allFields?.find(f => f.id === fieldId)
+          || prev.commonFields.find(f => f.id === fieldId)
+          || prev.customFields.find(f => f.id === fieldId)
+        if (targetField?.requiredLocked) {
+          return prev
+        }
+
         // 更新allFields
         const updatedAllFields = prev.allFields
           ? prev.allFields.map(f => 
@@ -2232,6 +2307,9 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                                 key={field.id}
                                 field={field}
                                 onToggleRequired={() => {
+                                  if (field.requiredLocked) {
+                                    return
+                                  }
                                   setPlayerRequirements(prev => ({
                                     ...prev,
                                     roles: prev.roles.map(r => {

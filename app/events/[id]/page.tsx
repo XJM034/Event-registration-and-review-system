@@ -120,9 +120,9 @@ export default function EventManagePage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="flex min-h-screen flex-col xl:flex-row">
+      <div className="flex min-h-screen flex-col lg:flex-row">
         {/* 左侧边栏 */}
-        <div className="w-full shrink-0 border-b border-border bg-card/95 shadow-sm backdrop-blur xl:min-h-screen xl:w-72 xl:border-b-0 xl:border-r">
+        <div className="w-full shrink-0 border-b border-border bg-card/95 shadow-sm backdrop-blur lg:min-h-screen lg:w-72 lg:border-b-0 lg:border-r">
           <div className="flex h-full flex-col gap-6 p-4 sm:p-6">
             <div className="flex items-start justify-between gap-3">
               <Link href="/events" className="inline-flex items-center text-primary transition-colors hover:text-primary/80">
@@ -163,7 +163,7 @@ export default function EventManagePage() {
 
               <div>
                 <p className="mb-2 text-xs font-semibold text-muted-foreground">报名管理</p>
-                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
                   <Button
                     variant={activeTab === 'registration-list' ? 'default' : 'ghost'}
                     className="w-full justify-start text-sm"

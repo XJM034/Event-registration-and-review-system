@@ -8,6 +8,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Loader2 } from 'lucide-react'
 import { getDefaultExportScope } from '@/lib/export/export-scope-utils'
+import { sortPlayerFieldsForExport, sortTeamFieldsForExport } from '@/lib/export/export-route-utils'
 
 interface ExportConfigDialogProps {
   open: boolean
@@ -109,8 +110,8 @@ export default function ExportConfigDialog({
           }
         })
 
-        const teamFieldsList = Array.from(teamFieldsMap.values())
-        const playerFieldsList = Array.from(playerFieldsMap.values())
+        const teamFieldsList = sortTeamFieldsForExport(Array.from(teamFieldsMap.values()))
+        const playerFieldsList = sortPlayerFieldsForExport(Array.from(playerFieldsMap.values()))
 
         setTeamFields(teamFieldsList)
         setPlayerFields(playerFieldsList)
