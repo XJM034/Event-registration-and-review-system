@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentAdminSession, createSupabaseServer } from '@/lib/auth'
+import { getCurrentAdminSession } from '@/lib/auth'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest, context: RouteParams) {
       )
     }
 
-    const supabase = await createSupabaseServer()
+    const supabase = createServiceRoleClient()
 
     // 检查是否指定了 division_id
     const { searchParams } = new URL(request.url)
@@ -93,7 +94,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
     }
 
     const body = await request.json()
-    const supabase = await createSupabaseServer()
+    const supabase = createServiceRoleClient()
     const divisionId = body.division_id || null
 
     // 先检查是否已存在设置

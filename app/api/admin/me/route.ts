@@ -1,6 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentAdminSession } from '@/lib/auth'
+import { writeSecurityAuditLog } from '@/lib/security-audit-log'
+
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, max-age=0',
+  Pragma: 'no-cache',
+}
+
+function jsonNoStore(body: unknown, init?: ResponseInit) {
+  return NextResponse.json(body, {
+    ...init,
+    headers: {
+      ...NO_STORE_HEADERS,
+      ...(init?.headers ?? {}),
+    },
+  })
+}
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -18,7 +34,7 @@ export async function GET() {
   try {
     const currentAdmin = await getCurrentAdminSession()
     if (!currentAdmin) {
-      return NextResponse.json(
+      return jsonNoStore(
         { success: false, error: '未授权' },
         { status: 401 }
       )
@@ -31,16 +47,16 @@ export async function GET() {
       .single()
 
     if (error || !admin) {
-      return NextResponse.json(
+      return jsonNoStore(
         { success: false, error: '管理员不存在' },
         { status: 404 }
       )
     }
 
-    return NextResponse.json({ success: true, data: admin })
+    return jsonNoStore({ success: true, data: admin })
   } catch (error) {
     console.error('Error in GET /api/admin/me:', error)
-    return NextResponse.json(
+    return jsonNoStore(
       { success: false, error: '服务器错误' },
       { status: 500 }
     )
@@ -52,7 +68,16 @@ export async function PUT(request: NextRequest) {
   try {
     const currentAdmin = await getCurrentAdminSession()
     if (!currentAdmin) {
-      return NextResponse.json(
+      await writeSecurityAuditLog({
+        request,
+        action: 'change_own_admin_password',
+        actorType: 'admin',
+        actorRole: 'admin',
+        resourceType: 'admin_user',
+        result: 'denied',
+        reason: 'unauthorized',
+      })
+      return jsonNoStore(
         { success: false, error: '未授权' },
         { status: 401 }
       )
@@ -62,7 +87,19 @@ export async function PUT(request: NextRequest) {
     const password = typeof body?.password === 'string' ? body.password.trim() : ''
 
     if (!password || password.length < 6) {
-      return NextResponse.json(
+      await writeSecurityAuditLog({
+        request,
+        action: 'change_own_admin_password',
+        actorType: 'admin',
+        actorId: currentAdmin.user.id,
+        actorRole: currentAdmin.user.is_super === true ? 'super_admin' : 'admin',
+        resourceType: 'admin_user',
+        resourceId: currentAdmin.user.id,
+        targetUserId: currentAdmin.user.id,
+        result: 'failed',
+        reason: 'password_policy_violation',
+      })
+      return jsonNoStore(
         { success: false, error: '密码长度至少为6位' },
         { status: 400 }
       )
@@ -75,14 +112,38 @@ export async function PUT(request: NextRequest) {
       .single()
 
     if (adminError || !admin) {
-      return NextResponse.json(
+      await writeSecurityAuditLog({
+        request,
+        action: 'change_own_admin_password',
+        actorType: 'admin',
+        actorId: currentAdmin.user.id,
+        actorRole: currentAdmin.user.is_super === true ? 'super_admin' : 'admin',
+        resourceType: 'admin_user',
+        resourceId: currentAdmin.user.id,
+        targetUserId: currentAdmin.user.id,
+        result: 'failed',
+        reason: 'admin_profile_not_found',
+      })
+      return jsonNoStore(
         { success: false, error: '管理员不存在' },
         { status: 404 }
       )
     }
 
     if (!admin.auth_id) {
-      return NextResponse.json(
+      await writeSecurityAuditLog({
+        request,
+        action: 'change_own_admin_password',
+        actorType: 'admin',
+        actorId: currentAdmin.user.id,
+        actorRole: currentAdmin.user.is_super === true ? 'super_admin' : 'admin',
+        resourceType: 'admin_user',
+        resourceId: currentAdmin.user.id,
+        targetUserId: currentAdmin.user.id,
+        result: 'failed',
+        reason: 'admin_auth_binding_missing',
+      })
+      return jsonNoStore(
         { success: false, error: '当前管理员未关联认证账号' },
         { status: 400 }
       )
@@ -95,16 +156,40 @@ export async function PUT(request: NextRequest) {
 
     if (updateError) {
       console.error('Error in PUT /api/admin/me (update password):', updateError)
-      return NextResponse.json(
-        { success: false, error: `修改密码失败: ${updateError.message}` },
+      await writeSecurityAuditLog({
+        request,
+        action: 'change_own_admin_password',
+        actorType: 'admin',
+        actorId: currentAdmin.user.id,
+        actorRole: currentAdmin.user.is_super === true ? 'super_admin' : 'admin',
+        resourceType: 'admin_user',
+        resourceId: currentAdmin.user.id,
+        targetUserId: currentAdmin.user.id,
+        result: 'failed',
+        reason: 'auth_password_update_failed',
+      })
+      return jsonNoStore(
+        { success: false, error: '修改密码失败，请稍后重试' },
         { status: 500 }
       )
     }
 
-    return NextResponse.json({ success: true })
+    await writeSecurityAuditLog({
+      request,
+      action: 'change_own_admin_password',
+      actorType: 'admin',
+      actorId: currentAdmin.user.id,
+      actorRole: currentAdmin.user.is_super === true ? 'super_admin' : 'admin',
+      resourceType: 'admin_user',
+      resourceId: currentAdmin.user.id,
+      targetUserId: currentAdmin.user.id,
+      result: 'success',
+    })
+
+    return jsonNoStore({ success: true })
   } catch (error) {
     console.error('Error in PUT /api/admin/me:', error)
-    return NextResponse.json(
+    return jsonNoStore(
       { success: false, error: '服务器错误' },
       { status: 500 }
     )

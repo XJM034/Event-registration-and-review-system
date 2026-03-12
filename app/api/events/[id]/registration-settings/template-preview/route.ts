@@ -185,7 +185,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
   } catch (error) {
     console.error('Admin template preview error:', error)
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : '模板预览失败' },
+      { success: false, error: '模板预览失败，请稍后重试' },
       { status: 500 },
     )
   }

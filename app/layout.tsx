@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
-import { ThemeProvider } from "next-themes";
 import AdminApiSessionBridge from "@/components/admin-api-session-bridge";
+import AppThemeProvider from "@/components/app-theme-provider";
 import AdminSessionTabSync from "@/components/admin-session-tab-sync";
+import { Agentation } from "agentation";
 import "./globals.css";
 
 const defaultUrl = process.env.VERCEL_URL
@@ -22,16 +23,12 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <body className="font-sans antialiased">
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
+        <AppThemeProvider>
           <AdminApiSessionBridge />
           <AdminSessionTabSync />
           {children}
-        </ThemeProvider>
+          {process.env.NODE_ENV === "development" && <Agentation />}
+        </AppThemeProvider>
       </body>
     </html>
   );

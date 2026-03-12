@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentAdminSession } from '@/lib/auth'
+import { writeSecurityAuditLog } from '@/lib/security-audit-log'
 
 // 创建 Admin Client
 const supabaseAdmin = createClient(
@@ -21,7 +22,20 @@ export async function POST(
 ) {
   try {
     const session = await getCurrentAdminSession()
+    const actorRole = session?.user?.is_super === true ? 'super_admin' : 'admin'
     if (!session) {
+      const { id } = await params
+      await writeSecurityAuditLog({
+        request,
+        action: 'reset_coach_password',
+        actorType: 'admin',
+        actorRole: 'admin',
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'denied',
+        reason: 'unauthorized',
+      })
       return NextResponse.json(
         { error: '未授权访问', success: false },
         { status: 401 }
@@ -34,6 +48,18 @@ export async function POST(
 
     // 验证密码
     if (!password || password.length < 6) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'reset_coach_password',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'password_policy_violation',
+      })
       return NextResponse.json(
         { error: '密码长度至少为6位', success: false },
         { status: 400 }
@@ -48,6 +74,18 @@ export async function POST(
       .single()
 
     if (fetchError || !coach) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'reset_coach_password',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'target_coach_not_found',
+      })
       return NextResponse.json(
         { error: '教练不存在', success: false },
         { status: 404 }
@@ -55,6 +93,18 @@ export async function POST(
     }
 
     if (!coach.auth_id) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'reset_coach_password',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'target_coach_missing_auth_binding',
+      })
       return NextResponse.json(
         { error: '该教练没有关联的认证账号', success: false },
         { status: 400 }
@@ -69,11 +119,35 @@ export async function POST(
 
     if (authError) {
       console.error('Error resetting password:', authError)
+      await writeSecurityAuditLog({
+        request,
+        action: 'reset_coach_password',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'auth_admin_update_failed',
+      })
       return NextResponse.json(
-        { error: `重置密码失败: ${authError.message}`, success: false },
+        { error: '重置密码失败，请稍后重试', success: false },
         { status: 500 }
       )
     }
+
+    await writeSecurityAuditLog({
+      request,
+      action: 'reset_coach_password',
+      actorType: 'admin',
+      actorId: session.user.id,
+      actorRole,
+      resourceType: 'coach',
+      resourceId: id,
+      targetUserId: id,
+      result: 'success',
+    })
 
     return NextResponse.json({
       success: true,

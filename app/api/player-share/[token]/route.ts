@@ -1,39 +1,101 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/client'
 import {
+  buildPublicShareEventSummary,
+  buildPublicShareRegistrationSummary,
+  buildPublicShareTokenInfo,
+  canMutateSharedRegistration,
   getShareTokenAccessError,
+  isShareWriteClosed,
   pickRegistrationSettings,
   resolveSharedPlayerData,
+  summarizeShareTokenForAudit,
 } from '@/lib/player-share-token'
+import { applyRateLimitHeaders, buildRateLimitKey, type RateLimitDecision, takeRateLimit } from '@/lib/rate-limit'
+import { writeSecurityAuditLog } from '@/lib/security-audit-log'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
 
 interface RouteParams {
   params: Promise<{ token: string }>
 }
 
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, max-age=0',
+  Pragma: 'no-cache',
+}
+
+function jsonNoStore(
+  body: unknown,
+  init?: ResponseInit,
+  rateLimit?: RateLimitDecision,
+) {
+  const headers = new Headers(init?.headers)
+  Object.entries(NO_STORE_HEADERS).forEach(([key, value]) => {
+    headers.set(key, value)
+  })
+
+  const response = NextResponse.json(body, {
+    ...init,
+    headers,
+  })
+
+  if (rateLimit) {
+    applyRateLimitHeaders(response.headers, rateLimit)
+  }
+
+  return response
+}
+
 export async function GET(request: NextRequest, context: RouteParams) {
   try {
     const { token } = await context.params
+    const resourceId = summarizeShareTokenForAudit(token)
 
     if (!token) {
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '缺少分享令牌', success: false },
         { status: 400 }
       )
     }
 
-    // 使用客户端 Supabase（这个版本之前是可以工作的）
-    const supabase = createClient()
+    const rateLimit = takeRateLimit({
+      key: buildRateLimitKey({
+        request,
+        scope: 'player-share:get',
+        subject: token,
+      }),
+      limit: 60,
+      windowMs: 60_000,
+    })
 
-    // 首先查询分享令牌
+    if (!rateLimit.allowed) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'view_public_share',
+        actorType: 'public_share',
+        actorRole: 'public_share',
+        resourceType: 'share_token',
+        resourceId,
+        result: 'denied',
+        reason: 'rate_limited',
+      })
+      return jsonNoStore(
+        { error: '请求过于频繁，请稍后重试', success: false },
+        { status: 429 },
+        rateLimit,
+      )
+    }
+
+    const supabase = createServiceRoleClient()
+
     const { data: shareTokenData, error: shareTokenError } = await supabase
       .from('player_share_tokens')
-      .select('*')
+      .select('registration_id, event_id, player_index, player_id, is_active, expires_at, used_at')
       .eq('token', token)
       .maybeSingle()
 
     if (shareTokenError) {
       console.error('查询分享令牌失败:', shareTokenError)
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '查询分享链接失败', success: false },
         { status: 500 }
       )
@@ -41,43 +103,72 @@ export async function GET(request: NextRequest, context: RouteParams) {
 
     const tokenAccessError = getShareTokenAccessError(shareTokenData)
     if (tokenAccessError) {
-      return NextResponse.json(
+      await writeSecurityAuditLog({
+        request,
+        action: 'view_public_share',
+        actorType: 'public_share',
+        actorRole: 'public_share',
+        resourceType: 'share_token',
+        resourceId,
+        registrationId: shareTokenData?.registration_id ?? null,
+        eventId: shareTokenData?.event_id ?? null,
+        result: 'failed',
+        reason: `share_token_status_${tokenAccessError.status}`,
+      })
+      return jsonNoStore(
         { error: tokenAccessError.error, success: false },
-        { status: tokenAccessError.status }
+        { status: tokenAccessError.status },
+        rateLimit,
+      )
+    }
+    if (!shareTokenData) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'view_public_share',
+        actorType: 'public_share',
+        actorRole: 'public_share',
+        resourceType: 'share_token',
+        resourceId,
+        result: 'failed',
+        reason: 'share_token_not_found',
+      })
+      return jsonNoStore(
+        { error: '分享链接不存在', success: false },
+        { status: 404 },
+        rateLimit,
       )
     }
 
-    // 获取报名信息
     const { data: registrationData, error: regError } = await supabase
       .from('registrations')
-      .select('*')
+      .select('id, status, team_data, players_data')
       .eq('id', shareTokenData.registration_id)
       .single()
 
     if (regError || !registrationData) {
       console.error('获取报名信息失败:', regError)
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '获取报名信息失败', success: false },
-        { status: 500 }
+        { status: 500 },
+        rateLimit,
       )
     }
 
-    // 获取赛事信息
     const { data: eventData, error: eventError } = await supabase
       .from('events')
-      .select('*')
+      .select('id, name, short_name')
       .eq('id', shareTokenData.event_id)
       .single()
 
     if (eventError || !eventData) {
       console.error('获取赛事信息失败:', eventError)
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '获取赛事信息失败', success: false },
-        { status: 500 }
+        { status: 500 },
+        rateLimit,
       )
     }
 
-    // 获取报名设置
     const { data: settingsRows } = await supabase
       .from('registration_settings')
       .select('*')
@@ -89,47 +180,51 @@ export async function GET(request: NextRequest, context: RouteParams) {
       registrationData?.team_data?.division_id
     )
 
-    // 合并 registration_settings 到 event 对象
-    if (selectedSettings) {
-      eventData.registration_settings = selectedSettings
-    }
-    if (settingsRows) {
-      eventData.registration_settings_by_division = settingsRows
-    }
-
-    // 添加调试日志
-    console.log('GET player-share token data:', {
-      token,
-      player_index: shareTokenData.player_index,
-      player_id: shareTokenData.player_id,
-      players_data_length: registrationData?.players_data?.length || 0,
-      registration_id: shareTokenData.registration_id
-    })
-
     const sharedPlayerData = resolveSharedPlayerData(registrationData?.players_data, shareTokenData)
 
     if (!sharedPlayerData) {
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '分享对象不存在或已被移除，请联系教练重新生成新的分享链接', success: false },
-        { status: 410 }
+        { status: 410 },
+        rateLimit,
       )
     }
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        token_info: shareTokenData,
-        registration: registrationData,
-        event: eventData,
-        player_index: shareTokenData.player_index,
-        player_id: shareTokenData.player_id,
-        shared_player: sharedPlayerData
-      }
+    await writeSecurityAuditLog({
+      request,
+      action: 'view_public_share',
+      actorType: 'public_share',
+      actorRole: 'public_share',
+      resourceType: 'share_token',
+      resourceId,
+      registrationId: shareTokenData.registration_id,
+      eventId: shareTokenData.event_id,
+      result: 'success',
+      metadata: {
+        player_id_present: Boolean(shareTokenData.player_id),
+        player_index: shareTokenData.player_index ?? null,
+      },
     })
+
+    return jsonNoStore(
+      {
+        success: true,
+        data: {
+          token_info: buildPublicShareTokenInfo(shareTokenData),
+          registration: buildPublicShareRegistrationSummary(registrationData),
+          event: buildPublicShareEventSummary(eventData, selectedSettings, settingsRows),
+          player_index: shareTokenData.player_index,
+          player_id: shareTokenData.player_id,
+          shared_player: sharedPlayerData
+        }
+      },
+      undefined,
+      rateLimit,
+    )
 
   } catch (error) {
     console.error('处理分享链接请求失败:', error)
-    return NextResponse.json(
+    return jsonNoStore(
       { error: '服务器错误', success: false },
       { status: 500 }
     )
@@ -140,26 +235,72 @@ export async function GET(request: NextRequest, context: RouteParams) {
 export async function PUT(request: NextRequest, context: RouteParams) {
   try {
     const { token } = await context.params
-    const body = await request.json()
+    const resourceId = summarizeShareTokenForAudit(token)
+    const body: { player_data?: Record<string, unknown> } | null = await request.json().catch(() => null)
 
     if (!token) {
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '缺少分享令牌', success: false },
         { status: 400 }
       )
     }
 
-    const supabase = createClient()
+    if (!body?.player_data || typeof body.player_data !== 'object') {
+      await writeSecurityAuditLog({
+        request,
+        action: 'submit_public_share',
+        actorType: 'public_share',
+        actorRole: 'public_share',
+        resourceType: 'share_token',
+        resourceId,
+        result: 'failed',
+        reason: 'invalid_player_payload',
+      })
+      return jsonNoStore(
+        { error: '提交数据无效', success: false },
+        { status: 400 }
+      )
+    }
 
-    // 验证 token
+    const rateLimit = takeRateLimit({
+      key: buildRateLimitKey({
+        request,
+        scope: 'player-share:put',
+        subject: token,
+      }),
+      limit: 15,
+      windowMs: 10 * 60_000,
+    })
+
+    if (!rateLimit.allowed) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'submit_public_share',
+        actorType: 'public_share',
+        actorRole: 'public_share',
+        resourceType: 'share_token',
+        resourceId,
+        result: 'denied',
+        reason: 'rate_limited',
+      })
+      return jsonNoStore(
+        { error: '提交过于频繁，请稍后再试', success: false },
+        { status: 429 },
+        rateLimit,
+      )
+    }
+
+    const supabase = createServiceRoleClient()
+
     const { data: tokenData, error: tokenError } = await supabase
       .from('player_share_tokens')
-      .select('*')
+      .select('registration_id, event_id, player_index, player_id, is_active, expires_at, used_at')
       .eq('token', token)
       .maybeSingle()
 
     if (tokenError) {
-      return NextResponse.json(
+      console.error('查询分享链接失败:', tokenError)
+      return jsonNoStore(
         { error: '查询分享链接失败', success: false },
         { status: 500 }
       )
@@ -167,28 +308,57 @@ export async function PUT(request: NextRequest, context: RouteParams) {
 
     const tokenAccessError = getShareTokenAccessError(tokenData)
     if (tokenAccessError) {
-      return NextResponse.json(
+      await writeSecurityAuditLog({
+        request,
+        action: 'submit_public_share',
+        actorType: 'public_share',
+        actorRole: 'public_share',
+        resourceType: 'share_token',
+        resourceId,
+        registrationId: tokenData?.registration_id ?? null,
+        eventId: tokenData?.event_id ?? null,
+        result: 'failed',
+        reason: `share_token_status_${tokenAccessError.status}`,
+      })
+      return jsonNoStore(
         { error: tokenAccessError.error, success: false },
-        { status: tokenAccessError.status }
+        { status: tokenAccessError.status },
+        rateLimit,
+      )
+    }
+    if (!tokenData) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'submit_public_share',
+        actorType: 'public_share',
+        actorRole: 'public_share',
+        resourceType: 'share_token',
+        resourceId,
+        result: 'failed',
+        reason: 'share_token_not_found',
+      })
+      return jsonNoStore(
+        { error: '分享链接不存在', success: false },
+        { status: 404 },
+        rateLimit,
       )
     }
 
-    // 获取当前报名数据（包括状态）
     const { data: registration, error: regError } = await supabase
       .from('registrations')
-      .select('players_data, status, team_data')
+      .select('id, players_data, status, team_data')
       .eq('id', tokenData.registration_id)
       .single()
 
-    if (regError) {
+    if (regError || !registration) {
       console.error('获取报名数据失败:', regError)
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '获取报名数据失败', success: false },
-        { status: 500 }
+        { status: 500 },
+        rateLimit,
       )
     }
 
-    // 获取报名设置，检查报名是否已截止
     const { data: settingsRows } = await supabase
       .from('registration_settings')
       .select('division_id, team_requirements')
@@ -200,102 +370,61 @@ export async function PUT(request: NextRequest, context: RouteParams) {
       registration?.team_data?.division_id
     )
 
-    if (selectedSettings?.team_requirements) {
-      const now = new Date()
-      let teamReq: { registrationEndDate?: string; reviewEndDate?: string } | null = selectedSettings.team_requirements as { registrationEndDate?: string; reviewEndDate?: string } | null
-      if (typeof teamReq === 'string') {
-        try {
-          teamReq = JSON.parse(teamReq)
-        } catch {
-          // ignore parse error
-        }
-      }
-
-      const regEndDate = teamReq?.registrationEndDate
-      const reviewEndDate = teamReq?.reviewEndDate
-      const regEnd = regEndDate ? new Date(regEndDate) : null
-      const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
-
-      // 检查是否已截止
-      const isClosed = reviewEnd ? now > reviewEnd : (regEnd ? now > regEnd : false)
-
-      if (isClosed) {
-        return NextResponse.json(
-          { error: '报名已截止，不可修改报名信息', success: false },
-          { status: 403 }
-        )
-      }
-    }
-
-    // 检查报名状态 - 只有草稿和已驳回状态允许通过分享链接修改
-    // draft: 草稿，可以修改
-    // rejected: 已驳回，可以修改后重新提交
-    // pending/submitted: 待审核，不允许修改
-    // approved: 已通过，不允许修改
-    const allowedStatuses = ['draft', 'rejected']
-    if (registration.status && !allowedStatuses.includes(registration.status)) {
-      return NextResponse.json(
-        { error: '报名已提交待审核，不可修改报名信息', success: false },
-        { status: 403 }
+    if (isShareWriteClosed(selectedSettings?.team_requirements)) {
+      return jsonNoStore(
+        { error: '报名已截止，不可修改报名信息', success: false },
+        { status: 403 },
+        rateLimit,
       )
     }
 
-    console.log('Current registration players_data:', {
-      length: registration?.players_data?.length || 0,
-      playerIds: registration?.players_data?.map((p: any) => p.id) || []
-    })
+    if (!canMutateSharedRegistration(registration.status)) {
+      return jsonNoStore(
+        { error: '报名已提交待审核，不可修改报名信息', success: false },
+        { status: 403 },
+        rateLimit,
+      )
+    }
 
-    // 更新指定队员的信息
     const playersData = registration.players_data || []
     const playerIndex = tokenData.player_index
     const playerId = tokenData.player_id
     const existingSharedPlayer = resolveSharedPlayerData(playersData, tokenData)
 
     if (!existingSharedPlayer) {
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '分享对象不存在或已被移除，请联系教练重新生成新的分享链接', success: false },
-        { status: 410 }
+        { status: 410 },
+        rateLimit,
       )
     }
 
     const lockedRole = String(existingSharedPlayer.role || body.player_data?.role || 'player')
+    const typedPlayersData = playersData as Array<Record<string, unknown> & { id?: string | null }>
     const sanitizedPlayerData = {
       ...body.player_data,
       role: lockedRole,
     }
 
-    console.log('PUT /api/player-share - Updating player:', {
-      playerIndex,
-      playerId,
-      playersDataLength: playersData.length,
-      tokenData,
-      playerData: sanitizedPlayerData
-    })
-
-    // 优先使用 player_id 查找队员
     if (playerId) {
-      // 通过 player_id 查找队员
-      const existingPlayerIndex = playersData.findIndex((p: any) => p.id === playerId)
+      const existingPlayerIndex = typedPlayersData.findIndex((player) => player.id === playerId)
 
       if (existingPlayerIndex >= 0) {
-        // 更新现有队员
         playersData[existingPlayerIndex] = {
           ...playersData[existingPlayerIndex],
           ...sanitizedPlayerData,
-          id: playerId, // 保留原始 ID
+          id: playerId,
           role: lockedRole,
         }
       } else if (playerIndex !== null && playerIndex !== undefined) {
-        // 如果找不到对应ID的队员，但有索引，尝试使用索引
         if (playerIndex >= 0 && playerIndex < playersData.length) {
           playersData[playerIndex] = {
             ...playersData[playerIndex],
             ...sanitizedPlayerData,
-            id: playerId, // 确保设置正确的 ID
+            id: playerId,
             role: lockedRole,
           }
         } else {
-          // 如果索引也无效，则添加为新队员
           while (playersData.length <= playerIndex) {
             playersData.push({ id: `placeholder-${playersData.length}` })
           }
@@ -306,7 +435,6 @@ export async function PUT(request: NextRequest, context: RouteParams) {
           }
         }
       } else {
-        // 没有索引信息，添加为新队员
         playersData.push({
           ...sanitizedPlayerData,
           id: playerId,
@@ -314,9 +442,7 @@ export async function PUT(request: NextRequest, context: RouteParams) {
         })
       }
     } else if (playerIndex !== null && playerIndex !== undefined) {
-      // 只有索引，没有 player_id（兼容旧数据）
       if (playerIndex >= 0) {
-        // 确保数组有足够的长度
         while (playersData.length <= playerIndex) {
           playersData.push({ id: `placeholder-${playersData.length}` })
         }
@@ -326,19 +452,20 @@ export async function PUT(request: NextRequest, context: RouteParams) {
           role: lockedRole,
         }
       } else {
-        return NextResponse.json(
+        return jsonNoStore(
           { error: '队员位置无效', success: false },
-          { status: 400 }
+          { status: 400 },
+          rateLimit,
         )
       }
     } else {
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '无法确定队员位置', success: false },
-        { status: 400 }
+        { status: 400 },
+        rateLimit,
       )
     }
 
-    // 保存更新后的数据
     const { error: updateError } = await supabase
       .from('registrations')
       .update({ players_data: playersData })
@@ -346,29 +473,53 @@ export async function PUT(request: NextRequest, context: RouteParams) {
 
     if (updateError) {
       console.error('更新队员信息失败:', updateError)
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '更新队员信息失败', success: false },
-        { status: 500 }
+        { status: 500 },
+        rateLimit,
       )
     }
 
-    // 标记 token 为已使用
+    const submittedAt = new Date().toISOString()
     await supabase
       .from('player_share_tokens')
       .update({
-        used_at: new Date().toISOString(),
+        player_data: sanitizedPlayerData,
+        is_filled: true,
+        filled_at: submittedAt,
+        used_at: submittedAt,
         is_active: false,
       })
       .eq('token', token)
 
-    return NextResponse.json({
-      success: true,
-      message: '队员信息更新成功'
+    await writeSecurityAuditLog({
+      request,
+      action: 'submit_public_share',
+      actorType: 'public_share',
+      actorRole: 'public_share',
+      resourceType: 'share_token',
+      resourceId,
+      registrationId: tokenData.registration_id,
+      eventId: tokenData.event_id,
+      result: 'success',
+      metadata: {
+        player_id_present: Boolean(tokenData.player_id),
+        player_index: tokenData.player_index ?? null,
+      },
     })
+
+    return jsonNoStore(
+      {
+        success: true,
+        message: '队员信息更新成功'
+      },
+      undefined,
+      rateLimit,
+    )
 
   } catch (error) {
     console.error('更新队员信息失败:', error)
-    return NextResponse.json(
+    return jsonNoStore(
       { error: '服务器错误', success: false },
       { status: 500 }
     )

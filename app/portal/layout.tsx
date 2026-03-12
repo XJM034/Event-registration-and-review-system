@@ -367,33 +367,6 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
         </ul>
       </nav>
 
-      <div className={cn('border-t p-2', isSidebarAnimating && 'pointer-events-none')}>
-        {isCollapsed ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => setShowLogoutDialog(true)}
-                className="relative flex w-full items-center justify-center rounded-lg px-3 py-2 transition-colors hover:bg-muted"
-                aria-label="退出登录"
-              >
-                <LogOut className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right" sideOffset={10}>
-              <p>退出登录</p>
-            </TooltipContent>
-          </Tooltip>
-        ) : (
-          <Button
-            variant="ghost"
-            className="h-10 w-full justify-start text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            onClick={() => setShowLogoutDialog(true)}
-          >
-            <LogOut className="mr-2 h-4 w-4" />
-            退出登录
-          </Button>
-        )}
-      </div>
     </>
   )
 

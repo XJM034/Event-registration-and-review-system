@@ -200,7 +200,7 @@ export default function EventManagePage() {
         </div>
 
         {/* 右侧内容区 */}
-        <div className="flex-1 p-4 sm:p-6 lg:p-8">
+        <div className="flex-1 p-4 sm:p-6 lg:px-6 lg:pb-6 lg:pt-0">
           {activeTab === 'basic-info' && (
             <BasicInfoTab event={event} onUpdate={() => fetchEvent(event.id)} />
           )}

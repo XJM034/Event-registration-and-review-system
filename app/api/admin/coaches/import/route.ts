@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import * as XLSX from 'xlsx'
 import { getCurrentAdminSession } from '@/lib/auth'
+import { writeSecurityAuditLog } from '@/lib/security-audit-log'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -42,6 +43,15 @@ export async function POST(request: NextRequest) {
   try {
     const session = await getCurrentAdminSession()
     if (!session) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'import_coach_accounts',
+        actorType: 'admin',
+        actorRole: 'admin',
+        resourceType: 'coach_import',
+        result: 'denied',
+        reason: 'unauthorized',
+      })
       return NextResponse.json(
         { success: false, error: '未授权访问' },
         { status: 401 }
@@ -49,6 +59,16 @@ export async function POST(request: NextRequest) {
     }
 
     if (session.user.is_super !== true) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'import_coach_accounts',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole: 'admin',
+        resourceType: 'coach_import',
+        result: 'denied',
+        reason: 'forbidden',
+      })
       return NextResponse.json(
         { success: false, error: 'Forbidden' },
         { status: 403 }
@@ -58,6 +78,16 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData()
     const file = formData.get('file')
     if (!(file instanceof File)) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'import_coach_accounts',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole: 'super_admin',
+        resourceType: 'coach_import',
+        result: 'failed',
+        reason: 'missing_import_file',
+      })
       return NextResponse.json(
         { success: false, error: '请上传 Excel 文件' },
         { status: 400 }
@@ -66,6 +96,19 @@ export async function POST(request: NextRequest) {
 
     const fileName = file.name.toLowerCase()
     if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.xls')) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'import_coach_accounts',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole: 'super_admin',
+        resourceType: 'coach_import',
+        result: 'failed',
+        reason: 'invalid_import_file_type',
+        metadata: {
+          file_name: file.name,
+        },
+      })
       return NextResponse.json(
         { success: false, error: '仅支持 .xlsx 或 .xls 文件' },
         { status: 400 }
@@ -76,6 +119,19 @@ export async function POST(request: NextRequest) {
     const workbook = XLSX.read(Buffer.from(bytes), { type: 'buffer' })
     const firstSheetName = workbook.SheetNames[0]
     if (!firstSheetName) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'import_coach_accounts',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole: 'super_admin',
+        resourceType: 'coach_import',
+        result: 'failed',
+        reason: 'import_sheet_missing',
+        metadata: {
+          file_name: file.name,
+        },
+      })
       return NextResponse.json(
         { success: false, error: 'Excel 中没有可读取的工作表' },
         { status: 400 }
@@ -88,6 +144,19 @@ export async function POST(request: NextRequest) {
     )
 
     if (rows.length <= 1) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'import_coach_accounts',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole: 'super_admin',
+        resourceType: 'coach_import',
+        result: 'failed',
+        reason: 'import_rows_empty',
+        metadata: {
+          file_name: file.name,
+        },
+      })
       return NextResponse.json(
         { success: false, error: 'Excel 内容为空，请至少包含一条数据' },
         { status: 400 }
@@ -96,6 +165,19 @@ export async function POST(request: NextRequest) {
 
     const dataRows = rows.slice(1)
     if (dataRows.length > MAX_IMPORT_ROWS) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'import_coach_accounts',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole: 'super_admin',
+        resourceType: 'coach_import',
+        result: 'failed',
+        reason: 'import_row_limit_exceeded',
+        metadata: {
+          row_count: dataRows.length,
+        },
+      })
       return NextResponse.json(
         { success: false, error: `单次最多导入 ${MAX_IMPORT_ROWS} 条数据` },
         { status: 400 }
@@ -155,7 +237,7 @@ export async function POST(request: NextRequest) {
           details.push({ row: rowIndex, phone, status: 'skipped', reason: '该手机号已存在，已跳过' })
         } else {
           failedCount += 1
-          details.push({ row: rowIndex, phone, status: 'failed', reason: authError.message || '创建失败' })
+          details.push({ row: rowIndex, phone, status: 'failed', reason: '创建账号失败，请稍后重试' })
         }
         continue
       }
@@ -196,11 +278,27 @@ export async function POST(request: NextRequest) {
             row: profile.row,
             phone: profile.phone,
             status: 'created',
-            reason: `账号已创建，但资料更新失败: ${updateError.message}`,
+            reason: '账号已创建，但资料更新失败，请稍后核对教练资料',
           })
         }
       }
     }
+
+    await writeSecurityAuditLog({
+      request,
+      action: 'import_coach_accounts',
+      actorType: 'admin',
+      actorId: session.user.id,
+      actorRole: 'super_admin',
+      resourceType: 'coach_import',
+      result: 'success',
+      metadata: {
+        processed_count: processedCount,
+        created_count: createdCount,
+        skipped_count: skippedCount,
+        failed_count: failedCount,
+      },
+    })
 
     return NextResponse.json({
       success: true,
@@ -215,6 +313,17 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('POST /api/admin/coaches/import error:', error)
+    const session = await getCurrentAdminSession().catch(() => null)
+    await writeSecurityAuditLog({
+      request,
+      action: 'import_coach_accounts',
+      actorType: 'admin',
+      actorId: session?.user?.id ?? null,
+      actorRole: session?.user?.is_super === true ? 'super_admin' : 'admin',
+      resourceType: 'coach_import',
+      result: 'failed',
+      reason: 'unhandled_exception',
+    })
     return NextResponse.json(
       { success: false, error: '服务器错误' },
       { status: 500 }

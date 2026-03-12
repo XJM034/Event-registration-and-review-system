@@ -6,6 +6,8 @@ import { useParams, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
+import { isSensitiveIdentityField } from '@/lib/privacy-mask'
+import { resolveStorageObjectUrl, type UploadBucket } from '@/lib/storage-object'
 import { ArrowLeft, Download, FileText } from 'lucide-react'
 import { ImageViewer } from '@/components/ui/image-viewer'
 
@@ -74,6 +76,8 @@ interface RenderableEntry {
   type?: FieldType
 }
 
+type RenderScope = 'team' | 'player'
+
 const IMAGE_URL_REGEX = /^(https?:\/\/|\/).+\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const DIVISION_FIELD_IDS = ['division_id', 'division', 'division_name', 'participationGroup'] as const
@@ -127,6 +131,20 @@ function getPreviewUrl(url: string, fileName?: string): string {
     return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(url)}`
   }
   return url
+}
+
+function getImageFallbackBucket(fieldId: string, scope: RenderScope): UploadBucket {
+  if (scope === 'team') {
+    return fieldId === 'logo' || fieldId === 'team_logo'
+      ? 'registration-files'
+      : 'team-documents'
+  }
+
+  return 'player-photos'
+}
+
+function getAttachmentFallbackBucket(): UploadBucket {
+  return 'team-documents'
 }
 
 function formatFileSize(size?: number): string {
@@ -445,18 +463,32 @@ export default function RegistrationDetailPage() {
     return entries
   }
 
-  const renderFieldValue = (value: unknown, fieldId: string, fields: RegistrationField[]): ReactNode => {
+  const renderFieldValue = (
+    value: unknown,
+    fieldId: string,
+    fields: RegistrationField[],
+    scope: RenderScope,
+  ): ReactNode => {
     const normalizedValue = normalizeValue(value)
     const field = fields.find((item) => item.id === fieldId)
+    const sensitiveIdentityField = isSensitiveIdentityField(fieldId, field?.label)
 
     if ((field?.type === 'image' || inferValueType(normalizedValue) === 'image') && typeof normalizedValue === 'string') {
+      const imageSrc = resolveStorageObjectUrl(normalizedValue, {
+        fallbackBucket: getImageFallbackBucket(fieldId, scope),
+      })
+
+      if (!imageSrc) {
+        return '-'
+      }
+
       return (
         <div
           className="cursor-pointer inline-block"
-          onClick={() => setViewingImage({ src: normalizedValue, alt: field?.label || fieldId })}
+          onClick={() => setViewingImage({ src: imageSrc, alt: field?.label || fieldId })}
         >
           <Image
-            src={normalizedValue}
+            src={imageSrc}
             alt={field?.label || fieldId}
             width={128}
             height={128}
@@ -468,6 +500,15 @@ export default function RegistrationDetailPage() {
     }
 
     if ((field?.type === 'attachment' || (!field && isAttachmentObject(normalizedValue))) && isAttachmentObject(normalizedValue)) {
+      const previewUrl = resolveStorageObjectUrl(normalizedValue, {
+        fallbackBucket: getAttachmentFallbackBucket(),
+      }) || normalizedValue.url
+      const downloadUrl = resolveStorageObjectUrl(normalizedValue, {
+        fallbackBucket: getAttachmentFallbackBucket(),
+        download: true,
+        fileName: normalizedValue.name || '附件',
+      }) || previewUrl
+
       return (
         <div className="flex flex-col gap-3 rounded border p-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-2">
@@ -479,10 +520,10 @@ export default function RegistrationDetailPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" asChild>
-              <a href={getPreviewUrl(normalizedValue.url, normalizedValue.name)} target="_blank" rel="noopener noreferrer">预览</a>
+              <a href={getPreviewUrl(previewUrl, normalizedValue.name)} target="_blank" rel="noopener noreferrer">预览</a>
             </Button>
             <Button size="sm" variant="outline" asChild>
-              <a href={normalizedValue.url} download={normalizedValue.name || '附件'}>
+              <a href={downloadUrl} download={normalizedValue.name || '附件'}>
                 <Download className="h-3 w-3 mr-1" />
                 下载
               </a>
@@ -498,6 +539,17 @@ export default function RegistrationDetailPage() {
       return (
         <div className="space-y-2">
           {files.map((file, idx) => (
+            (() => {
+              const previewUrl = resolveStorageObjectUrl(file, {
+                fallbackBucket: getAttachmentFallbackBucket(),
+              }) || file.url
+              const downloadUrl = resolveStorageObjectUrl(file, {
+                fallbackBucket: getAttachmentFallbackBucket(),
+                download: true,
+                fileName: file.name || `附件${idx + 1}`,
+              }) || previewUrl
+
+              return (
             <div
               key={`${file.url}-${idx}`}
               className="flex flex-col gap-3 rounded border p-3 sm:flex-row sm:items-center sm:justify-between"
@@ -511,16 +563,18 @@ export default function RegistrationDetailPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" asChild>
-                  <a href={getPreviewUrl(file.url, file.name)} target="_blank" rel="noopener noreferrer">预览</a>
+                  <a href={getPreviewUrl(previewUrl, file.name)} target="_blank" rel="noopener noreferrer">预览</a>
                 </Button>
                 <Button size="sm" variant="outline" asChild>
-                  <a href={file.url} download={file.name || `附件${idx + 1}`}>
+                  <a href={downloadUrl} download={file.name || `附件${idx + 1}`}>
                     <Download className="h-3 w-3 mr-1" />
                     下载
                   </a>
                 </Button>
               </div>
             </div>
+              )
+            })()
           ))}
         </div>
       )
@@ -532,6 +586,10 @@ export default function RegistrationDetailPage() {
 
     if (normalizedValue === undefined || normalizedValue === null || normalizedValue === '') {
       return '-'
+    }
+
+    if (sensitiveIdentityField && typeof normalizedValue === 'string') {
+      return <p className="font-mono text-sm text-gray-700 break-all">{normalizedValue}</p>
     }
 
     return String(normalizedValue)
@@ -591,7 +649,7 @@ export default function RegistrationDetailPage() {
                     }
                   >
                     <Label>{entry.label}</Label>
-                    <div className="mt-1">{renderFieldValue(entry.value, entry.key, teamFields)}</div>
+                    <div className="mt-1">{renderFieldValue(entry.value, entry.key, teamFields, 'team')}</div>
                   </div>
                 ))}
               </div>
@@ -622,7 +680,7 @@ export default function RegistrationDetailPage() {
                               }
                             >
                               <Label>{entry.label}</Label>
-                              <div className="mt-1">{renderFieldValue(entry.value, entry.key, roleFields)}</div>
+                              <div className="mt-1">{renderFieldValue(entry.value, entry.key, roleFields, 'player')}</div>
                             </div>
                           ))}
                         </div>

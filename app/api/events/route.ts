@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentAdminSession, createSupabaseServer } from '@/lib/auth'
+import { getCurrentAdminSession } from '@/lib/auth'
 import { pickEffectiveRegistrationSetting } from '@/lib/registration-settings'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
 
 // 获取赛事列表
 export async function GET() {
@@ -13,7 +14,7 @@ export async function GET() {
       )
     }
 
-    const supabase = await createSupabaseServer()
+    const supabase = createServiceRoleClient()
     
     const { data: events, error } = await supabase
       .from('events')
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const supabase = await createSupabaseServer()
+    const supabase = createServiceRoleClient()
 
     const { data: event, error } = await supabase
       .from('events')

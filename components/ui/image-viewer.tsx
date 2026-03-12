@@ -1,7 +1,8 @@
 'use client'
 
+import Image from 'next/image'
 import { useState, useEffect } from 'react'
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { RotateCw, ZoomIn, ZoomOut, X } from 'lucide-react'
 
@@ -40,6 +41,7 @@ export function ImageViewer({ src, alt, isOpen, onClose }: ImageViewerProps) {
       <DialogContent className="max-w-4xl max-h-[90vh] p-0">
         <div className="sr-only">
           <DialogTitle>图片查看器</DialogTitle>
+          <DialogDescription>可放大、缩小和旋转当前图片。</DialogDescription>
         </div>
         <div className="relative bg-black rounded-lg overflow-hidden">
           <div className="absolute top-4 right-4 z-10 flex gap-2">
@@ -78,9 +80,12 @@ export function ImageViewer({ src, alt, isOpen, onClose }: ImageViewerProps) {
           </div>
 
           <div className="flex items-center justify-center p-8 min-h-[400px]">
-            <img
+            <Image
               src={src}
               alt={alt}
+              width={1600}
+              height={1200}
+              unoptimized
               style={{
                 transform: `rotate(${rotation}deg) scale(${scale})`,
                 transition: 'transform 0.3s ease',

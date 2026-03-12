@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { getCurrentAdminSession } from '@/lib/auth'
 import {
   ALLOWED_UPLOAD_BUCKETS,
   type UploadBucket,
   validateUploadFile,
 } from '@/lib/upload-file-validation'
+import { generateSecureId } from '@/lib/security-random'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
+import { buildStorageObjectUrl, isPrivateStorageBucket } from '@/lib/storage-object'
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024
 
@@ -22,16 +24,7 @@ const withValidatedExtension = (fileName: string, extension: string) => {
 }
 
 const createStorageAdminClient = () => {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    }
-  )
+  return createServiceRoleClient()
 }
 
 export async function POST(request: NextRequest) {
@@ -110,7 +103,7 @@ export async function POST(request: NextRequest) {
     const supabase = createStorageAdminClient()
 
     // 生成“唯一目录/原始文件名”路径，既避免重名，也保留下载时的原文件名
-    const uniqueDir = `${Date.now()}-${Math.random().toString(36).substring(2)}`
+    const uniqueDir = generateSecureId('upload')
     const preservedName = withValidatedExtension(file.name, signatureCheck.extension)
     const fileName = `${uniqueDir}/${preservedName}`
 
@@ -144,7 +137,7 @@ export async function POST(request: NextRequest) {
     if (uploadError) {
       console.error('Upload error:', uploadError)
       return NextResponse.json(
-        { error: `文件上传失败: ${uploadError.message}`, success: false },
+        { error: '文件上传失败，请稍后重试', success: false },
         { status: 500 }
       )
     }
@@ -156,16 +149,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 获取公共 URL
-    const { data: urlData } = supabase.storage
-      .from(bucket)
-      .getPublicUrl(fileName)
+    const fileUrl = isPrivateStorageBucket(bucket)
+      ? buildStorageObjectUrl(bucket, fileName)
+      : supabase.storage.from(bucket).getPublicUrl(fileName).data.publicUrl
 
     return NextResponse.json({
       success: true,
       data: {
+        bucket,
         path: uploadData.path,
-        url: urlData.publicUrl,
+        url: fileUrl,
         fileName,
         originalName: file.name,
         mimeType: finalContentType,
@@ -246,7 +239,7 @@ export async function DELETE(request: NextRequest) {
     if (error) {
       console.error('Delete upload file error:', error)
       return NextResponse.json(
-        { error: `文件删除失败: ${error.message}`, success: false },
+        { error: '文件删除失败，请稍后重试', success: false },
         { status: 500 }
       )
     }

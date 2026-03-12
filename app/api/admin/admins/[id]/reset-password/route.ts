@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentAdminSession } from '@/lib/auth'
+import { writeSecurityAuditLog } from '@/lib/security-audit-log'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,7 +26,19 @@ export async function POST(
 
     // 获取当前管理员信息
     const currentAdmin = await getCurrentAdminSession()
+    const actorRole = currentAdmin?.user?.is_super === true ? 'super_admin' : 'admin'
     if (!currentAdmin) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'reset_admin_password',
+        actorType: 'admin',
+        actorRole: 'admin',
+        resourceType: 'admin_user',
+        resourceId: id,
+        targetUserId: id,
+        result: 'denied',
+        reason: 'unauthorized',
+      })
       return NextResponse.json(
         { success: false, error: '未授权' },
         { status: 401 }
@@ -34,6 +47,18 @@ export async function POST(
 
     // 验证密码
     if (!password || password.length < 6) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'reset_admin_password',
+        actorType: 'admin',
+        actorId: currentAdmin.user.id,
+        actorRole,
+        resourceType: 'admin_user',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'password_policy_violation',
+      })
       return NextResponse.json(
         { success: false, error: '密码长度至少为6位' },
         { status: 400 }
@@ -48,6 +73,18 @@ export async function POST(
       .single()
 
     if (fetchError || !admin) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'reset_admin_password',
+        actorType: 'admin',
+        actorId: currentAdmin.user.id,
+        actorRole,
+        resourceType: 'admin_user',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'target_admin_not_found',
+      })
       return NextResponse.json(
         { success: false, error: '管理员不存在' },
         { status: 404 }
@@ -55,6 +92,18 @@ export async function POST(
     }
 
     if (!admin.auth_id) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'reset_admin_password',
+        actorType: 'admin',
+        actorId: currentAdmin.user.id,
+        actorRole,
+        resourceType: 'admin_user',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'target_admin_missing_auth_binding',
+      })
       return NextResponse.json(
         { success: false, error: '该管理员没有关联的认证账号' },
         { status: 400 }
@@ -69,11 +118,35 @@ export async function POST(
 
     if (resetError) {
       console.error('Error resetting password:', resetError)
+      await writeSecurityAuditLog({
+        request,
+        action: 'reset_admin_password',
+        actorType: 'admin',
+        actorId: currentAdmin.user.id,
+        actorRole,
+        resourceType: 'admin_user',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'auth_admin_update_failed',
+      })
       return NextResponse.json(
-        { success: false, error: `重置密码失败: ${resetError.message}` },
+        { success: false, error: '重置密码失败，请稍后重试' },
         { status: 500 }
       )
     }
+
+    await writeSecurityAuditLog({
+      request,
+      action: 'reset_admin_password',
+      actorType: 'admin',
+      actorId: currentAdmin.user.id,
+      actorRole,
+      resourceType: 'admin_user',
+      resourceId: id,
+      targetUserId: id,
+      result: 'success',
+    })
 
     return NextResponse.json({ success: true })
   } catch (error) {

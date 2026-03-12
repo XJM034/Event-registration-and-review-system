@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentAdminSession, createSupabaseServer } from '@/lib/auth'
+import { getCurrentAdminSession } from '@/lib/auth'
 import { applyExportFieldFilters, parseExportRequest, resolveRoleForExport } from '@/lib/export/export-route-utils'
+import { applyRateLimitHeaders, buildRateLimitKey, createRateLimitResponse, takeRateLimit } from '@/lib/rate-limit'
+import { writeSecurityAuditLog } from '@/lib/security-audit-log'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
+import { collectStorageObjectRefs, type StorageObjectRef } from '@/lib/storage-object'
+import type { UploadBucket } from '@/lib/upload-file-validation'
 import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
 
@@ -36,19 +41,42 @@ const sanitizePathSegment = (name: string, fallback: string) => {
   return cleaned || fallback
 }
 
-const extractFileUrls = (value: unknown): string[] => {
-  if (!value) return []
-  if (typeof value === 'string' && value.startsWith('http')) return [value]
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => (typeof item === 'object' && item && 'url' in item ? (item as any).url : null))
-      .filter((url): url is string => typeof url === 'string' && url.startsWith('http'))
+const inferExtensionFromRef = (
+  ref: StorageObjectRef,
+  blobType?: string,
+) => {
+  const pathExtension = ref.path.match(/\.([a-zA-Z0-9]+)$/)?.[1]?.toLowerCase()
+  if (pathExtension) return pathExtension
+
+  const contentType = blobType || ''
+  if (contentType.includes('jpeg') || contentType.includes('jpg')) return 'jpg'
+  if (contentType.includes('png')) return 'png'
+  if (contentType.includes('gif')) return 'gif'
+  if (contentType.includes('webp')) return 'webp'
+  if (contentType.includes('pdf')) return 'pdf'
+  if (contentType.includes('wordprocessingml')) return 'docx'
+  if (contentType.includes('msword')) return 'doc'
+  if (contentType.includes('spreadsheetml')) return 'xlsx'
+  if (contentType.includes('ms-excel')) return 'xls'
+  return 'bin'
+}
+
+const downloadStorageObject = async (
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  ref: StorageObjectRef,
+) => {
+  const { data, error } = await supabase.storage
+    .from(ref.bucket)
+    .download(ref.path)
+
+  if (error || !data) {
+    throw error || new Error('Storage download failed')
   }
-  if (typeof value === 'object' && value && 'url' in value) {
-    const url = (value as any).url
-    if (typeof url === 'string' && url.startsWith('http')) return [url]
+
+  return {
+    arrayBuffer: await data.arrayBuffer(),
+    extension: inferExtensionFromRef(ref, data.type),
   }
-  return []
 }
 
 const ensureUniqueFolderName = (baseName: string, used: Set<string>): string => {
@@ -72,26 +100,81 @@ export async function POST(
     console.log('Event ID:', eventId)
 
     const session = await getCurrentAdminSession()
+    const actorRole = session?.user?.is_super === true ? 'super_admin' : 'admin'
     console.log('Session:', session ? 'Valid' : 'Invalid')
     if (!session) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'export_registrations',
+        actorType: 'admin',
+        actorRole: 'admin',
+        resourceType: 'event',
+        resourceId: eventId,
+        eventId,
+        result: 'denied',
+        reason: 'unauthorized',
+      })
       return NextResponse.json(
         { success: false, error: '未授权访问' },
         { status: 401 }
       )
     }
 
+    const rateLimit = takeRateLimit({
+      key: buildRateLimitKey({
+        request,
+        scope: 'registrations:export',
+        subject: session.user.id,
+      }),
+      limit: 6,
+      windowMs: 10 * 60_000,
+    })
+
+    if (!rateLimit.allowed) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'export_registrations',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'event',
+        resourceId: eventId,
+        eventId,
+        result: 'denied',
+        reason: 'rate_limited',
+      })
+      return createRateLimitResponse(
+        { success: false, error: '导出过于频繁，请稍后再试' },
+        rateLimit,
+        { status: 429 },
+      )
+    }
+
     const rawBody: unknown = await request.json().catch(() => null)
     const body = parseExportRequest(rawBody)
     if (!body) {
-      return NextResponse.json(
+      await writeSecurityAuditLog({
+        request,
+        action: 'export_registrations',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'event',
+        resourceId: eventId,
+        eventId,
+        result: 'failed',
+        reason: 'invalid_request_body',
+      })
+      return createRateLimitResponse(
         { success: false, error: '请求参数无效' },
+        rateLimit,
         { status: 400 }
       )
     }
     const { registrationIds, config } = body
     console.log('Export config:', config)
 
-    const supabase = await createSupabaseServer()
+    const supabase = createServiceRoleClient()
 
     // 获取赛事信息
     const { data: event, error: eventError } = await supabase
@@ -102,8 +185,21 @@ export async function POST(
 
     if (eventError || !event) {
       console.error('获取赛事信息失败:', eventError)
-      return NextResponse.json(
+      await writeSecurityAuditLog({
+        request,
+        action: 'export_registrations',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'event',
+        resourceId: eventId,
+        eventId,
+        result: 'failed',
+        reason: 'event_lookup_failed',
+      })
+      return createRateLimitResponse(
         { success: false, error: '获取赛事信息失败' },
+        rateLimit,
         { status: 500 }
       )
     }
@@ -117,8 +213,24 @@ export async function POST(
     // 根据 exportScope 添加条件
     if (config.exportScope === 'selected') {
       if (!registrationIds || registrationIds.length === 0) {
-        return NextResponse.json(
+        await writeSecurityAuditLog({
+          request,
+          action: 'export_registrations',
+          actorType: 'admin',
+          actorId: session.user.id,
+          actorRole,
+          resourceType: 'event',
+          resourceId: eventId,
+          eventId,
+          result: 'failed',
+          reason: 'selected_export_missing_registration_ids',
+          metadata: {
+            export_scope: config.exportScope,
+          },
+        })
+        return createRateLimitResponse(
           { success: false, error: '请选择要导出的报名信息' },
+          rateLimit,
           { status: 400 }
         )
       }
@@ -137,15 +249,47 @@ export async function POST(
 
     if (error) {
       console.error('获取报名信息失败:', error)
-      return NextResponse.json(
+      await writeSecurityAuditLog({
+        request,
+        action: 'export_registrations',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'event',
+        resourceId: eventId,
+        eventId,
+        result: 'failed',
+        reason: 'registrations_query_failed',
+        metadata: {
+          export_scope: config.exportScope,
+        },
+      })
+      return createRateLimitResponse(
         { success: false, error: '获取报名信息失败' },
+        rateLimit,
         { status: 500 }
       )
     }
 
     if (!registrations || registrations.length === 0) {
-      return NextResponse.json(
+      await writeSecurityAuditLog({
+        request,
+        action: 'export_registrations',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'event',
+        resourceId: eventId,
+        eventId,
+        result: 'failed',
+        reason: 'no_registrations_found',
+        metadata: {
+          export_scope: config.exportScope,
+        },
+      })
+      return createRateLimitResponse(
         { success: false, error: '未找到报名信息' },
+        rateLimit,
         { status: 404 }
       )
     }
@@ -355,30 +499,18 @@ export async function POST(
 
           if (['image', 'attachment', 'attachments'].includes(field.type)) {
             // 处理附件
-            const urls = extractFileUrls(fieldValue)
-            if (urls.length > 0) {
+            const fallbackBucket: UploadBucket =
+              fieldKey === 'team_logo' ? 'registration-files' : 'team-documents'
+            const refs = collectStorageObjectRefs(fieldValue, fallbackBucket)
+            if (refs.length > 0) {
               const fieldLabel = field.label || field.id
               const safeFieldLabel = sanitizePathSegment(String(fieldLabel), '字段')
-              urls.forEach((url, urlIndex) => {
+              refs.forEach((ref, refIndex) => {
                 attachmentPromises.push(
                   (async () => {
                     try {
-                      const response = await fetch(url)
-                      if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-                      }
-                      const arrayBuffer = await response.arrayBuffer()
-                      let extension = url.match(/\.([a-zA-Z0-9]+)(?:\?|$)/)?.[1]?.toLowerCase()
-                      if (!extension) {
-                        const contentType = response.headers.get('content-type') || ''
-                        if (contentType.includes('jpeg') || contentType.includes('jpg')) extension = 'jpg'
-                        else if (contentType.includes('png')) extension = 'png'
-                        else if (contentType.includes('gif')) extension = 'gif'
-                        else if (contentType.includes('webp')) extension = 'webp'
-                        else if (contentType.includes('pdf')) extension = 'pdf'
-                        else extension = 'bin'
-                      }
-                      const fileName = urls.length > 1 ? `${safeFieldLabel}-${urlIndex + 1}.${extension}` : `${safeFieldLabel}.${extension}`
+                      const { arrayBuffer, extension } = await downloadStorageObject(supabase, ref)
+                      const fileName = refs.length > 1 ? `${safeFieldLabel}-${refIndex + 1}.${extension}` : `${safeFieldLabel}.${extension}`
                       const filePath = `${teamBasePath}/队伍附件/${fileName}`
                       zip.file(filePath, arrayBuffer)
                     } catch (err) {
@@ -421,33 +553,21 @@ export async function POST(
           const playerFields = currentRole.allFields || []
           playerFields.forEach((field: any) => {
             if (['image', 'attachment', 'attachments'].includes(field.type)) {
-              const urls = extractFileUrls(player[field.id])
-              if (urls.length > 0) {
+              const fallbackBucket: UploadBucket =
+                field.type === 'image' ? 'player-photos' : 'team-documents'
+              const refs = collectStorageObjectRefs(player[field.id], fallbackBucket)
+              if (refs.length > 0) {
                 const fieldLabel = field.label || field.id
                 const playerName = player['姓名'] || player['name'] || `${currentRole.name}${currentCount}`
                 const safeRoleName = sanitizePathSegment(String(currentRole.name || currentRole.id), '角色')
                 const safeFieldLabel = sanitizePathSegment(String(fieldLabel), '字段')
                 const safePlayerName = sanitizePathSegment(String(playerName), '队员')
-                urls.forEach((url, urlIndex) => {
+                refs.forEach((ref, refIndex) => {
                   attachmentPromises.push(
                     (async () => {
                       try {
-                        const response = await fetch(url)
-                        if (!response.ok) {
-                          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-                        }
-                        const arrayBuffer = await response.arrayBuffer()
-                        let extension = url.match(/\.([a-zA-Z0-9]+)(?:\?|$)/)?.[1]?.toLowerCase()
-                        if (!extension) {
-                          const contentType = response.headers.get('content-type') || ''
-                          if (contentType.includes('jpeg') || contentType.includes('jpg')) extension = 'jpg'
-                          else if (contentType.includes('png')) extension = 'png'
-                          else if (contentType.includes('gif')) extension = 'gif'
-                          else if (contentType.includes('webp')) extension = 'webp'
-                          else if (contentType.includes('pdf')) extension = 'pdf'
-                          else extension = 'bin'
-                        }
-                        const fileName = urls.length > 1 ? `${safePlayerName}-${urlIndex + 1}.${extension}` : `${safePlayerName}.${extension}`
+                        const { arrayBuffer, extension } = await downloadStorageObject(supabase, ref)
+                        const fileName = refs.length > 1 ? `${safePlayerName}-${refIndex + 1}.${extension}` : `${safePlayerName}.${extension}`
                         const filePath = `${teamBasePath}/人员附件/${safeRoleName}-${safeFieldLabel}/${fileName}`
                         zip.file(filePath, arrayBuffer)
                       } catch (err) {
@@ -500,13 +620,34 @@ export async function POST(
     const zipFileName = `${config.fileNamePrefix || event.name}_报名信息_${dateStr}.zip`
 
     // 返回 zip 文件
-    return new NextResponse(zipBuffer as any, {
+    const response = new NextResponse(zipBuffer as any, {
       status: 200,
       headers: {
         'Content-Type': 'application/zip',
         'Content-Disposition': `attachment; filename="${encodeURIComponent(zipFileName)}"`,
       },
     })
+    applyRateLimitHeaders(response.headers, rateLimit)
+
+    await writeSecurityAuditLog({
+      request,
+      action: 'export_registrations',
+      actorType: 'admin',
+      actorId: session.user.id,
+      actorRole,
+      resourceType: 'event',
+      resourceId: eventId,
+      eventId,
+      result: 'success',
+      metadata: {
+        export_scope: config.exportScope,
+        group_by: config.groupBy,
+        registration_count: registrations.length,
+        file_name_prefix: config.fileNamePrefix || null,
+      },
+    })
+
+    return response
   } catch (error: any) {
     console.error('导出失败:', error)
     console.error('Error details:', {
@@ -514,7 +655,7 @@ export async function POST(
       stack: error?.stack
     })
     return NextResponse.json(
-      { success: false, error: error?.message || '导出失败' },
+      { success: false, error: '导出失败，请稍后重试' },
       { status: 500 }
     )
   }
