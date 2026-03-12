@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NextRequest } from 'next/server'
 
-vi.mock('@supabase/supabase-js', () => ({
-  createClient: vi.fn(),
+vi.mock('@/lib/supabase/service-role', () => ({
+  createServiceRoleClient: vi.fn(),
 }))
 
 vi.mock('@/lib/auth', () => ({
   getCurrentAdminSession: vi.fn(),
 }))
 
-import { createClient } from '@supabase/supabase-js'
 import { getCurrentAdminSession } from '@/lib/auth'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { DELETE } from '../../app/api/upload/route'
 
 const createDeleteRequest = (body: unknown): NextRequest => {
@@ -24,7 +24,7 @@ const createDeleteRequest = (body: unknown): NextRequest => {
 }
 
 describe('DELETE /api/upload', () => {
-  const mockedCreateClient = vi.mocked(createClient)
+  const mockedCreateServiceRoleClient = vi.mocked(createServiceRoleClient)
   const mockedGetCurrentAdminSession = vi.mocked(getCurrentAdminSession)
 
   beforeEach(() => {
@@ -39,7 +39,7 @@ describe('DELETE /api/upload', () => {
 
     expect(response.status).toBe(401)
     expect(payload.success).toBe(false)
-    expect(mockedCreateClient).not.toHaveBeenCalled()
+    expect(mockedCreateServiceRoleClient).not.toHaveBeenCalled()
   })
 
   it('returns 400 when delete path is invalid', async () => {
@@ -64,7 +64,7 @@ describe('DELETE /api/upload', () => {
 
     const removeMock = vi.fn().mockResolvedValue({ error: null })
     const fromMock = vi.fn().mockReturnValue({ remove: removeMock })
-    mockedCreateClient.mockReturnValue({
+    mockedCreateServiceRoleClient.mockReturnValue({
       storage: {
         from: fromMock,
       },
@@ -94,7 +94,7 @@ describe('DELETE /api/upload', () => {
     const removeMock = vi.fn().mockResolvedValue({
       error: { message: 'storage failure' },
     })
-    mockedCreateClient.mockReturnValue({
+    mockedCreateServiceRoleClient.mockReturnValue({
       storage: {
         from: vi.fn().mockReturnValue({ remove: removeMock }),
       },
@@ -105,6 +105,6 @@ describe('DELETE /api/upload', () => {
 
     expect(response.status).toBe(500)
     expect(payload.success).toBe(false)
-    expect(payload.error).toContain('storage failure')
+    expect(payload.error).toBe('文件删除失败，请稍后重试')
   })
 })

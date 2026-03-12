@@ -71,6 +71,12 @@ async function clearAdminSessionState() {
   }
 }
 
+function clearCurrentTabAdminSessionState() {
+  if (typeof window !== 'undefined') {
+    sessionStorage.removeItem('tab_admin_session_token')
+  }
+}
+
 export default function UnifiedLoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
@@ -173,8 +179,8 @@ export default function UnifiedLoginPage() {
         // 跳转到管理端主页
         window.location.href = '/events'
       } else {
-        // 切回教练端时清理管理员旁路会话，避免角色上下文叠加。
-        await clearAdminSessionState()
+        // 切回教练端时只清当前标签页的管理员 token，避免误删其他标签页仍在使用的 admin session。
+        clearCurrentTabAdminSessionState()
 
         if (!data.session?.access_token || !data.session.refresh_token) {
           setError('教练会话创建失败，请重试')

@@ -6,6 +6,7 @@ import {
   ADMIN_TAB_SESSION_COOKIE_NAME,
   verifyAdminSessionToken,
 } from './admin-session'
+import { createServiceRoleClient } from './supabase/service-role'
 
 const cookieBaseOptions = {
   secure: process.env.NODE_ENV === 'production',
@@ -64,6 +65,7 @@ export async function createSupabaseServer() {
 // 获取当前管理员会话（使用 Supabase Auth）
 export async function getCurrentAdminSession() {
   const supabase = await createSupabaseServer()
+  const serviceRoleClient = createServiceRoleClient()
   const { data: { session } } = await supabase.auth.getSession()
   const headerStore = await headers()
   const cookieStore = await cookies()
@@ -77,7 +79,7 @@ export async function getCurrentAdminSession() {
   // 优先使用独立管理端会话（允许与教练端会话并存）
   if (adminSession) {
     // 始终以数据库中的最新权限为准，避免 token 内 is_super 过期
-    const { data: adminById, error: adminByIdError } = await supabase
+    const { data: adminById, error: adminByIdError } = await serviceRoleClient
       .from('admin_users')
       .select('id, auth_id, is_super')
       .eq('id', adminSession.adminId)
@@ -116,7 +118,7 @@ export async function getCurrentAdminSession() {
     return null
   }
 
-  const { data: admin } = await supabase
+  const { data: admin } = await serviceRoleClient
     .from('admin_users')
     .select('*')
     .eq('auth_id', session.user.id)

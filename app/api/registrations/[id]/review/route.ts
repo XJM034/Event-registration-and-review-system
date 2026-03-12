@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentAdminSession } from '@/lib/auth'
-import { createClient } from '@supabase/supabase-js'
+import { writeSecurityAuditLog } from '@/lib/security-audit-log'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -11,8 +12,20 @@ export async function POST(request: NextRequest, context: RouteParams) {
   try {
     const { id } = await context.params
     const session = await getCurrentAdminSession()
+    const actorRole = session?.user?.is_super === true ? 'super_admin' : 'admin'
 
     if (!session?.user) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'review_registration',
+        actorType: 'admin',
+        actorRole: 'admin',
+        resourceType: 'registration',
+        resourceId: id,
+        registrationId: id,
+        result: 'denied',
+        reason: 'unauthorized',
+      })
       return NextResponse.json(
         { error: '未授权访问', success: false },
         { status: 401 }
@@ -23,23 +36,29 @@ export async function POST(request: NextRequest, context: RouteParams) {
     const { status, rejection_reason } = body
 
     if (!['approved', 'rejected'].includes(status)) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'review_registration',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'registration',
+        resourceId: id,
+        registrationId: id,
+        result: 'failed',
+        reason: 'invalid_review_status',
+        metadata: {
+          review_status: status,
+        },
+      })
       return NextResponse.json(
         { error: '无效的审核状态', success: false },
         { status: 400 }
       )
     }
 
-    // 使用服务密钥创建客户端，��过 RLS（管理端审核需要操作通知表）
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      }
-    )
+    // 使用服务密钥创建客户端，绕过 RLS（管理端审核需要操作通知表）
+    const supabase = createServiceRoleClient()
 
     const updateData: {
       status: string
@@ -78,6 +97,22 @@ export async function POST(request: NextRequest, context: RouteParams) {
 
     if (error) {
       console.error('Review registration error:', error)
+      await writeSecurityAuditLog({
+        request,
+        action: 'review_registration',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'registration',
+        resourceId: id,
+        registrationId: id,
+        result: 'failed',
+        reason: 'registration_update_failed',
+        metadata: {
+          review_status: status,
+          has_rejection_reason: Boolean(rejection_reason),
+        },
+      })
       return NextResponse.json(
         { error: '审核失败', success: false },
         { status: 500 }
@@ -123,6 +158,24 @@ export async function POST(request: NextRequest, context: RouteParams) {
     } else {
       console.warn('无法创建通知: 缺少 coach_id', { data })
     }
+
+    await writeSecurityAuditLog({
+      request,
+      action: 'review_registration',
+      actorType: 'admin',
+      actorId: session.user.id,
+      actorRole,
+      resourceType: 'registration',
+      resourceId: data.id,
+      registrationId: data.id,
+      eventId: data.event_id,
+      targetUserId: data.coach_id || null,
+      result: 'success',
+      metadata: {
+        review_status: status,
+        has_rejection_reason: Boolean(rejection_reason),
+      },
+    })
 
     return NextResponse.json({
       success: true,

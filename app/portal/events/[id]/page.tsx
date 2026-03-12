@@ -972,14 +972,16 @@ export default function EventDetailPage() {
             </div>
             {/* 根据赛事是否结束显示不同的按钮 */}
             {!isEventEnded() && newRegStatus && (
-              <Button
-                variant={newRegStatus.canRegister ? 'default' : 'outline'}
-                onClick={handleRegister}
-                disabled={!newRegStatus.canRegister}
-                size="sm"
-              >
-                {newRegStatus.text}
-              </Button>
+              <div className="flex flex-wrap gap-2 sm:pr-4">
+                <Button
+                  variant={newRegStatus.canRegister ? 'default' : 'outline'}
+                  onClick={handleRegister}
+                  disabled={!newRegStatus.canRegister}
+                  size="sm"
+                >
+                  {newRegStatus.text}
+                </Button>
+              </div>
             )}
           </div>
 

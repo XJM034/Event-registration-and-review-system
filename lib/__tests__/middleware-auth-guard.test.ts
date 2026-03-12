@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
 const getUserMock = vi.fn()
@@ -42,6 +42,7 @@ import { middleware } from '../../middleware'
 describe('middleware auth guard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.unstubAllEnvs()
     getUserMock.mockResolvedValue({
       data: {
         user: {
@@ -58,6 +59,10 @@ describe('middleware auth guard', () => {
       },
       error: null,
     })
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   it('allows /portal when a coach session is active even if an admin session cookie exists', async () => {
@@ -84,5 +89,17 @@ describe('middleware auth guard', () => {
 
     expect(response.status).toBe(200)
     expect(response.headers.get('location')).toBeNull()
+  })
+
+  it('blocks debug and test API routes in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+
+    const debugRequest = new NextRequest('https://example.com/api/debug/check-role-mismatch?event_id=1')
+    const debugResponse = await middleware(debugRequest)
+    expect(debugResponse.status).toBe(404)
+
+    const testRequest = new NextRequest('https://example.com/api/test-connection')
+    const testResponse = await middleware(testRequest)
+    expect(testResponse.status).toBe(404)
   })
 })

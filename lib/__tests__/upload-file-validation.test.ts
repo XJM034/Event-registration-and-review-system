@@ -28,6 +28,16 @@ describe('validateUploadFile', () => {
     expect(result.extension).toBe('jpg')
   })
 
+  it('rejects non-image extension for player photos', () => {
+    const result = validateUploadFile({
+      fileName: 'notes.pdf',
+      mimeType: 'application/pdf',
+      bucket: 'player-photos',
+    })
+    expect(result.valid).toBe(false)
+    expect(result.error).toBe('队员照片仅支持图片文件')
+  })
+
   it('rejects non-image extension for event posters', () => {
     const result = validateUploadFile({
       fileName: 'guide.pdf',

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentAdminSession } from '@/lib/auth'
+import { writeSecurityAuditLog } from '@/lib/security-audit-log'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -50,6 +51,15 @@ export async function GET(request: NextRequest) {
         { error: '未授权访问', success: false },
         {
           status: 401,
+          headers: { 'Cache-Control': 'no-store, max-age=0' }
+        }
+      )
+    }
+    if (session.user.is_super !== true) {
+      return NextResponse.json(
+        { error: 'Forbidden', success: false },
+        {
+          status: 403,
           headers: { 'Cache-Control': 'no-store, max-age=0' }
         }
       )
@@ -174,9 +184,34 @@ export async function POST(request: NextRequest) {
     // 验证管理员权限
     const session = await getCurrentAdminSession()
     if (!session) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'create_coach_account',
+        actorType: 'admin',
+        actorRole: 'admin',
+        resourceType: 'coach',
+        result: 'denied',
+        reason: 'unauthorized',
+      })
       return NextResponse.json(
         { error: '未授权访问', success: false },
         { status: 401 }
+      )
+    }
+    if (session.user.is_super !== true) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'create_coach_account',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole: 'admin',
+        resourceType: 'coach',
+        result: 'denied',
+        reason: 'forbidden',
+      })
+      return NextResponse.json(
+        { error: 'Forbidden', success: false },
+        { status: 403 }
       )
     }
 
@@ -187,6 +222,19 @@ export async function POST(request: NextRequest) {
 
     // 验证必填字段
     if (!phone || !password) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'create_coach_account',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole: 'super_admin',
+        resourceType: 'coach',
+        result: 'failed',
+        reason: 'missing_required_fields',
+        metadata: {
+          phone,
+        },
+      })
       return NextResponse.json(
         { error: '手机号和密码为必填项', success: false },
         { status: 400 }
@@ -195,6 +243,19 @@ export async function POST(request: NextRequest) {
 
     // 验证手机号格式
     if (!validatePhone(phone)) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'create_coach_account',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole: 'super_admin',
+        resourceType: 'coach',
+        result: 'failed',
+        reason: 'invalid_phone_format',
+        metadata: {
+          phone,
+        },
+      })
       return NextResponse.json(
         { error: '手机号格式不正确，请输入11位手机号', success: false },
         { status: 400 }
@@ -203,6 +264,19 @@ export async function POST(request: NextRequest) {
 
     // 验证密码长度
     if (password.length < 6) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'create_coach_account',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole: 'super_admin',
+        resourceType: 'coach',
+        result: 'failed',
+        reason: 'password_policy_violation',
+        metadata: {
+          phone,
+        },
+      })
       return NextResponse.json(
         { error: '密码长度至少为6位', success: false },
         { status: 400 }
@@ -212,6 +286,19 @@ export async function POST(request: NextRequest) {
     // 检查手机号是否已存在
     const exists = await checkPhoneExists(phone)
     if (exists) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'create_coach_account',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole: 'super_admin',
+        resourceType: 'coach',
+        result: 'failed',
+        reason: 'phone_already_exists',
+        metadata: {
+          phone,
+        },
+      })
       return NextResponse.json(
         { error: '该手机号已被注册', success: false },
         { status: 400 }
@@ -234,8 +321,21 @@ export async function POST(request: NextRequest) {
 
     if (authError) {
       console.error('Error creating auth user:', authError)
+      await writeSecurityAuditLog({
+        request,
+        action: 'create_coach_account',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole: 'super_admin',
+        resourceType: 'coach',
+        result: 'failed',
+        reason: 'auth_coach_create_failed',
+        metadata: {
+          phone,
+        },
+      })
       return NextResponse.json(
-        { error: `创建账号失败: ${authError.message}`, success: false },
+        { error: '创建账号失败，请稍后重试', success: false },
         { status: 500 }
       )
     }
@@ -264,6 +364,21 @@ export async function POST(request: NextRequest) {
       .select('*')
       .eq('auth_id', authUser.user.id)
       .single()
+
+    await writeSecurityAuditLog({
+      request,
+      action: 'create_coach_account',
+      actorType: 'admin',
+      actorId: session.user.id,
+      actorRole: 'super_admin',
+      resourceType: 'coach',
+      resourceId: coach?.id || null,
+      targetUserId: coach?.id || null,
+      result: 'success',
+      metadata: {
+        phone,
+      },
+    })
 
     return NextResponse.json({
       success: true,

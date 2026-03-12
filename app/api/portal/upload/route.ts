@@ -1,28 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import {
+  COACH_ALLOWED_UPLOAD_BUCKETS,
+  type UploadBucket,
+  validateUploadFile,
+} from '@/lib/upload-file-validation'
+import { getCurrentCoachSession } from '@/lib/auth'
+import { generateSecureId } from '@/lib/security-random'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
+import {
+  buildCoachOwnedStoragePath,
+  buildStorageObjectUrl,
+  isPrivateStorageBucket,
+} from '@/lib/storage-object'
+
+const MAX_FILE_SIZE = 20 * 1024 * 1024
 
 export async function POST(request: NextRequest) {
   try {
-    // 验证教练身份
-    const cookieStore = await cookies()
-    const supabaseAuth = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value
-          },
-          set() {},
-          remove() {},
-        },
-      }
-    )
-
-    const { data: { session } } = await supabaseAuth.auth.getSession()
-    if (!session) {
+    const coachSession = await getCurrentCoachSession()
+    if (!coachSession?.user?.id) {
       return NextResponse.json(
         { error: '未授权访问', success: false },
         { status: 401 }
@@ -32,8 +28,10 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData()
     const file = formData.get('file') as File
     const bucketValue = formData.get('bucket')
-    const bucket = typeof bucketValue === 'string' && bucketValue.trim() ? bucketValue.trim() : 'player-photos'
-    const allowedBuckets = new Set(['player-photos', 'registration-files', 'team-documents'])
+    const bucketRaw =
+      typeof bucketValue === 'string' && bucketValue.trim()
+        ? bucketValue.trim()
+        : 'player-photos'
 
     if (!file) {
       return NextResponse.json(
@@ -42,66 +40,55 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!allowedBuckets.has(bucket)) {
+    if (!COACH_ALLOWED_UPLOAD_BUCKETS.has(bucketRaw as UploadBucket)) {
       return NextResponse.json(
         { error: '不支持的上传目录', success: false },
         { status: 400 }
       )
     }
-
-    const allowedExtensions = new Set([
-      'jpg', 'jpeg', 'png', 'gif', 'webp',
-      'pdf', 'doc', 'docx', 'xls', 'xlsx'
-    ])
-    const allowedMimeTypes = new Set([
-      'image/jpeg',
-      'image/png',
-      'image/gif',
-      'image/webp',
-      'application/pdf',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/vnd.ms-excel',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    ])
-    const fileExt = file.name.split('.').pop()?.toLowerCase() || ''
+    const bucket = bucketRaw as UploadBucket
     const mimeType = (file.type || '').toLowerCase()
-    const isMimeTypeAllowed = !mimeType || allowedMimeTypes.has(mimeType)
-
-    if (!allowedExtensions.has(fileExt) || !isMimeTypeAllowed) {
+    const precheck = validateUploadFile({
+      fileName: file.name,
+      mimeType,
+      bucket,
+    })
+    if (!precheck.valid) {
       return NextResponse.json(
-        { error: '仅支持 JPG/PNG/GIF/WEBP/PDF/DOC/DOCX/XLS/XLSX 文件', success: false },
+        { error: precheck.error || '文件格式不支持', success: false },
         { status: 400 }
       )
     }
 
-    // 验证文件大小 (20MB)
-    if (file.size > 20 * 1024 * 1024) {
+    if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
         { error: '文件大小不能超过 20MB', success: false },
         { status: 400 }
       )
     }
 
-    // 使用服务密钥创建 Supabase 客户端，绕过 RLS
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false
-        }
-      }
-    )
-
-    // 生成唯一的文件名
-    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`
-
-    // 将文件转换为 ArrayBuffer
     const arrayBuffer = await file.arrayBuffer()
     const uint8Array = new Uint8Array(arrayBuffer)
-    const uploadContentType = mimeType || 'application/octet-stream'
+
+    const signatureCheck = validateUploadFile({
+      fileName: file.name,
+      mimeType,
+      bucket,
+      fileBytes: uint8Array,
+    })
+    if (!signatureCheck.valid || !signatureCheck.extension) {
+      return NextResponse.json(
+        { error: signatureCheck.error || '文件内容校验失败', success: false },
+        { status: 400 }
+      )
+    }
+
+    const supabase = createServiceRoleClient()
+    const fileName = buildCoachOwnedStoragePath(
+      coachSession.user.id,
+      `${generateSecureId('upload')}.${signatureCheck.extension}`,
+    )
+    let uploadContentType = mimeType || 'application/octet-stream'
 
     // 上传到 Supabase Storage
     let { data: uploadData, error: uploadError } = await supabase.storage
@@ -117,10 +104,11 @@ export async function POST(request: NextRequest) {
       uploadContentType !== 'application/octet-stream' &&
       /mime type .* is not supported/i.test(uploadError.message || '')
     ) {
+      uploadContentType = 'application/octet-stream'
       const fallback = await supabase.storage
         .from(bucket)
         .upload(fileName, uint8Array, {
-          contentType: 'application/octet-stream',
+          contentType: uploadContentType,
           upsert: false,
         })
       uploadData = fallback.data
@@ -130,7 +118,7 @@ export async function POST(request: NextRequest) {
     if (uploadError) {
       console.error('Upload error:', uploadError)
       return NextResponse.json(
-        { error: `文件上传失败: ${uploadError.message}`, success: false },
+        { error: '文件上传失败，请稍后重试', success: false },
         { status: 500 }
       )
     }
@@ -142,22 +130,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 获取公共 URL
-    const { data: urlData } = supabase.storage
-      .from(bucket)
-      .getPublicUrl(fileName)
+    const fileUrl = isPrivateStorageBucket(bucket)
+      ? buildStorageObjectUrl(bucket, uploadData.path)
+      : supabase.storage.from(bucket).getPublicUrl(fileName).data.publicUrl
 
     console.log('Upload success:', {
       path: uploadData.path,
-      url: urlData.publicUrl,
+      url: fileUrl,
       fileName,
     })
 
     return NextResponse.json({
       success: true,
       data: {
+        bucket,
         path: uploadData.path,
-        url: urlData.publicUrl,
+        url: fileUrl,
         fileName,
         originalName: file.name,
         mimeType: uploadContentType,

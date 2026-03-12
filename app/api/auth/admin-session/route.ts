@@ -10,6 +10,8 @@ import {
   verifyAdminSessionToken,
 } from '@/lib/admin-session'
 import { getCurrentAdminSession } from '@/lib/auth'
+import { applyRateLimitHeaders, buildRateLimitKey, createRateLimitResponse, takeRateLimit } from '@/lib/rate-limit'
+import { writeSecurityAuditLog } from '@/lib/security-audit-log'
 
 async function createSupabaseFromCookies() {
   const cookieStore = await cookies()
@@ -131,20 +133,85 @@ function applyAdminTabSessionCookie(response: NextResponse, token: string) {
 }
 
 export async function POST(request: Request) {
+  const rateLimit = takeRateLimit({
+    key: buildRateLimitKey({
+      request,
+      scope: 'admin-session:create',
+    }),
+    limit: 20,
+    windowMs: 10 * 60_000,
+  })
+
+  if (!rateLimit.allowed) {
+    await writeSecurityAuditLog({
+      request,
+      action: 'create_admin_session',
+      actorType: 'admin',
+      resourceType: 'admin_session',
+      result: 'denied',
+      reason: 'rate_limited',
+    })
+    return createRateLimitResponse(
+      { success: false, error: '请求过于频繁，请稍后重试' },
+      rateLimit,
+      { status: 429 },
+    )
+  }
+
   try {
     const user = await resolveAuthUser(request)
 
     if (!user) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+      await writeSecurityAuditLog({
+        request,
+        action: 'create_admin_session',
+        actorType: 'admin',
+        resourceType: 'admin_session',
+        result: 'denied',
+        reason: 'unauthorized',
+      })
+      return createRateLimitResponse(
+        { success: false, error: 'Unauthorized' },
+        rateLimit,
+        { status: 401 },
+      )
     }
 
     if (user.user_metadata?.role !== 'admin') {
-      return NextResponse.json({ success: false, error: 'Admin role required' }, { status: 403 })
+      await writeSecurityAuditLog({
+        request,
+        action: 'create_admin_session',
+        actorType: 'admin',
+        actorId: user.id,
+        actorRole: String(user.user_metadata?.role || 'unknown'),
+        resourceType: 'admin_session',
+        result: 'denied',
+        reason: 'non_admin_role',
+      })
+      return createRateLimitResponse(
+        { success: false, error: 'Admin role required' },
+        rateLimit,
+        { status: 403 },
+      )
     }
 
     const phone = derivePhoneFromUserEmail(user.email) || user.user_metadata?.phone || null
     if (!phone) {
-      return NextResponse.json({ success: false, error: 'Admin phone not found' }, { status: 403 })
+      await writeSecurityAuditLog({
+        request,
+        action: 'create_admin_session',
+        actorType: 'admin',
+        actorId: user.id,
+        actorRole: user.user_metadata?.is_super === true ? 'super_admin' : 'admin',
+        resourceType: 'admin_session',
+        result: 'failed',
+        reason: 'admin_phone_missing',
+      })
+      return createRateLimitResponse(
+        { success: false, error: 'Unauthorized' },
+        rateLimit,
+        { status: 403 },
+      )
     }
 
     const serviceRoleClient = createServiceRoleClient()
@@ -159,7 +226,21 @@ export async function POST(request: Request) {
 
     if (adminByAuthIdError && !isMissingColumnError(adminByAuthIdError, 'auth_id')) {
       console.error('Read admin by auth_id failed:', adminByAuthIdError)
-      return NextResponse.json({ success: false, error: 'Read admin failed' }, { status: 500 })
+      await writeSecurityAuditLog({
+        request,
+        action: 'create_admin_session',
+        actorType: 'admin',
+        actorId: user.id,
+        actorRole: user.user_metadata?.is_super === true ? 'super_admin' : 'admin',
+        resourceType: 'admin_session',
+        result: 'failed',
+        reason: 'admin_lookup_by_auth_failed',
+      })
+      return createRateLimitResponse(
+        { success: false, error: '服务器错误' },
+        rateLimit,
+        { status: 500 },
+      )
     }
 
     if (adminByAuthId?.id) {
@@ -175,11 +256,39 @@ export async function POST(request: Request) {
 
       if (adminByPhoneError) {
         console.error('Read admin by phone failed:', adminByPhoneError)
-        return NextResponse.json({ success: false, error: 'Read admin failed' }, { status: 500 })
+        await writeSecurityAuditLog({
+          request,
+          action: 'create_admin_session',
+          actorType: 'admin',
+          actorId: user.id,
+          actorRole: user.user_metadata?.is_super === true ? 'super_admin' : 'admin',
+          resourceType: 'admin_session',
+          result: 'failed',
+          reason: 'admin_lookup_by_phone_failed',
+        })
+        return createRateLimitResponse(
+          { success: false, error: '服务器错误' },
+          rateLimit,
+          { status: 500 },
+        )
       }
 
       if (!adminByPhone?.id) {
-        return NextResponse.json({ success: false, error: 'Admin not found' }, { status: 403 })
+        await writeSecurityAuditLog({
+          request,
+          action: 'create_admin_session',
+          actorType: 'admin',
+          actorId: user.id,
+          actorRole: user.user_metadata?.is_super === true ? 'super_admin' : 'admin',
+          resourceType: 'admin_session',
+          result: 'failed',
+          reason: 'admin_profile_not_found',
+        })
+        return createRateLimitResponse(
+          { success: false, error: 'Unauthorized' },
+          rateLimit,
+          { status: 403 },
+        )
       }
 
       adminId = adminByPhone.id
@@ -218,7 +327,21 @@ export async function POST(request: Request) {
     }
 
     if (!adminId) {
-      return NextResponse.json({ success: false, error: 'Admin not found' }, { status: 403 })
+      await writeSecurityAuditLog({
+        request,
+        action: 'create_admin_session',
+        actorType: 'admin',
+        actorId: user.id,
+        actorRole: user.user_metadata?.is_super === true ? 'super_admin' : 'admin',
+        resourceType: 'admin_session',
+        result: 'failed',
+        reason: 'admin_profile_not_found',
+      })
+      return createRateLimitResponse(
+        { success: false, error: 'Unauthorized' },
+        rateLimit,
+        { status: 403 },
+      )
     }
 
     const token = await createAdminSessionToken(
@@ -238,11 +361,37 @@ export async function POST(request: Request) {
     })
     applyAdminSessionCookie(response, token)
     applyAdminTabSessionCookie(response, token)
+    applyRateLimitHeaders(response.headers, rateLimit)
+
+    await writeSecurityAuditLog({
+      request,
+      action: 'create_admin_session',
+      actorType: 'admin',
+      actorId: adminId,
+      actorRole: isSuper ? 'super_admin' : 'admin',
+      resourceType: 'admin_session',
+      result: 'success',
+      metadata: {
+        auth_id: user.id,
+      },
+    })
 
     return response
   } catch (error) {
     console.error('Create admin session error:', error)
-    return NextResponse.json({ success: false, error: '服务器错误' }, { status: 500 })
+    await writeSecurityAuditLog({
+      request,
+      action: 'create_admin_session',
+      actorType: 'admin',
+      resourceType: 'admin_session',
+      result: 'failed',
+      reason: 'unhandled_exception',
+    })
+    return createRateLimitResponse(
+      { success: false, error: '服务器错误' },
+      rateLimit,
+      { status: 500 },
+    )
   }
 }
 

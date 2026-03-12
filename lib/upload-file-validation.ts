@@ -1,8 +1,28 @@
-export type UploadBucket = 'event-posters' | 'team-documents'
+export type UploadBucket =
+  | 'event-posters'
+  | 'registration-files'
+  | 'player-photos'
+  | 'team-documents'
 
 export const ALLOWED_UPLOAD_BUCKETS = new Set<UploadBucket>([
   'event-posters',
+  'registration-files',
+  'player-photos',
   'team-documents',
+])
+
+export const ADMIN_ALLOWED_UPLOAD_BUCKETS = new Set<UploadBucket>([
+  ...ALLOWED_UPLOAD_BUCKETS,
+])
+
+export const COACH_ALLOWED_UPLOAD_BUCKETS = new Set<UploadBucket>([
+  'registration-files',
+  'player-photos',
+  'team-documents',
+])
+
+export const PUBLIC_SHARE_ALLOWED_UPLOAD_BUCKETS = new Set<UploadBucket>([
+  'player-photos',
 ])
 
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp'])
@@ -117,10 +137,10 @@ export const validateUploadFile = ({
     }
   }
 
-  if (bucket === 'event-posters' && !IMAGE_EXTENSIONS.has(extension)) {
+  if ((bucket === 'event-posters' || bucket === 'player-photos') && !IMAGE_EXTENSIONS.has(extension)) {
     return {
       valid: false,
-      error: '赛事海报仅支持图片文件',
+      error: bucket === 'event-posters' ? '赛事海报仅支持图片文件' : '队员照片仅支持图片文件',
     }
   }
 

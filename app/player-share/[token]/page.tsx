@@ -63,12 +63,6 @@ interface DivisionRules {
   maxPlayers?: number
 }
 
-interface SharedPlayerData extends Record<string, any> {
-  id?: string
-  role?: string
-  id_type?: string
-}
-
 const VALIDATION_INPUT_ERROR_CLASS = 'border-destructive/40 bg-destructive/10 text-foreground dark:border-destructive/50 dark:bg-destructive/15'
 const VALIDATION_INPUT_SUCCESS_CLASS = 'border-emerald-500/40 bg-emerald-500/10 text-foreground dark:border-emerald-400/40 dark:bg-emerald-500/15'
 const VALIDATION_MESSAGE_ERROR_CLASS = 'rounded border border-destructive/20 bg-destructive/10 p-2 text-destructive'
@@ -280,6 +274,7 @@ export default function PlayerSharePage() {
   const [event, setEvent] = useState<any>(null)
   const [registration, setRegistration] = useState<any>(null)
   const [teamData, setTeamData] = useState<any>(null)
+  const [sharedPlayerSnapshot, setSharedPlayerSnapshot] = useState<any>({})
   const [playerData, setPlayerData] = useState<any>({})
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -306,12 +301,13 @@ export default function PlayerSharePage() {
         return
       }
 
-      const { token_info, registration, event, player_index, player_id, shared_player } = result.data
+      const { token_info, registration, event, shared_player } = result.data
 
       setShareToken(token_info)
       setEvent(event)
       setRegistration(registration)
       setTeamData(registration.team_data)
+      setSharedPlayerSnapshot(shared_player || {})
 
       // 检查报名是否已截止或已提交
       // 1. 检查报名状态 - 只有草稿和已驳回状态允许修改
@@ -340,19 +336,7 @@ export default function PlayerSharePage() {
       }
 
       // 如果指定了队员索引，加载现有数据
-      const existingPlayerData =
-        shared_player ||
-        (() => {
-          if (registration.players_data) {
-            if (player_index !== null && player_index !== undefined) {
-              return registration.players_data[player_index] || {}
-            }
-            if (player_id) {
-              return registration.players_data.find((player: SharedPlayerData) => player.id === player_id) || {}
-            }
-          }
-          return {}
-        })()
+      const existingPlayerData = shared_player || {}
 
       const resolvedRoleId = String(existingPlayerData?.role || 'player')
       setLockedRoleId(resolvedRoleId)
@@ -412,23 +396,8 @@ export default function PlayerSharePage() {
   }
 
   const handleSubmit = async () => {
-    const registrationPlayers = registration?.players_data || []
-    const existingPlayerData = (() => {
-      const playerId = shareToken?.player_id
-      if (playerId) {
-        const matchedPlayer = registrationPlayers.find((player: SharedPlayerData) => player.id === playerId)
-        if (matchedPlayer) return matchedPlayer
-      }
-
-      if (shareToken?.player_index !== null && shareToken?.player_index !== undefined) {
-        return registrationPlayers[shareToken.player_index] || {}
-      }
-
-      return {}
-    })()
-
     const mergedPlayerData = {
-      ...existingPlayerData,
+      ...sharedPlayerSnapshot,
       ...playerData,
       role: selectedRoleId,
     }
@@ -554,6 +523,7 @@ export default function PlayerSharePage() {
       const result = await response.json()
 
       if (result.success) {
+        setSharedPlayerSnapshot(mergedPlayerData)
         setIsSubmitted(true)
         alert('提交成功！您的信息已保存，如需修改请联系教练重新生成新的分享链接')
       } else {
@@ -1056,7 +1026,7 @@ export default function PlayerSharePage() {
                                       formData.append('file', file)
                                       formData.append('bucket', 'player-photos')
 
-                                      const response = await fetch('/api/portal/upload', {
+                                      const response = await fetch(`/api/player-share/${token}/upload`, {
                                         method: 'POST',
                                         body: formData,
                                       })

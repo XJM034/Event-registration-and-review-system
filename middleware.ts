@@ -6,6 +6,7 @@ import {
   ADMIN_TAB_SESSION_COOKIE_NAME,
   verifyAdminSessionToken,
 } from '@/lib/admin-session'
+import { createServiceRoleClient } from '@/lib/supabase/service-role'
 
 const cookieBaseOptions = {
   secure: process.env.NODE_ENV === 'production',
@@ -34,6 +35,14 @@ function clearAdminSessionCookies(response: NextResponse) {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   let response = NextResponse.next()
+  let adminDirectoryClient: ReturnType<typeof createServiceRoleClient> | null = null
+
+  const getAdminDirectoryClient = () => {
+    if (!adminDirectoryClient) {
+      adminDirectoryClient = createServiceRoleClient()
+    }
+    return adminDirectoryClient
+  }
 
   console.log('Middleware checking path:', pathname)
 
@@ -56,6 +65,13 @@ export async function middleware(request: NextRequest) {
   if (isPublicPath) {
     console.log('Public path, allowing access')
     return response
+  }
+
+  if (
+    process.env.NODE_ENV === 'production' &&
+    (pathname.startsWith('/api/debug/') || pathname.startsWith('/api/test-'))
+  ) {
+    return NextResponse.json({ error: 'Not Found' }, { status: 404 })
   }
 
   // 创建 Supabase 客户端
@@ -123,7 +139,7 @@ export async function middleware(request: NextRequest) {
       }
 
       // Fallback: verify admin identity from admin_users instead of trusting mutable user_metadata.
-      const { data: adminByAuthId, error: adminLookupError } = await supabase
+      const { data: adminByAuthId, error: adminLookupError } = await getAdminDirectoryClient()
         .from('admin_users')
         .select('id, is_super')
         .eq('auth_id', sessionUser.id)
@@ -145,7 +161,7 @@ export async function middleware(request: NextRequest) {
     }
 
     // 始终以数据库中的当前权限为准，避免 admin-session 中 isSuper 旧值导致误判
-    const { data: adminById, error: adminByIdError } = await supabase
+    const { data: adminById, error: adminByIdError } = await getAdminDirectoryClient()
       .from('admin_users')
       .select('id, is_super')
       .eq('id', adminSession.adminId)

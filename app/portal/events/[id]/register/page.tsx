@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -44,6 +44,8 @@ import { createClient } from '@/lib/supabase/client'
 import { getSessionUserWithRetry } from '@/lib/supabase/client-auth'
 import Image from 'next/image'
 import { formatGender, parseIdCard, validateAgainstDivisionRules } from '@/lib/id-card-validator'
+import { mergeSharedPlayerUpdates } from '@/lib/player-share-token'
+import { generateSecureId } from '@/lib/security-random'
 
 interface DivisionRules {
   gender?: 'male' | 'female' | 'mixed' | 'none'
@@ -130,6 +132,7 @@ interface Player {
 }
 
 interface AttachmentValue {
+  bucket?: string
   name: string
   path: string
   url: string
@@ -510,6 +513,11 @@ export default function RegisterPage() {
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
   const [copiedPlayerId, setCopiedPlayerId] = useState<string | null>(null)
   const [selectedDivisionId, setSelectedDivisionId] = useState<string>('')
+  const playersRef = useRef<Player[]>([])
+
+  useEffect(() => {
+    playersRef.current = players
+  }, [players])
   const [shareDialogTarget, setShareDialogTarget] = useState<ShareDialogTarget | null>(null)
   const [isGeneratingShareLink, setIsGeneratingShareLink] = useState(false)
   const [exportingTemplateKey, setExportingTemplateKey] = useState<string | null>(null)
@@ -580,6 +588,7 @@ export default function RegisterPage() {
   }
 
   const toAttachmentValue = (data: any): AttachmentValue => ({
+    bucket: typeof data.bucket === 'string' ? data.bucket : undefined,
     name: data.originalName || data.fileName || '附件',
     path: data.path,
     url: data.url,
@@ -596,9 +605,11 @@ export default function RegisterPage() {
   }
 
   const getPreviewUrl = (url: string, fileName?: string) => {
+    const isManagedStorageUrl =
+      url.startsWith('/api/storage/object?') || url.includes('/api/storage/object?')
     const ext = (fileName || url).split('.').pop()?.toLowerCase()?.split('?')[0] || ''
     if (ext === 'pdf') return url
-    if (['doc', 'docx', 'xls', 'xlsx'].includes(ext)) {
+    if (!isManagedStorageUrl && ['doc', 'docx', 'xls', 'xlsx'].includes(ext)) {
       return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(url)}`
     }
     return url
@@ -843,41 +854,42 @@ export default function RegisterPage() {
   useEffect(() => {
     if (!registration?.id) return
 
-    const checkSharedPlayers = async () => {
-      const supabase = createClient()
-
-      // 获取所有已填写的分享token
-      const { data: filledTokens } = await supabase
-        .from('player_share_tokens')
-        .select('*')
-        .eq('registration_id', registration.id)
-        .eq('is_filled', true)
-
-      if (filledTokens && filledTokens.length > 0) {
-        // 更新队员列表
-        filledTokens.forEach(async (token) => {
-          if (token.player_data && !players.some(p => p.shareTokenId === token.id)) {
-            // 添加新队员（标记shareTokenId避免重复添加）
-            const newPlayer = {
-              id: `player-${Date.now()}-${Math.random()}`,
-              shareTokenId: token.id,
-              ...token.player_data
-            }
-            const updatedPlayers = [...players, newPlayer]
-            setPlayers(updatedPlayers)
-            setPlayersByRole(organizePlayersByRole(updatedPlayers))
-          }
+    const syncFilledShareLinks = async () => {
+      try {
+        const response = await fetch(`/api/portal/registrations/${registration.id}/share-links`, {
+          cache: 'no-store',
         })
+        const result = await response.json().catch(() => null) as
+          | { success?: boolean; data?: unknown[] }
+          | null
+
+        if (!response.ok || !result?.success || !Array.isArray(result.data)) {
+          return
+        }
+
+        const currentPlayers = playersRef.current
+        const updatedPlayers = mergeSharedPlayerUpdates(
+          currentPlayers,
+          result.data as Array<Record<string, unknown>>
+        )
+
+        if (updatedPlayers !== currentPlayers) {
+          setPlayers(updatedPlayers)
+          setPlayersByRole(organizePlayersByRole(updatedPlayers))
+        }
+      } catch (error) {
+        console.error('同步分享队员信息失败:', error)
       }
     }
 
-    // 立即检查一次
-    checkSharedPlayers()
+    void syncFilledShareLinks()
 
-    // 每5秒检查一次
-    const interval = setInterval(checkSharedPlayers, 5000)
+    const interval = setInterval(() => {
+      void syncFilledShareLinks()
+    }, 5000)
+
     return () => clearInterval(interval)
-  }, [registration?.id, players])
+  }, [registration?.id])
 
   const fetchEventAndRegistration = async (retryCount = 0) => {
     try {
@@ -1103,80 +1115,29 @@ export default function RegisterPage() {
         return
       }
 
-      // 确保players数据已经保存到数据库
-      const supabase = createClient()
+      const response = await fetch(`/api/portal/registrations/${registration.id}/share-links`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store',
+        body: JSON.stringify({
+          playerId,
+          playersData: players,
+        }),
+      })
 
-      // 先更新一次players_data确保数据最新
-      const { error: updateError } = await supabase
-        .from('registrations')
-        .update({ players_data: players })
-        .eq('id', registration.id)
+      const result = await response.json().catch(() => null) as
+        | { success?: boolean; error?: string; data?: { share_url?: string } }
+        | null
 
-      if (updateError) {
-        console.error('更新队员数据失败:', updateError)
-        alert('更新队员数据失败，请重试')
+      if (!response.ok || !result?.success || !result.data?.share_url) {
+        console.error('生成分享链接失败:', result)
+        alert(result?.error || '生成分享链接失败，请重试')
         return
       }
 
-      // 生成唯一的token
-      const token = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`
-
-      // 获取正确的player index
-      const actualPlayerIndex = players.findIndex(p => p.id === playerId)
-
-      if (actualPlayerIndex < 0) {
-        alert('未找到对应人员，无法生成分享链接')
-        return
-      }
-
-      const { error: deactivatePlayerIdTokensError } = await supabase
-        .from('player_share_tokens')
-        .update({ is_active: false })
-        .eq('registration_id', registration.id)
-        .eq('player_id', playerId)
-        .eq('is_active', true)
-
-      if (deactivatePlayerIdTokensError) {
-        console.error('失效旧分享链接失败:', deactivatePlayerIdTokensError)
-        alert('更新旧分享链接状态失败，请重试')
-        return
-      }
-
-      const { error: deactivateLegacyIndexTokensError } = await supabase
-        .from('player_share_tokens')
-        .update({ is_active: false })
-        .eq('registration_id', registration.id)
-        .eq('player_index', actualPlayerIndex)
-        .is('player_id', null)
-        .eq('is_active', true)
-
-      if (deactivateLegacyIndexTokensError) {
-        console.error('失效旧索引分享链接失败:', deactivateLegacyIndexTokensError)
-        alert('更新旧分享链接状态失败，请重试')
-        return
-      }
-
-      // 创建分享token记录，指定特定队员
-      const { data, error } = await supabase
-        .from('player_share_tokens')
-        .insert({
-          registration_id: registration.id,
-          event_id: eventId,
-          token: token,
-          player_id: playerId, // 指定队员ID
-          player_index: actualPlayerIndex, // 使用实际的索引
-        })
-        .select()
-        .single()
-
-      if (error) {
-        console.error('生成分享链接失败:', error)
-        alert(`生成分享链接失败: ${error.message || '未知错误'}`)
-        return
-      }
-
-      // 生成完整的分享链接
-      const shareUrl = `${window.location.origin}/player-share/${token}`
+      const shareUrl = result.data.share_url
 
       // 复制到剪贴板（兼容性处理）
       let copySuccessful = false
@@ -1286,7 +1247,7 @@ export default function RegisterPage() {
     }
 
     const newPlayer: Player = {
-      id: Date.now().toString(),
+      id: generateSecureId('player'),
       name: '', // 修复 TypeScript 错误
       role: roleId
     }

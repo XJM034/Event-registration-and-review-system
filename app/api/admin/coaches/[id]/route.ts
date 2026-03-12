@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentAdminSession } from '@/lib/auth'
+import { writeSecurityAuditLog } from '@/lib/security-audit-log'
 
 // 创建 Admin Client
 const supabaseAdmin = createClient(
@@ -13,6 +14,14 @@ const supabaseAdmin = createClient(
     }
   }
 )
+
+type RegistrationEventSummary = {
+  id: string
+  event?: {
+    name?: string | null
+    end_date?: string | null
+  } | null
+}
 
 export async function ensureCoachRowDeleted(
   coachId: string,
@@ -79,14 +88,44 @@ export async function PUT(
 ) {
   try {
     const session = await getCurrentAdminSession()
+    const { id } = await params
+    const actorRole = session?.user?.is_super === true ? 'super_admin' : 'admin'
     if (!session) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'update_coach_account',
+        actorType: 'admin',
+        actorRole: 'admin',
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'denied',
+        reason: 'unauthorized',
+      })
       return NextResponse.json(
         { error: '未授权访问', success: false },
         { status: 401 }
       )
     }
+    if (session.user.is_super !== true) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'update_coach_account',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'denied',
+        reason: 'forbidden',
+      })
+      return NextResponse.json(
+        { error: 'Forbidden', success: false },
+        { status: 403 }
+      )
+    }
 
-    const { id } = await params
     const body = await request.json()
     const { name, school, organization, notes } = body
 
@@ -106,6 +145,24 @@ export async function PUT(
 
     if (updateError) {
       console.error('Error updating coach:', updateError)
+      await writeSecurityAuditLog({
+        request,
+        action: 'update_coach_account',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'coach_update_failed',
+        metadata: {
+          changed_name: name !== undefined,
+          changed_school: school !== undefined,
+          changed_organization: organization !== undefined,
+          changed_notes: notes !== undefined,
+        },
+      })
       return NextResponse.json(
         { error: '更新教练信息失败', success: false },
         { status: 500 }
@@ -113,8 +170,9 @@ export async function PUT(
     }
 
     // 同步更新 auth.users 的 user_metadata
+    let authMetadataSyncFailed = false
     if (coach.auth_id) {
-      await supabaseAdmin.auth.admin.updateUserById(coach.auth_id, {
+      const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(coach.auth_id, {
         user_metadata: {
           role: 'coach',
           phone: coach.phone,
@@ -123,7 +181,31 @@ export async function PUT(
           organization: organization || ''
         }
       })
+
+      if (authError) {
+        authMetadataSyncFailed = true
+        console.error('Error syncing coach auth metadata:', authError)
+      }
     }
+
+    await writeSecurityAuditLog({
+      request,
+      action: 'update_coach_account',
+      actorType: 'admin',
+      actorId: session.user.id,
+      actorRole,
+      resourceType: 'coach',
+      resourceId: id,
+      targetUserId: id,
+      result: 'success',
+      metadata: {
+        changed_name: name !== undefined,
+        changed_school: school !== undefined,
+        changed_organization: organization !== undefined,
+        changed_notes: notes !== undefined,
+        auth_metadata_sync_failed: authMetadataSyncFailed,
+      },
+    })
 
     return NextResponse.json({
       success: true,
@@ -145,16 +227,65 @@ export async function PATCH(
 ) {
   try {
     const session = await getCurrentAdminSession()
+    const { id } = await params
+    const actorRole = session?.user?.is_super === true ? 'super_admin' : 'admin'
     if (!session) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'set_coach_active_status',
+        actorType: 'admin',
+        actorRole: 'admin',
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'denied',
+        reason: 'unauthorized',
+      })
       return NextResponse.json(
         { error: '未授权访问', success: false },
         { status: 401 }
       )
     }
+    if (session.user.is_super !== true) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'set_coach_active_status',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'denied',
+        reason: 'forbidden',
+      })
+      return NextResponse.json(
+        { error: 'Forbidden', success: false },
+        { status: 403 }
+      )
+    }
 
-    const { id } = await params
     const body = await request.json()
     const { is_active } = body
+
+    if (typeof is_active !== 'boolean') {
+      await writeSecurityAuditLog({
+        request,
+        action: 'set_coach_active_status',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'invalid_is_active',
+      })
+      return NextResponse.json(
+        { error: '参数 is_active 必须是布尔值', success: false },
+        { status: 400 }
+      )
+    }
 
     // 获取教练的 auth_id
     const { data: coach, error: fetchError } = await supabaseAdmin
@@ -164,6 +295,18 @@ export async function PATCH(
       .single()
 
     if (fetchError || !coach) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'set_coach_active_status',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'target_coach_not_found',
+      })
       return NextResponse.json(
         { error: '教练不存在', success: false },
         { status: 404 }
@@ -178,6 +321,21 @@ export async function PATCH(
 
     if (updateError) {
       console.error('Error updating coach status:', updateError)
+      await writeSecurityAuditLog({
+        request,
+        action: 'set_coach_active_status',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'coach_status_update_failed',
+        metadata: {
+          is_active,
+        },
+      })
       return NextResponse.json(
         { error: '更新状态失败', success: false },
         { status: 500 }
@@ -185,6 +343,7 @@ export async function PATCH(
     }
 
     // 使用 ban_duration 来启用/禁用账号
+    let authStatusSyncFailed = false
     if (coach.auth_id) {
       const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
         coach.auth_id,
@@ -195,9 +354,25 @@ export async function PATCH(
 
       if (authError) {
         console.error('Error updating auth user ban status:', authError)
-        // 不影响主流程，只记录错误
+        authStatusSyncFailed = true
       }
     }
+
+    await writeSecurityAuditLog({
+      request,
+      action: 'set_coach_active_status',
+      actorType: 'admin',
+      actorId: session.user.id,
+      actorRole,
+      resourceType: 'coach',
+      resourceId: id,
+      targetUserId: id,
+      result: 'success',
+      metadata: {
+        is_active,
+        auth_status_sync_failed: authStatusSyncFailed,
+      },
+    })
 
     return NextResponse.json({
       success: true,
@@ -219,14 +394,43 @@ export async function DELETE(
 ) {
   try {
     const session = await getCurrentAdminSession()
+    const { id } = await params
+    const actorRole = session?.user?.is_super === true ? 'super_admin' : 'admin'
     if (!session) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'delete_coach_account',
+        actorType: 'admin',
+        actorRole: 'admin',
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'denied',
+        reason: 'unauthorized',
+      })
       return NextResponse.json(
         { error: '未授权访问', success: false },
         { status: 401 }
       )
     }
-
-    const { id } = await params
+    if (session.user.is_super !== true) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'delete_coach_account',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'denied',
+        reason: 'forbidden',
+      })
+      return NextResponse.json(
+        { error: 'Forbidden', success: false },
+        { status: 403 }
+      )
+    }
 
     // 获取教练信息
     const { data: coach, error: fetchError } = await supabaseAdmin
@@ -236,6 +440,18 @@ export async function DELETE(
       .single()
 
     if (fetchError || !coach) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'delete_coach_account',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'target_coach_not_found',
+      })
       return NextResponse.json(
         { error: '教练不存在', success: false },
         { status: 404 }
@@ -266,11 +482,26 @@ export async function DELETE(
 
     // 检查是否有审核中或已通过的报名
     if (activeRegistrations && activeRegistrations.length > 0) {
-      const eventNames = activeRegistrations
-        .map((r: any) => r.event?.name)
+      const eventNames = (activeRegistrations as RegistrationEventSummary[])
+        .map((r) => r.event?.name)
         .filter(Boolean)
         .join('、')
 
+      await writeSecurityAuditLog({
+        request,
+        action: 'delete_coach_account',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'coach_has_active_registrations',
+        metadata: {
+          active_registration_count: activeRegistrations.length,
+        },
+      })
       return NextResponse.json(
         {
           error: `该教练在以下赛事中有进行中的报名，无法删除：${eventNames}。请等待比赛结束或联系教练取消报名。`,
@@ -301,7 +532,7 @@ export async function DELETE(
 
     if (rejectedRegistrations && rejectedRegistrations.length > 0) {
       const now = new Date()
-      const ongoingRejected = rejectedRegistrations.filter((r: any) => {
+      const ongoingRejected = (rejectedRegistrations as RegistrationEventSummary[]).filter((r) => {
         if (!r.event?.end_date) return false
         const endDate = new Date(r.event.end_date)
         return endDate > now
@@ -309,10 +540,25 @@ export async function DELETE(
 
       if (ongoingRejected.length > 0) {
         const eventNames = ongoingRejected
-          .map((r: any) => r.event?.name)
+          .map((r) => r.event?.name)
           .filter(Boolean)
           .join('、')
 
+        await writeSecurityAuditLog({
+          request,
+          action: 'delete_coach_account',
+          actorType: 'admin',
+          actorId: session.user.id,
+          actorRole,
+          resourceType: 'coach',
+          resourceId: id,
+          targetUserId: id,
+          result: 'failed',
+          reason: 'coach_has_ongoing_rejected_registrations',
+          metadata: {
+            rejected_registration_count: ongoingRejected.length,
+          },
+        })
         return NextResponse.json(
           {
             error: `该教练在以下赛事中有被驳回的报名且比赛尚未结束，无法删除：${eventNames}。请等待比赛结束。`,
@@ -338,13 +584,13 @@ export async function DELETE(
     // 删除已驳回且比赛已结束的报名
     if (rejectedRegistrations && rejectedRegistrations.length > 0) {
       const now = new Date()
-      const finishedRejectedIds = rejectedRegistrations
-        .filter((r: any) => {
+      const finishedRejectedIds = (rejectedRegistrations as RegistrationEventSummary[])
+        .filter((r) => {
           if (!r.event?.end_date) return true // 没有结束日期的也可以删除
           const endDate = new Date(r.event.end_date)
           return endDate <= now
         })
-        .map((r: any) => r.id)
+        .map((r) => r.id)
 
       if (finishedRejectedIds.length > 0) {
         await supabaseAdmin
@@ -364,11 +610,41 @@ export async function DELETE(
 
       if (deleteCoachError) {
         console.error('删除教练记录失败:', deleteCoachError)
+        await writeSecurityAuditLog({
+          request,
+          action: 'delete_coach_account',
+          actorType: 'admin',
+          actorId: session.user.id,
+          actorRole,
+          resourceType: 'coach',
+          resourceId: id,
+          targetUserId: id,
+          result: 'failed',
+          reason: 'coach_delete_failed',
+          metadata: {
+            had_auth_binding: false,
+          },
+        })
         return NextResponse.json(
-          { error: `删除教练记录失败: ${deleteCoachError.message}`, success: false },
+          { error: '删除账号失败，请稍后重试', success: false },
           { status: 500 }
         )
       }
+
+      await writeSecurityAuditLog({
+        request,
+        action: 'delete_coach_account',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'success',
+        metadata: {
+          had_auth_binding: false,
+        },
+      })
 
       return NextResponse.json({
         success: true,
@@ -392,6 +668,18 @@ export async function DELETE(
         .limit(1)
 
       if (reviewedRegs && reviewedRegs.length > 0) {
+        await writeSecurityAuditLog({
+          request,
+          action: 'delete_coach_account',
+          actorType: 'admin',
+          actorId: session.user.id,
+          actorRole,
+          resourceType: 'coach',
+          resourceId: id,
+          targetUserId: id,
+          result: 'failed',
+          reason: 'linked_admin_has_review_records',
+        })
         return NextResponse.json(
           {
             error: '该账号曾作为管理员审核过报名记录，无法删除。如需删除，请联系系统管理员处理历史数据。',
@@ -419,11 +707,38 @@ export async function DELETE(
 
         if (deleteCoachError) {
           console.error('删除教练记录失败:', deleteCoachError)
+          await writeSecurityAuditLog({
+            request,
+            action: 'delete_coach_account',
+            actorType: 'admin',
+            actorId: session.user.id,
+            actorRole,
+            resourceType: 'coach',
+            resourceId: id,
+            targetUserId: id,
+            result: 'failed',
+            reason: 'coach_delete_failed_after_missing_auth_user',
+          })
           return NextResponse.json(
-            { error: `删除教练记录失败: ${deleteCoachError.message}`, success: false },
+            { error: '删除账号失败，请稍后重试', success: false },
             { status: 500 }
           )
         }
+
+        await writeSecurityAuditLog({
+          request,
+          action: 'delete_coach_account',
+          actorType: 'admin',
+          actorId: session.user.id,
+          actorRole,
+          resourceType: 'coach',
+          resourceId: id,
+          targetUserId: id,
+          result: 'success',
+          metadata: {
+            auth_user_missing: true,
+          },
+        })
 
         return NextResponse.json({
           success: true,
@@ -431,19 +746,60 @@ export async function DELETE(
         })
       }
 
+      await writeSecurityAuditLog({
+        request,
+        action: 'delete_coach_account',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'auth_coach_delete_failed',
+      })
       return NextResponse.json(
-        { error: `删除账号失败: ${authError.message}`, success: false },
+        { error: '删除账号失败，请稍后重试', success: false },
         { status: 500 }
       )
     }
 
     const removed = await ensureCoachRowDeleted(id)
     if (!removed) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'delete_coach_account',
+        actorType: 'admin',
+        actorId: session.user.id,
+        actorRole,
+        resourceType: 'coach',
+        resourceId: id,
+        targetUserId: id,
+        result: 'failed',
+        reason: 'coach_delete_verification_failed',
+      })
+    }
+    if (!removed) {
       return NextResponse.json(
         { error: '账号删除处理中，请稍后刷新列表确认。', success: false },
         { status: 500 }
       )
     }
+
+    await writeSecurityAuditLog({
+      request,
+      action: 'delete_coach_account',
+      actorType: 'admin',
+      actorId: session.user.id,
+      actorRole,
+      resourceType: 'coach',
+      resourceId: id,
+      targetUserId: id,
+      result: 'success',
+      metadata: {
+        had_auth_binding: true,
+      },
+    })
 
     return NextResponse.json({
       success: true,

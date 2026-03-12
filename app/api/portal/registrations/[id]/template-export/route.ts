@@ -266,7 +266,7 @@ export async function GET(request: NextRequest, context: RouteParams) {
   } catch (error) {
     console.error('Coach template export error:', error)
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : '导出失败' },
+      { success: false, error: '导出失败，请稍后重试' },
       { status: 500 },
     )
   }
