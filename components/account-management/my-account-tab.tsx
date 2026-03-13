@@ -7,6 +7,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Shield, ShieldOff } from 'lucide-react'
+import {
+  PASSWORD_POLICY_HINT,
+  PASSWORD_POLICY_MIN_LENGTH,
+  PASSWORD_POLICY_PLACEHOLDER,
+  validatePasswordStrength,
+} from '@/lib/password-policy'
 
 interface CurrentAdmin {
   id: string
@@ -51,8 +57,9 @@ export default function MyAccountTab() {
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (password.length < 6) {
-      alert('密码长度至少为6位')
+    const passwordValidation = validatePasswordStrength(password)
+    if (!passwordValidation.valid) {
+      alert(passwordValidation.message)
       return
     }
 
@@ -128,7 +135,7 @@ export default function MyAccountTab() {
       <Card>
         <CardHeader>
           <CardTitle>修改密码</CardTitle>
-          <CardDescription>建议使用至少6位且不易猜测的密码</CardDescription>
+          <CardDescription>{PASSWORD_POLICY_HINT}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleChangePassword} className="space-y-4">
@@ -139,8 +146,8 @@ export default function MyAccountTab() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="请输入新密码（至少6位）"
-                minLength={6}
+                placeholder={PASSWORD_POLICY_PLACEHOLDER}
+                minLength={PASSWORD_POLICY_MIN_LENGTH}
                 required
               />
             </div>
@@ -152,7 +159,7 @@ export default function MyAccountTab() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="请再次输入新密码"
-                minLength={6}
+                minLength={PASSWORD_POLICY_MIN_LENGTH}
                 required
               />
             </div>
@@ -164,6 +171,7 @@ export default function MyAccountTab() {
           </form>
         </CardContent>
       </Card>
+
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentAdminSession } from '@/lib/auth'
+import { validatePasswordStrength } from '@/lib/password-policy'
 import { writeSecurityAuditLog } from '@/lib/security-audit-log'
 
 export const dynamic = 'force-dynamic'
@@ -135,6 +136,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const { phone, name, password, is_super = false } = body
+    const passwordValidation = validatePasswordStrength(typeof password === 'string' ? password : '')
 
     // 验证必填字段
     if (!phone || !password) {
@@ -180,7 +182,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 验证密码长度
-    if (password.length < 6) {
+    if (!passwordValidation.valid) {
       await writeSecurityAuditLog({
         request,
         action: 'create_admin_account',
@@ -195,7 +197,7 @@ export async function POST(request: NextRequest) {
         },
       })
       return NextResponse.json(
-        { success: false, error: '密码长度至少为6位' },
+        { success: false, error: passwordValidation.message },
         { status: 400 }
       )
     }

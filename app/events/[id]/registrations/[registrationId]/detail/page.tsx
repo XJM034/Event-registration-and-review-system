@@ -239,7 +239,9 @@ export default function RegistrationDetailPage() {
     try {
       setLoading(true)
 
-      const registrationRes = await fetch(`/api/registrations/${rid}?event_id=${eid}`)
+      const registrationRes = await fetch(`/api/registrations/${rid}?event_id=${eid}`, {
+        cache: 'no-store',
+      })
       const registrationResult = (await registrationRes.json()) as ApiResponse<Registration>
 
       if (!registrationResult.success || !registrationResult.data) {
@@ -259,7 +261,9 @@ export default function RegistrationDetailPage() {
         ? `/api/events/${eid}/registration-settings?division_id=${encodeURIComponent(divisionId)}`
         : `/api/events/${eid}/registration-settings`
 
-      const settingsRes = await fetch(settingsUrl)
+      const settingsRes = await fetch(settingsUrl, {
+        cache: 'no-store',
+      })
       const settingsResult = (
         await settingsRes.json()
       ) as ApiResponse<RegistrationSettingsRecord | RegistrationSettingsRecord[]>
@@ -512,10 +516,10 @@ export default function RegistrationDetailPage() {
       return (
         <div className="flex flex-col gap-3 rounded border p-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-2">
-            <FileText className="h-4 w-4 shrink-0 text-gray-500" />
+            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0">
               <p className="break-all text-sm font-medium">{normalizedValue.name || '附件'}</p>
-              <p className="text-xs text-gray-500">{formatFileSize(normalizedValue.size)}</p>
+              <p className="text-xs text-muted-foreground">{formatFileSize(normalizedValue.size)}</p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -555,10 +559,10 @@ export default function RegistrationDetailPage() {
               className="flex flex-col gap-3 rounded border p-3 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="flex min-w-0 items-center gap-2">
-                <FileText className="h-4 w-4 shrink-0 text-gray-500" />
+                <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <div className="min-w-0">
                   <p className="break-all text-sm font-medium">{file.name || `附件${idx + 1}`}</p>
-                  <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
+                  <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -589,18 +593,18 @@ export default function RegistrationDetailPage() {
     }
 
     if (sensitiveIdentityField && typeof normalizedValue === 'string') {
-      return <p className="font-mono text-sm text-gray-700 break-all">{normalizedValue}</p>
+      return <p className="break-all font-mono text-sm text-foreground">{normalizedValue}</p>
     }
 
     return String(normalizedValue)
   }
 
   if (loading) {
-    return <div className="p-8 text-center text-gray-600">加载中...</div>
+    return <div className="p-8 text-center text-muted-foreground">加载中...</div>
   }
 
   if (!registration) {
-    return <div className="p-8 text-center text-gray-600">报名信息不存在</div>
+    return <div className="p-8 text-center text-muted-foreground">报名信息不存在</div>
   }
 
   const groupedPlayers = groupPlayersByRole(registration.players_data || [])
@@ -611,7 +615,7 @@ export default function RegistrationDetailPage() {
   })
 
   return (
-    <div className="min-h-screen bg-gray-50 px-3 py-4 sm:p-6">
+    <div className="min-h-screen bg-background px-3 py-4 sm:p-6">
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Button className="w-full sm:w-auto" variant="outline" onClick={() => router.push(registrationListPath)}>
@@ -628,11 +632,11 @@ export default function RegistrationDetailPage() {
             <div className="grid grid-cols-1 gap-4 rounded-lg border p-4 sm:grid-cols-2">
               <div>
                 <Label>提交时间</Label>
-                <p className="mt-1 text-sm text-gray-700">{formatDateTime(registration.submitted_at)}</p>
+                <p className="mt-1 text-sm text-foreground">{formatDateTime(registration.submitted_at)}</p>
               </div>
               <div>
                 <Label>审核时间</Label>
-                <p className="mt-1 text-sm text-gray-700">{formatDateTime(registration.reviewed_at)}</p>
+                <p className="mt-1 text-sm text-foreground">{formatDateTime(registration.reviewed_at)}</p>
               </div>
             </div>
 

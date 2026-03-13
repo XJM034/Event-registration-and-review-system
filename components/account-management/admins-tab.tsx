@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -40,8 +41,17 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Plus, Search, Shield, ShieldOff, Key, Trash2, Loader2, Edit } from 'lucide-react'
-import { CreateAdminDialog } from './create-admin-dialog'
-import EditAdminDialog from './edit-admin-dialog'
+import {
+  PASSWORD_POLICY_HINT,
+  PASSWORD_POLICY_MIN_LENGTH,
+  PASSWORD_POLICY_PLACEHOLDER,
+  validatePasswordStrength,
+} from '@/lib/password-policy'
+
+const CreateAdminDialog = dynamic(
+  () => import('./create-admin-dialog').then((mod) => mod.CreateAdminDialog)
+)
+const EditAdminDialog = dynamic(() => import('./edit-admin-dialog'))
 
 interface Admin {
   id: string
@@ -176,8 +186,9 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
     e.preventDefault()
     if (!selectedAdmin) return
 
-    if (password.length < 6) {
-      alert('密码长度至少为6位')
+    const passwordValidation = validatePasswordStrength(password)
+    if (!passwordValidation.valid) {
+      alert(passwordValidation.message)
       return
     }
 
@@ -479,13 +490,15 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
         </div>
       )}
 
-      <CreateAdminDialog
-        open={showCreateDialog}
-        onOpenChange={setShowCreateDialog}
-        onSuccess={loadAdmins}
-      />
+      {showCreateDialog && (
+        <CreateAdminDialog
+          open={showCreateDialog}
+          onOpenChange={setShowCreateDialog}
+          onSuccess={loadAdmins}
+        />
+      )}
 
-      {selectedAdmin && (
+      {selectedAdmin && showEditDialog && (
         <EditAdminDialog
           open={showEditDialog}
           onOpenChange={setShowEditDialog}
@@ -511,12 +524,13 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
                 <Input
                   id="new-password"
                   type="password"
-                  placeholder="至少6位"
+                  placeholder={PASSWORD_POLICY_PLACEHOLDER}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  minLength={6}
+                  minLength={PASSWORD_POLICY_MIN_LENGTH}
                 />
+                <p className="text-xs text-muted-foreground">{PASSWORD_POLICY_HINT}</p>
               </div>
 
               <div className="space-y-2">
@@ -530,7 +544,7 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
-                  minLength={6}
+                  minLength={PASSWORD_POLICY_MIN_LENGTH}
                 />
               </div>
 

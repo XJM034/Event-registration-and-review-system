@@ -1,7 +1,6 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import * as XLSX from 'xlsx'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -14,6 +13,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Download, Loader2, Upload } from 'lucide-react'
+import { IMPORTED_COACH_PASSWORD_RULE } from '@/lib/password-policy'
 
 interface ImportCoachesDialogProps {
   open: boolean
@@ -31,15 +31,29 @@ export default function ImportCoachesDialog({
 
   const fileName = useMemo(() => file?.name || '', [file])
 
-  const handleDownloadTemplate = () => {
-    const workbook = XLSX.utils.book_new()
-    const worksheet = XLSX.utils.aoa_to_sheet([
-      ['手机号', '姓名', '参赛单位', '备注'],
-      ['13800000001', '测试教练1234', '示例参赛单位A', '备注示例'],
-      ['13800000002', '测试教练5678', '示例参赛单位B', '可留空'],
-    ])
-    XLSX.utils.book_append_sheet(workbook, worksheet, '教练账号导入模板')
-    const output = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' })
+  const handleDownloadTemplate = async () => {
+    const ExcelJS = (await import('exceljs')).default
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('教练账号导入模板')
+    worksheet.columns = [
+      { header: '手机号', key: 'phone', width: 18 },
+      { header: '姓名', key: 'name', width: 18 },
+      { header: '参赛单位', key: 'school', width: 28 },
+      { header: '备注', key: 'notes', width: 24 },
+    ]
+    worksheet.addRow({
+      phone: '13800000001',
+      name: '测试教练1234',
+      school: '示例参赛单位A',
+      notes: '备注示例',
+    })
+    worksheet.addRow({
+      phone: '13800000002',
+      name: '测试教练5678',
+      school: '示例参赛单位B',
+      notes: '可留空',
+    })
+    const output = await workbook.xlsx.writeBuffer()
     const blob = new Blob([output], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })
@@ -89,7 +103,7 @@ export default function ImportCoachesDialog({
         `成功创建: ${summary.createdCount}`,
         `已存在跳过: ${summary.skippedCount}`,
         `失败: ${summary.failedCount}`,
-        summary.defaultPasswordRule || '默认密码为手机号后 6 位',
+        summary.defaultPasswordRule || IMPORTED_COACH_PASSWORD_RULE,
       ]
       if (failedExamples.length > 0) {
         lines.push('', '失败示例：', ...failedExamples)
@@ -119,7 +133,7 @@ export default function ImportCoachesDialog({
 
         <div className="space-y-4 py-2">
           <div className="rounded-md border bg-gray-50 p-3 text-sm text-gray-600">
-            默认密码为手机号后 6 位，教练可登录后在“账号设置”中修改密码。
+            {IMPORTED_COACH_PASSWORD_RULE}，教练可登录后在“账号设置”中修改密码。
           </div>
 
           <div className="flex items-center justify-between rounded-md border p-3">
@@ -135,13 +149,13 @@ export default function ImportCoachesDialog({
             <Input
               id="coach-import-file"
               type="file"
-              accept=".xlsx,.xls"
+              accept=".xlsx"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
             />
             {fileName ? (
               <p className="text-xs text-gray-500">已选择: {fileName}</p>
             ) : (
-              <p className="text-xs text-gray-500">支持 .xlsx / .xls</p>
+              <p className="text-xs text-gray-500">仅支持 .xlsx</p>
             )}
           </div>
         </div>

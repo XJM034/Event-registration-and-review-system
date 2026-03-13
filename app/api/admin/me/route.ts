@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentAdminSession } from '@/lib/auth'
+import { validatePasswordStrength } from '@/lib/password-policy'
 import { writeSecurityAuditLog } from '@/lib/security-audit-log'
 
 const NO_STORE_HEADERS = {
@@ -85,8 +86,9 @@ export async function PUT(request: NextRequest) {
 
     const body = await request.json()
     const password = typeof body?.password === 'string' ? body.password.trim() : ''
+    const passwordValidation = validatePasswordStrength(password)
 
-    if (!password || password.length < 6) {
+    if (!passwordValidation.valid) {
       await writeSecurityAuditLog({
         request,
         action: 'change_own_admin_password',
@@ -100,7 +102,7 @@ export async function PUT(request: NextRequest) {
         reason: 'password_policy_violation',
       })
       return jsonNoStore(
-        { success: false, error: '密码长度至少为6位' },
+        { success: false, error: passwordValidation.message },
         { status: 400 }
       )
     }

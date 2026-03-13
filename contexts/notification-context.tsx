@@ -3,6 +3,11 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getSessionUser, isTimeoutError, withTimeout } from '@/lib/supabase/client-auth'
+import {
+  clearCachedPortalCoachId,
+  readCachedPortalCoachId,
+  writeCachedPortalCoachId,
+} from '@/lib/portal/coach-session-cache'
 
 interface NotificationContextType {
   unreadCount: number
@@ -35,33 +40,46 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         }
 
         if (!user) {
+          clearCachedPortalCoachId()
           setUnreadCount(0)
           return
         }
 
         if (user.user_metadata?.role === 'admin') {
+          clearCachedPortalCoachId()
           setUnreadCount(0)
           return
         }
 
         let coach: { id: string } | null = null
+        const cachedCoachId = readCachedPortalCoachId(user.id)
+        if (cachedCoachId) {
+          coach = { id: cachedCoachId }
+        }
+
         try {
-          const coachResult = await withTimeout(
-            supabase
-              .from('coaches')
-              .select('id')
-              .eq('auth_id', user.id)
-              .maybeSingle(),
-            4000,
-            'Unread-count coach lookup timed out'
-          )
+          if (!coach) {
+            const coachResult = await withTimeout(
+              supabase
+                .from('coaches')
+                .select('id')
+                .eq('auth_id', user.id)
+                .maybeSingle(),
+              4000,
+              'Unread-count coach lookup timed out'
+            )
 
-          if (coachResult.error) {
-            setUnreadCount(0)
-            return
+            if (coachResult.error) {
+              setUnreadCount(0)
+              return
+            }
+
+            coach = coachResult.data
+
+            if (coach?.id) {
+              writeCachedPortalCoachId(user.id, coach.id)
+            }
           }
-
-          coach = coachResult.data
         } catch (error) {
           if (!isTimeoutError(error)) {
             console.error('Error fetching coach for unread count:', error)
@@ -71,6 +89,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         }
 
         if (!coach) {
+          clearCachedPortalCoachId()
           setUnreadCount(0)
           return
         }
@@ -118,12 +137,31 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    refreshUnreadCount()
+    void refreshUnreadCount()
+
+    const refreshIfVisible = () => {
+      if (document.visibilityState !== 'visible') {
+        return
+      }
+      void refreshUnreadCount()
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshUnreadCount()
+      }
+    }
 
     // 设置定时刷新（每30秒）
-    const interval = setInterval(refreshUnreadCount, 30000)
+    const interval = setInterval(refreshIfVisible, 30000)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleVisibilityChange)
 
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleVisibilityChange)
+    }
   }, [refreshUnreadCount])
 
   return (

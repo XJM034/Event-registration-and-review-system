@@ -69,7 +69,7 @@ describe('password reset routes', () => {
       error: { message: 'internal auth stack trace' },
     })
 
-    const response = await resetAdminPassword(createPasswordResetRequest('123456'), {
+    const response = await resetAdminPassword(createPasswordResetRequest('StrongPass123'), {
       params: Promise.resolve({ id: 'admin-1' }),
     })
     const payload = await response.json()
@@ -100,7 +100,7 @@ describe('password reset routes', () => {
       error: { message: 'internal auth stack trace' },
     })
 
-    const response = await resetCoachPassword(createPasswordResetRequest('123456'), {
+    const response = await resetCoachPassword(createPasswordResetRequest('StrongPass123'), {
       params: Promise.resolve({ id: 'coach-1' }),
     })
     const payload = await response.json()

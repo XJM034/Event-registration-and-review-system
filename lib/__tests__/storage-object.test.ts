@@ -88,6 +88,14 @@ describe('storage object helpers', () => {
     expect(url).toBe('/api/storage/object?bucket=team-documents&path=docs%2Ffile.pdf&download=1&filename=%E6%8A%A5%E5%90%8D%E6%9D%90%E6%96%99.pdf')
   })
 
+  it('preserves share token when normalizing managed storage urls', () => {
+    const url = resolveStorageObjectUrl(
+      '/api/storage/object?bucket=player-photos&path=public-share%2Freg-1%2Fplayer-player-1%2Fphoto.png&share_token=share-token-1',
+    )
+
+    expect(url).toBe('/api/storage/object?bucket=player-photos&path=public-share%2Freg-1%2Fplayer-player-1%2Fphoto.png&share_token=share-token-1')
+  })
+
   it('builds coach-owned storage paths for immediate private previews', () => {
     const path = buildCoachOwnedStoragePath('coach-1', 'upload.png')
 

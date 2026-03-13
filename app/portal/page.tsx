@@ -20,6 +20,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Calendar, Filter } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
+  readCachedPortalCoachId,
+  writeCachedPortalCoachId,
+} from '@/lib/portal/coach-session-cache'
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
@@ -166,17 +170,26 @@ export default function PortalHomePage() {
     }
 
     try {
-      const { data: coach } = await withTimeout(
-        supabase
-          .from('coaches')
-          .select('id')
-          .eq('auth_id', user.id)
-          .maybeSingle(),
-        COACH_QUERY_TIMEOUT_MS,
-        'Coach lookup timed out'
-      )
+      let coachId = readCachedPortalCoachId(user.id)
 
-      if (!coach) {
+      if (!coachId) {
+        const { data: coach } = await withTimeout(
+          supabase
+            .from('coaches')
+            .select('id')
+            .eq('auth_id', user.id)
+            .maybeSingle(),
+          COACH_QUERY_TIMEOUT_MS,
+          'Coach lookup timed out'
+        )
+
+        coachId = coach?.id || null
+        if (coachId) {
+          writeCachedPortalCoachId(user.id, coachId)
+        }
+      }
+
+      if (!coachId) {
         return []
       }
 
@@ -184,7 +197,7 @@ export default function PortalHomePage() {
         supabase
           .from('registrations')
           .select('event_id')
-          .eq('coach_id', coach.id)
+          .eq('coach_id', coachId)
           .neq('status', 'cancelled'),
         COACH_QUERY_TIMEOUT_MS,
         'Coach registration lookup timed out'

@@ -119,15 +119,6 @@ export async function POST(request: NextRequest, context: RouteParams) {
       )
     }
 
-    // 创建通知
-    console.log('审核完成，准备创建通知:', {
-      hasData: !!data,
-      coach_id: data?.coach_id,
-      event_id: data?.event_id,
-      registration_id: data?.id,
-      status
-    })
-
     if (data && data.coach_id) {
       const eventName = data.events?.short_name || data.events?.name || '赛事'
 
@@ -143,17 +134,13 @@ export async function POST(request: NextRequest, context: RouteParams) {
         registration_id: data.id
       }
 
-      console.log('插入通知数据:', notificationData)
-
-      const { data: notifResult, error: notifError } = await supabase
+      const { error: notifError } = await supabase
         .from('notifications')
         .insert(notificationData)
         .select()
 
       if (notifError) {
         console.error('创建通知失败:', notifError)
-      } else {
-        console.log('通知创建成功:', notifResult)
       }
     } else {
       console.warn('无法创建通知: 缺少 coach_id', { data })

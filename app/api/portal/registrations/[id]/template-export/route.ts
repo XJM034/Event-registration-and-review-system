@@ -30,6 +30,8 @@ type RegistrationSettingRow = {
   }
 }
 
+const TEMPLATE_EXPORT_REGISTRATION_COLUMNS = 'event_id, team_data, players_data'
+
 function parseDocumentType(value: string | null): TemplateDocumentType | null {
   return value === 'registration_form' || value === 'athlete_info_form' ? value : null
 }
@@ -170,7 +172,7 @@ export async function GET(request: NextRequest, context: RouteParams) {
     const supabase = await createSupabaseServer()
     const { data: registration, error: registrationError } = await supabase
       .from('registrations')
-      .select('*')
+      .select(TEMPLATE_EXPORT_REGISTRATION_COLUMNS)
       .eq('id', registrationId)
       .eq('coach_id', coachSession.user.id)
       .single()

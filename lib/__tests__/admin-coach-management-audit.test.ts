@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NextRequest } from 'next/server'
+import { buildWorkbookBuffer } from '@/lib/excel-workbook'
 
-const { supabaseAdminMock, xlsxReadMock, sheetToJsonMock } = vi.hoisted(() => ({
+const { supabaseAdminMock } = vi.hoisted(() => ({
   supabaseAdminMock: {
     from: vi.fn(),
     auth: {
@@ -12,19 +13,10 @@ const { supabaseAdminMock, xlsxReadMock, sheetToJsonMock } = vi.hoisted(() => ({
       },
     },
   },
-  xlsxReadMock: vi.fn(),
-  sheetToJsonMock: vi.fn(),
 }))
 
 vi.mock('@supabase/supabase-js', () => ({
   createClient: vi.fn(() => supabaseAdminMock),
-}))
-
-vi.mock('xlsx', () => ({
-  read: xlsxReadMock,
-  utils: {
-    sheet_to_json: sheetToJsonMock,
-  },
 }))
 
 vi.mock('@/lib/auth', () => ({
@@ -83,8 +75,6 @@ describe('admin coach management audit routes', () => {
     supabaseAdminMock.auth.admin.createUser.mockReset()
     supabaseAdminMock.auth.admin.updateUserById.mockReset()
     supabaseAdminMock.auth.admin.deleteUser.mockReset()
-    xlsxReadMock.mockReset()
-    sheetToJsonMock.mockReset()
   })
 
   it('forbids non-super admins from updating coaches and records an audit log', async () => {
@@ -199,23 +189,28 @@ describe('admin coach management audit routes', () => {
   it('sanitizes per-row import failures and records a summary audit log', async () => {
     mockedGetCurrentAdminSession.mockResolvedValue(createAdminSession('admin-super', true))
 
-    xlsxReadMock.mockReturnValue({
-      SheetNames: ['Sheet1'],
-      Sheets: { Sheet1: {} },
-    })
-    sheetToJsonMock.mockReturnValue([
-      ['手机号', '姓名', '学校', '备注'],
-      ['13800000002', '张三', '一中', ''],
-    ])
     supabaseAdminMock.auth.admin.createUser.mockResolvedValue({
       data: { user: null },
       error: { message: 'internal auth stack trace' },
     })
 
+    const workbook = await buildWorkbookBuffer([
+      {
+        name: 'Sheet1',
+        rows: [
+          {
+            手机号: '13800000002',
+            姓名: '张三',
+            学校: '一中',
+            备注: '',
+          },
+        ],
+      },
+    ])
     const formData = new FormData()
     formData.set(
       'file',
-      new File(['dummy'], 'coaches.xlsx', {
+      new File([workbook], 'coaches.xlsx', {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       }),
     )

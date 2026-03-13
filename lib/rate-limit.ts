@@ -134,6 +134,41 @@ export function takeRateLimit({
   }
 }
 
+export function readRateLimit({
+  key,
+  limit,
+  windowMs,
+  now = Date.now(),
+}: TakeRateLimitOptions): RateLimitDecision {
+  const store = getStore()
+  cleanupExpiredEntries(store, now)
+
+  const existing = store.get(key)
+  if (!existing || existing.resetAt <= now) {
+    return {
+      allowed: true,
+      limit,
+      remaining: limit,
+      resetAt: now + windowMs,
+      retryAfterSeconds: Math.max(Math.ceil(windowMs / 1000), 1),
+      windowMs,
+    }
+  }
+
+  return {
+    allowed: existing.count < limit,
+    limit,
+    remaining: Math.max(limit - existing.count, 0),
+    resetAt: existing.resetAt,
+    retryAfterSeconds: Math.max(Math.ceil((existing.resetAt - now) / 1000), 1),
+    windowMs,
+  }
+}
+
+export function clearRateLimit(key: string) {
+  getStore().delete(key)
+}
+
 export function applyRateLimitHeaders(
   headers: Headers,
   decision: RateLimitDecision,

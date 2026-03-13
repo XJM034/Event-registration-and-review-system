@@ -1,5 +1,12 @@
 import type { NextConfig } from "next";
 
+const CONTENT_SECURITY_POLICY = [
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+].join('; ')
+
 const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
@@ -44,6 +51,34 @@ const nextConfig: NextConfig = {
           {
             key: 'X-XSS-Protection',
             value: '1; mode=block'
+          },
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=63072000; includeSubDomains; preload'
+          },
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(), microphone=(), geolocation=(), browsing-topics=()'
+          },
+          {
+            key: 'Cross-Origin-Opener-Policy',
+            value: 'same-origin'
+          },
+          {
+            key: 'Origin-Agent-Cluster',
+            value: '?1'
+          },
+          {
+            key: 'Cross-Origin-Resource-Policy',
+            value: 'same-site'
+          },
+          {
+            key: 'Content-Security-Policy',
+            value: CONTENT_SECURITY_POLICY,
+          },
+          {
+            key: 'X-Permitted-Cross-Domain-Policies',
+            value: 'none'
           }
         ]
       }

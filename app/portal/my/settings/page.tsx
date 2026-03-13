@@ -4,6 +4,16 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { getSessionUserWithRetry } from '@/lib/supabase/client-auth'
+import {
+  PASSWORD_POLICY_HINT,
+  PASSWORD_POLICY_MIN_LENGTH,
+  PASSWORD_POLICY_PLACEHOLDER,
+  validatePasswordStrength,
+} from '@/lib/password-policy'
+import {
+  readCachedPortalCoachId,
+  writeCachedPortalCoachId,
+} from '@/lib/portal/coach-session-cache'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,6 +31,8 @@ import {
   Save
 } from 'lucide-react'
 
+const SETTINGS_PROFILE_COLUMNS = 'id, name, phone, school'
+
 export default function AccountSettingsPage() {
   const router = useRouter()
   const [user, setUser] = useState<any>(null)
@@ -32,14 +44,13 @@ export default function AccountSettingsPage() {
   const [profileForm, setProfileForm] = useState({
     name: '',
     phone: '',
-    organization: ''
+    school: ''
   })
   const [isSavingProfile, setIsSavingProfile] = useState(false)
 
   // 密码修改
   const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false)
   const [passwordForm, setPasswordForm] = useState({
-    currentPassword: '',
     newPassword: '',
     confirmPassword: ''
   })
@@ -82,19 +93,36 @@ export default function AccountSettingsPage() {
 
       setUser(authUser)
 
-      // 获取教练信息
-      const { data: coachData } = await supabase
-        .from('coaches')
-        .select('*')
-        .eq('auth_id', authUser.id)
-        .single()
+      let coachData = null
+      const cachedCoachId = readCachedPortalCoachId(authUser.id)
+
+      if (cachedCoachId) {
+        const { data: cachedCoach } = await supabase
+          .from('coaches')
+          .select(SETTINGS_PROFILE_COLUMNS)
+          .eq('id', cachedCoachId)
+          .maybeSingle()
+
+        coachData = cachedCoach
+      }
+
+      if (!coachData) {
+        const { data: coachByAuthId } = await supabase
+          .from('coaches')
+          .select(SETTINGS_PROFILE_COLUMNS)
+          .eq('auth_id', authUser.id)
+          .single()
+
+        coachData = coachByAuthId
+      }
 
       if (coachData) {
+        writeCachedPortalCoachId(authUser.id, coachData.id)
         setCoach(coachData)
         setProfileForm({
           name: coachData.name || '',
           phone: coachData.phone || '',
-          organization: coachData.organization || ''
+          school: coachData.school || ''
         })
       }
     } catch (error) {
@@ -114,7 +142,7 @@ export default function AccountSettingsPage() {
         .update({
           name: profileForm.name,
           phone: profileForm.phone,
-          organization: profileForm.organization,
+          school: profileForm.school,
           updated_at: new Date().toISOString()
         })
         .eq('id', coach.id)
@@ -139,27 +167,28 @@ export default function AccountSettingsPage() {
       return
     }
 
-    if (passwordForm.newPassword.length < 6) {
-      alert('新密码长度不能少于6位')
+    const passwordValidation = validatePasswordStrength(passwordForm.newPassword)
+    if (!passwordValidation.valid) {
+      alert(passwordValidation.message)
       return
     }
 
     setIsUpdatingPassword(true)
 
     try {
-      const supabase = createClient()
-
-      // 更新密码
-      const { error } = await supabase.auth.updateUser({
-        password: passwordForm.newPassword
+      const response = await fetch('/api/portal/me/password', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: passwordForm.newPassword }),
       })
+      const result = await response.json()
 
-      if (error) {
-        alert('密码更新失败: ' + error.message)
+      if (!result.success) {
+        alert(result.error || '密码更新失败')
       } else {
         alert('密码更新成功')
         setIsPasswordDialogOpen(false)
-        setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+        setPasswordForm({ newPassword: '', confirmPassword: '' })
       }
     } catch (error) {
       console.error('更新密码失败:', error)
@@ -191,7 +220,7 @@ export default function AccountSettingsPage() {
 
   if (loadError) {
     return (
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <div className="mx-auto w-full max-w-4xl">
         <Card>
           <CardContent className="space-y-4 py-10 text-center">
             <p className="text-muted-foreground">{loadError}</p>
@@ -203,7 +232,7 @@ export default function AccountSettingsPage() {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
+    <div className="mx-auto w-full max-w-4xl">
       {/* 页面标题 */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold">账号设置</h1>
@@ -240,12 +269,12 @@ export default function AccountSettingsPage() {
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="organization">单位/学校</Label>
+              <Label htmlFor="organization">参赛单位</Label>
               <Input
                 id="organization"
-                value={profileForm.organization}
-                onChange={(e) => setProfileForm(prev => ({ ...prev, organization: e.target.value }))}
-                placeholder="请输入所在单位或学校"
+                value={profileForm.school}
+                onChange={(e) => setProfileForm(prev => ({ ...prev, school: e.target.value }))}
+                placeholder="请输入参赛单位"
               />
             </div>
           </div>
@@ -293,7 +322,7 @@ export default function AccountSettingsPage() {
           </Button>
           <Button
             variant="outline"
-            className="w-full justify-start text-red-600 hover:text-red-700"
+            className="w-full justify-start border-destructive/30 bg-destructive/5 text-destructive hover:border-destructive/45 hover:bg-destructive/10 hover:text-destructive"
             onClick={() => setIsDeleteDialogOpen(true)}
           >
             <Trash2 className="h-4 w-4 mr-2" />
@@ -308,7 +337,7 @@ export default function AccountSettingsPage() {
           <DialogHeader>
             <DialogTitle>修改密码</DialogTitle>
             <DialogDescription>
-              请输入新密码，密码长度至少6位
+              {PASSWORD_POLICY_HINT}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -320,7 +349,8 @@ export default function AccountSettingsPage() {
                   type={showPassword ? 'text' : 'password'}
                   value={passwordForm.newPassword}
                   onChange={(e) => setPasswordForm(prev => ({ ...prev, newPassword: e.target.value }))}
-                  placeholder="请输入新密码"
+                  placeholder={PASSWORD_POLICY_PLACEHOLDER}
+                  minLength={PASSWORD_POLICY_MIN_LENGTH}
                 />
                 <Button
                   type="button"
@@ -345,6 +375,7 @@ export default function AccountSettingsPage() {
                 value={passwordForm.confirmPassword}
                 onChange={(e) => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
                 placeholder="请再次输入新密码"
+                minLength={PASSWORD_POLICY_MIN_LENGTH}
               />
             </div>
           </div>
@@ -372,7 +403,7 @@ export default function AccountSettingsPage() {
                   <li>所有报名记录</li>
                   <li>队伍和队员信息</li>
                 </ul>
-                <p className="font-semibold text-red-600">此操作不可恢复，请谨慎操作！</p>
+                <p className="font-semibold text-destructive">此操作不可恢复，请谨慎操作！</p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -380,7 +411,7 @@ export default function AccountSettingsPage() {
             <AlertDialogCancel>取消</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteAccount}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               确认注销
             </AlertDialogAction>

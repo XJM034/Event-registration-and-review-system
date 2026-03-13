@@ -9,6 +9,7 @@ import {
 import { buildRateLimitKey, createRateLimitResponse, takeRateLimit } from '@/lib/rate-limit'
 import { writeSecurityAuditLog } from '@/lib/security-audit-log'
 import { generateSecureId } from '@/lib/security-random'
+import { applySensitiveResponseHeaders } from '@/lib/sensitive-response-headers'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import {
   PUBLIC_SHARE_ALLOWED_UPLOAD_BUCKETS,
@@ -24,6 +25,16 @@ const BUCKET = 'player-photos'
 
 interface RouteParams {
   params: Promise<{ token: string }>
+}
+
+function createPublicShareResponse(
+  body: unknown,
+  rateLimit: ReturnType<typeof takeRateLimit>,
+  init?: ResponseInit,
+) {
+  const response = createRateLimitResponse(body, rateLimit, init)
+  applySensitiveResponseHeaders(response.headers)
+  return response
 }
 
 export async function POST(request: NextRequest, context: RouteParams) {
@@ -51,7 +62,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
         result: 'denied',
         reason: 'rate_limited',
       })
-      return createRateLimitResponse(
+      return createPublicShareResponse(
         { error: '上传过于频繁，请稍后再试', success: false },
         rateLimit,
         { status: 429 },
@@ -68,7 +79,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
 
     if (shareTokenError) {
       console.error('Share upload token lookup failed:', shareTokenError)
-      return createRateLimitResponse(
+      return createPublicShareResponse(
         { error: '分享链接校验失败', success: false },
         rateLimit,
         { status: 500 }
@@ -89,7 +100,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
         result: 'failed',
         reason: `share_token_status_${shareTokenAccessError.status}`,
       })
-      return createRateLimitResponse(
+      return createPublicShareResponse(
         { error: shareTokenAccessError.error, success: false },
         rateLimit,
         { status: shareTokenAccessError.status }
@@ -107,7 +118,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
         result: 'failed',
         reason: 'share_token_not_found',
       })
-      return createRateLimitResponse(
+      return createPublicShareResponse(
         { error: '分享链接不存在', success: false },
         rateLimit,
         { status: 404 }
@@ -122,7 +133,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
 
     if (registrationError || !registrationData) {
       console.error('Share upload registration lookup failed:', registrationError)
-      return createRateLimitResponse(
+      return createPublicShareResponse(
         { error: '报名信息不存在', success: false },
         rateLimit,
         { status: 404 }
@@ -130,7 +141,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
     }
 
     if (!canMutateSharedRegistration(registrationData.status)) {
-      return createRateLimitResponse(
+      return createPublicShareResponse(
         { error: '当前报名状态不允许继续上传', success: false },
         rateLimit,
         { status: 409 }
@@ -149,7 +160,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
 
     if (settingsError) {
       console.error('Share upload settings lookup failed:', settingsError)
-      return createRateLimitResponse(
+      return createPublicShareResponse(
         { error: '获取报名配置失败', success: false },
         rateLimit,
         { status: 500 }
@@ -158,7 +169,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
 
     const selectedSettings = pickRegistrationSettings(settingsRows, divisionId)
     if (selectedSettings && isShareWriteClosed(selectedSettings.team_requirements)) {
-      return createRateLimitResponse(
+      return createPublicShareResponse(
         { error: '当前已过填写截止时间', success: false },
         rateLimit,
         { status: 409 }
@@ -168,7 +179,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
     const formData = await request.formData()
     const file = formData.get('file') as File | null
     if (!file) {
-      return createRateLimitResponse(
+      return createPublicShareResponse(
         { error: '请选择文件', success: false },
         rateLimit,
         { status: 400 }
@@ -176,7 +187,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
     }
 
     if (!PUBLIC_SHARE_ALLOWED_UPLOAD_BUCKETS.has(BUCKET)) {
-      return createRateLimitResponse(
+      return createPublicShareResponse(
         { error: '不支持的上传目录', success: false },
         rateLimit,
         { status: 400 }
@@ -191,7 +202,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
     })
 
     if (!precheck.valid) {
-      return createRateLimitResponse(
+      return createPublicShareResponse(
         { error: precheck.error || '文件格式不支持', success: false },
         rateLimit,
         { status: 400 }
@@ -199,7 +210,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      return createRateLimitResponse(
+      return createPublicShareResponse(
         { error: '文件大小不能超过 5MB', success: false },
         rateLimit,
         { status: 400 }
@@ -216,7 +227,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
     })
 
     if (!signatureCheck.valid || !signatureCheck.extension) {
-      return createRateLimitResponse(
+      return createPublicShareResponse(
         { error: signatureCheck.error || '文件内容校验失败', success: false },
         rateLimit,
         { status: 400 }
@@ -241,7 +252,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
 
     if (uploadError || !uploadData) {
       console.error('Share upload storage failed:', uploadError)
-      return createRateLimitResponse(
+      return createPublicShareResponse(
         { error: '文件上传失败，请稍后重试', success: false },
         rateLimit,
         { status: 500 }
@@ -265,7 +276,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
       },
     })
 
-    return createRateLimitResponse(
+    return createPublicShareResponse(
       {
         success: true,
         data: {
@@ -284,9 +295,11 @@ export async function POST(request: NextRequest, context: RouteParams) {
     )
   } catch (error) {
     console.error('Share upload route error:', error)
-    return NextResponse.json(
+    const response = NextResponse.json(
       { error: '服务器错误', success: false },
       { status: 500 }
     )
+    applySensitiveResponseHeaders(response.headers)
+    return response
   }
 }

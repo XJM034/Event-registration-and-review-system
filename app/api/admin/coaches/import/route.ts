@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import * as XLSX from 'xlsx'
 import { getCurrentAdminSession } from '@/lib/auth'
+import { readFirstWorksheetRows } from '@/lib/excel-workbook'
+import { buildImportedCoachPassword, IMPORTED_COACH_PASSWORD_RULE } from '@/lib/password-policy'
 import { writeSecurityAuditLog } from '@/lib/security-audit-log'
 
 export const dynamic = 'force-dynamic'
@@ -95,7 +96,7 @@ export async function POST(request: NextRequest) {
     }
 
     const fileName = file.name.toLowerCase()
-    if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.xls')) {
+    if (!fileName.endsWith('.xlsx')) {
       await writeSecurityAuditLog({
         request,
         action: 'import_coach_accounts',
@@ -110,14 +111,13 @@ export async function POST(request: NextRequest) {
         },
       })
       return NextResponse.json(
-        { success: false, error: '仅支持 .xlsx 或 .xls 文件' },
+        { success: false, error: '仅支持 .xlsx 文件' },
         { status: 400 }
       )
     }
 
     const bytes = await file.arrayBuffer()
-    const workbook = XLSX.read(Buffer.from(bytes), { type: 'buffer' })
-    const firstSheetName = workbook.SheetNames[0]
+    const { sheetName: firstSheetName, rows } = await readFirstWorksheetRows(bytes, 4)
     if (!firstSheetName) {
       await writeSecurityAuditLog({
         request,
@@ -137,11 +137,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    const rows = XLSX.utils.sheet_to_json<(string | number | null)[]>(
-      workbook.Sheets[firstSheetName],
-      { header: 1, raw: false, defval: '' }
-    )
 
     if (rows.length <= 1) {
       await writeSecurityAuditLog({
@@ -217,7 +212,7 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      const password = phone.slice(-6)
+      const password = buildImportedCoachPassword(phone)
       const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email: `${phone}@system.local`,
         password,
@@ -307,7 +302,7 @@ export async function POST(request: NextRequest) {
         createdCount,
         skippedCount,
         failedCount,
-        defaultPasswordRule: '默认密码为手机号后 6 位',
+        defaultPasswordRule: IMPORTED_COACH_PASSWORD_RULE,
         details: details.slice(0, 200),
       },
     })

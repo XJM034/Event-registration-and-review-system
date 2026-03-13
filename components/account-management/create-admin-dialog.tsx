@@ -13,6 +13,12 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  PASSWORD_POLICY_HINT,
+  PASSWORD_POLICY_MIN_LENGTH,
+  PASSWORD_POLICY_PLACEHOLDER,
+  validatePasswordStrength,
+} from '@/lib/password-policy'
 
 interface CreateAdminDialogProps {
   open: boolean
@@ -37,8 +43,9 @@ export function CreateAdminDialog({ open, onOpenChange, onSuccess }: CreateAdmin
     }
 
     // 验证密码
-    if (password.length < 6) {
-      alert('密码长度至少为6位')
+    const passwordValidation = validatePasswordStrength(password)
+    if (!passwordValidation.valid) {
+      alert(passwordValidation.message)
       return
     }
 
@@ -107,11 +114,13 @@ export function CreateAdminDialog({ open, onOpenChange, onSuccess }: CreateAdmin
               <Input
                 id="password"
                 type="password"
-                placeholder="至少6位"
+                placeholder={PASSWORD_POLICY_PLACEHOLDER}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                minLength={PASSWORD_POLICY_MIN_LENGTH}
                 required
               />
+              <p className="text-xs text-muted-foreground">{PASSWORD_POLICY_HINT}</p>
             </div>
             <div className="flex items-center space-x-2">
               <Checkbox

@@ -461,11 +461,11 @@ export default function CreateEventPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-6">
+    <div className="min-h-screen bg-background py-6">
       <div className="max-w-4xl mx-auto px-6">
         {/* 头部导航 */}
         <div className="mb-6">
-          <Link href="/events" className="inline-flex items-center text-blue-600 hover:text-blue-700">
+          <Link href="/events" className="inline-flex items-center text-primary transition-colors hover:text-primary/80">
             <ArrowLeft className="h-4 w-4 mr-2" />
             返回赛事列表
           </Link>
@@ -483,7 +483,7 @@ export default function CreateEventPage() {
           </CardHeader>
           <CardContent>
             {error && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md text-red-600 text-sm">
+              <div className="mb-6 rounded-md border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
                 {error}
               </div>
             )}
@@ -499,7 +499,7 @@ export default function CreateEventPage() {
                   className="h-11 w-full"
                 />
                 {errors.name && (
-                  <p className="text-red-600 text-sm">{errors.name.message}</p>
+                  <p className="text-sm text-destructive">{errors.name.message}</p>
                 )}
               </div>
 
@@ -529,10 +529,10 @@ export default function CreateEventPage() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors">
-                      <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
-                      <p className="text-sm text-gray-600 mb-2">点击或拖拽上传海报图片</p>
-                      <p className="text-xs text-gray-500">支持 JPG、PNG 格式，文件大小不超过 5MB</p>
+                    <div className="relative rounded-lg border-2 border-dashed border-border/60 p-8 text-center transition-colors hover:border-border">
+                      <Upload className="mx-auto mb-2 h-8 w-8 text-muted-foreground/70" />
+                      <p className="mb-2 text-sm text-foreground">点击或拖拽上传海报图片</p>
+                      <p className="text-xs text-muted-foreground">支持 JPG、PNG 格式，文件大小不超过 5MB</p>
                       <input
                         type="file"
                         accept="image/*"
@@ -550,11 +550,11 @@ export default function CreateEventPage() {
                   <Paperclip className="h-4 w-4 mr-1" />
                   参考模板
                 </Label>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-muted-foreground">
                   支持选择多个模板文件，提交创建时自动上传（PDF、DOC、DOCX、XLS、XLSX、图片，单个不超过 20MB）
                 </p>
-                <div className="relative border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
-                  <p className="text-sm text-gray-600 mb-1">
+                <div className="relative rounded-lg border-2 border-dashed border-border/60 p-4 text-center transition-colors hover:border-border">
+                  <p className="mb-1 text-sm text-foreground">
                     {uploadingTemplates ? '模板上传中...' : '点击或拖拽选择模板文件（可多选）'}
                   </p>
                   <input
@@ -576,7 +576,7 @@ export default function CreateEventPage() {
                       >
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium truncate">{item.file.name}</p>
-                          <p className="text-xs text-gray-500">{formatFileSize(item.file.size)}</p>
+                          <p className="text-xs text-muted-foreground">{formatFileSize(item.file.size)}</p>
                         </div>
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                           <div className="min-w-[170px]">
@@ -601,7 +601,7 @@ export default function CreateEventPage() {
                               type="button"
                               variant="ghost"
                               size="sm"
-                              className="text-blue-600 hover:text-blue-700"
+                              className="text-primary hover:text-primary/80"
                               onClick={() => previewReferenceTemplate(item.file)}
                               disabled={isSubmitting}
                             >
@@ -653,7 +653,7 @@ export default function CreateEventPage() {
                       </SelectContent>
                     </Select>
                   {errors.type && (
-                      <p className="text-red-600 text-sm">{errors.type.message}</p>
+                      <p className="text-sm text-destructive">{errors.type.message}</p>
                     )}
                   </div>
 
@@ -686,7 +686,7 @@ export default function CreateEventPage() {
                 {filteredDivisions.length > 0 && (
                 <div className="space-y-2">
                   <Label>组别选择 *</Label>
-                  <p className="text-sm text-gray-500">选择该赛事包含的组别，每个组别可独立配置报名设置</p>
+                  <p className="text-sm text-muted-foreground">选择该赛事包含的组别，每个组别可独立配置报名设置</p>
                   <div className="border rounded-md p-4 space-y-2 max-h-60 overflow-y-auto">
                       {filteredDivisions.map((division) => (
                         <div key={division.id} className="flex items-center space-x-2">
@@ -704,14 +704,14 @@ export default function CreateEventPage() {
                           <label htmlFor={`division-${division.id}`} className="text-sm cursor-pointer">
                             {division.name}
                             {division.description && (
-                              <span className="text-gray-500 ml-2">({division.description})</span>
+                              <span className="ml-2 text-muted-foreground">({division.description})</span>
                             )}
                           </label>
                         </div>
                       ))}
                     </div>
                     {selectedDivisionIds.length > 0 && (
-                      <p className="text-sm text-blue-600">
+                      <p className="text-sm text-primary">
                         已选择 {selectedDivisionIds.length} 个组别
                       </p>
                     )}
@@ -730,7 +730,7 @@ export default function CreateEventPage() {
                     className="h-11 w-full"
                   />
                   {errors.start_date && (
-                    <p className="text-red-600 text-sm">{errors.start_date.message}</p>
+                    <p className="text-sm text-destructive">{errors.start_date.message}</p>
                   )}
                 </div>
 
@@ -743,7 +743,7 @@ export default function CreateEventPage() {
                     className="h-11 w-full"
                   />
                   {errors.end_date && (
-                    <p className="text-red-600 text-sm">{errors.end_date.message}</p>
+                    <p className="text-sm text-destructive">{errors.end_date.message}</p>
                   )}
                   {dateError && (
                     <p className="text-amber-600 text-sm">{dateError}</p>
@@ -764,7 +764,7 @@ export default function CreateEventPage() {
                   className="h-11 w-full"
                 />
                 {errors.address && (
-                  <p className="text-red-600 text-sm">{errors.address.message}</p>
+                  <p className="text-sm text-destructive">{errors.address.message}</p>
                 )}
               </div>
 
@@ -781,7 +781,7 @@ export default function CreateEventPage() {
                   className="h-11 w-full"
                 />
                 {errors.phone && (
-                  <p className="text-red-600 text-sm">{errors.phone.message}</p>
+                  <p className="text-sm text-destructive">{errors.phone.message}</p>
                 )}
               </div>
 
@@ -798,7 +798,7 @@ export default function CreateEventPage() {
                   className="min-h-32"
                 />
                 {errors.details && (
-                  <p className="text-red-600 text-sm">{errors.details.message}</p>
+                  <p className="text-sm text-destructive">{errors.details.message}</p>
                 )}
               </div>
 
@@ -815,7 +815,7 @@ export default function CreateEventPage() {
                   className="min-h-32"
                 />
                 {errors.requirements && (
-                  <p className="text-red-600 text-sm">{errors.requirements.message}</p>
+                  <p className="text-sm text-destructive">{errors.requirements.message}</p>
                 )}
               </div>
 
@@ -832,7 +832,7 @@ export default function CreateEventPage() {
                 <Button
                   type="submit"
                   disabled={isSubmitting}
-                  className="bg-blue-600 hover:bg-blue-700"
+                  className="bg-primary text-primary-foreground hover:bg-primary/90"
                 >
                   {isSubmitting ? (
                     <>

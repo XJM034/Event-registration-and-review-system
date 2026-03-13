@@ -8,7 +8,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import AuthPageShell from '@/components/auth-page-shell'
 import { Loader2, Mail, Lock, User, Phone, School } from 'lucide-react'
+import {
+  PASSWORD_POLICY_HINT,
+  PASSWORD_POLICY_MIN_LENGTH,
+  PASSWORD_POLICY_PLACEHOLDER,
+  validatePasswordStrength,
+} from '@/lib/password-policy'
 import { createClient } from '@/lib/supabase/client'
 
 export default function RegisterPage() {
@@ -39,8 +46,9 @@ export default function RegisterPage() {
       return
     }
 
-    if (formData.password.length < 6) {
-      setError('密码长度至少6位')
+    const passwordValidation = validatePasswordStrength(formData.password)
+    if (!passwordValidation.valid) {
+      setError(passwordValidation.message || PASSWORD_POLICY_HINT)
       setIsLoading(false)
       return
     }
@@ -122,7 +130,7 @@ export default function RegisterPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 px-4">
+      <AuthPageShell contentClassName="max-w-md">
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <CardTitle className="text-2xl font-bold text-green-600">注册成功！</CardTitle>
@@ -131,12 +139,12 @@ export default function RegisterPage() {
             </CardDescription>
           </CardHeader>
         </Card>
-      </div>
+      </AuthPageShell>
     )
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 px-4">
+    <AuthPageShell contentClassName="max-w-md">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold">教练注册</CardTitle>
@@ -232,11 +240,12 @@ export default function RegisterPage() {
                 <Input
                   id="password"
                   type="password"
-                  placeholder="请输入密码（至少6位）"
+                  placeholder={PASSWORD_POLICY_PLACEHOLDER}
                   value={formData.password}
                   onChange={(e) => handleInputChange('password', e.target.value)}
                   className="pl-10"
                   disabled={isLoading}
+                  minLength={PASSWORD_POLICY_MIN_LENGTH}
                   required
                 />
               </div>
@@ -257,6 +266,7 @@ export default function RegisterPage() {
                   onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
                   className="pl-10"
                   disabled={isLoading}
+                  minLength={PASSWORD_POLICY_MIN_LENGTH}
                   required
                 />
               </div>
@@ -283,11 +293,11 @@ export default function RegisterPage() {
               )}
             </Button>
 
-            <p className="text-center text-sm text-gray-600">
+            <p className="text-center text-sm text-muted-foreground">
               已有账号？
               <Link 
                 href="/auth/login" 
-                className="text-blue-600 hover:text-blue-700 font-medium ml-1"
+                className="ml-1 font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
               >
                 立即登录
               </Link>
@@ -295,6 +305,6 @@ export default function RegisterPage() {
           </form>
         </CardContent>
       </Card>
-    </div>
+    </AuthPageShell>
   )
 }

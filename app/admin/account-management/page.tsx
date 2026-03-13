@@ -1,15 +1,36 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import { ChevronLeft } from 'lucide-react'
-import CoachesTab from '@/components/account-management/coaches-tab'
-import { AdminsTab } from '@/components/account-management/admins-tab'
-import MyAccountTab from '@/components/account-management/my-account-tab'
+
+function TabPanelLoading() {
+  return (
+    <div className="flex min-h-[240px] items-center justify-center rounded-xl border border-dashed border-border bg-card/40">
+      <div className="text-sm text-muted-foreground">正在加载模块...</div>
+    </div>
+  )
+}
+
+const CoachesTab = dynamic(() => import('@/components/account-management/coaches-tab'), {
+  loading: () => <TabPanelLoading />,
+})
+
+const AdminsTab = dynamic(
+  () => import('@/components/account-management/admins-tab').then((mod) => mod.AdminsTab),
+  {
+    loading: () => <TabPanelLoading />,
+  }
+)
+
+const MyAccountTab = dynamic(() => import('@/components/account-management/my-account-tab'), {
+  loading: () => <TabPanelLoading />,
+})
 
 export default function AccountManagementPage() {
   const router = useRouter()

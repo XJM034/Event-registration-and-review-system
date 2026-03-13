@@ -1,17 +1,38 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import dynamic from 'next/dynamic'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, Settings, Users, ClipboardList } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
-import BasicInfoTab from '@/components/event-manage/basic-info-tab'
-import RegistrationSettingsTab from '@/components/event-manage/registration-settings-tab'
-import ReviewListTab from '@/components/event-manage/review-list-tab'
-import RegistrationListTab from '@/components/event-manage/registration-list-tab'
 import { ThemeSwitcher } from '@/components/theme-switcher'
+
+function TabPanelLoading() {
+  return (
+    <div className="flex min-h-[240px] items-center justify-center rounded-xl border border-dashed border-border bg-card/40">
+      <div className="text-sm text-muted-foreground">正在加载模块...</div>
+    </div>
+  )
+}
+
+const BasicInfoTab = dynamic(() => import('@/components/event-manage/basic-info-tab'), {
+  loading: () => <TabPanelLoading />,
+})
+
+const RegistrationSettingsTab = dynamic(() => import('@/components/event-manage/registration-settings-tab'), {
+  loading: () => <TabPanelLoading />,
+})
+
+const ReviewListTab = dynamic(() => import('@/components/event-manage/review-list-tab'), {
+  loading: () => <TabPanelLoading />,
+})
+
+const RegistrationListTab = dynamic(() => import('@/components/event-manage/registration-list-tab'), {
+  loading: () => <TabPanelLoading />,
+})
 
 interface Event {
   id: string
@@ -129,7 +150,9 @@ export default function EventManagePage() {
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 返回赛事列表
               </Link>
-              <ThemeSwitcher />
+              <div className="-mt-1 self-start">
+                <ThemeSwitcher />
+              </div>
             </div>
 
             {event.poster_url && (

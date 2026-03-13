@@ -1,10 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentAdminSession } from '@/lib/auth'
+import { validatePasswordStrength } from '@/lib/password-policy'
 import { writeSecurityAuditLog } from '@/lib/security-audit-log'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
+
+const COACH_LIST_COLUMNS = `
+  id,
+  phone,
+  name,
+  school,
+  organization,
+  is_active,
+  created_at,
+  last_login_at,
+  notes,
+  created_by_admin:admin_users!created_by(
+    phone,
+    email
+  )
+`
+
+const COACH_CREATE_RESULT_COLUMNS =
+  'id, auth_id, phone, name, school, organization, notes, is_active, created_at'
 
 // 创建 Admin Client（使用 Service Role Key）
 const supabaseAdmin = createClient(
@@ -86,7 +106,7 @@ export async function GET(request: NextRequest) {
     // 构建查询
     let query = supabaseAdmin
       .from('coaches')
-      .select('*, created_by_admin:admin_users!created_by(phone)', { count: 'exact' })
+      .select(COACH_LIST_COLUMNS, { count: 'exact' })
 
     if (adminAuthFilter) {
       query = query.not('auth_id', 'in', adminAuthFilter)
@@ -217,6 +237,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const { phone, password, name, school, organization, notes } = body
+    const passwordValidation = validatePasswordStrength(typeof password === 'string' ? password : '')
     const normalizedOrganization = typeof organization === 'string' ? organization.trim() : ''
     const normalizedNotes = typeof notes === 'string' ? notes.trim() : ''
 
@@ -263,7 +284,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 验证密码长度
-    if (password.length < 6) {
+    if (!passwordValidation.valid) {
       await writeSecurityAuditLog({
         request,
         action: 'create_coach_account',
@@ -278,7 +299,7 @@ export async function POST(request: NextRequest) {
         },
       })
       return NextResponse.json(
-        { error: '密码长度至少为6位', success: false },
+        { error: passwordValidation.message, success: false },
         { status: 400 }
       )
     }
@@ -361,7 +382,7 @@ export async function POST(request: NextRequest) {
     // 获取完整的 coach 信息
     const { data: coach } = await supabaseAdmin
       .from('coaches')
-      .select('*')
+      .select(COACH_CREATE_RESULT_COLUMNS)
       .eq('auth_id', authUser.user.id)
       .single()
 

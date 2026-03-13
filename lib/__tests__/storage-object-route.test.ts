@@ -60,7 +60,7 @@ describe('GET /api/storage/object', () => {
   const coachSession = {
     user: { id: 'coach-1' },
     session: null,
-  } as Awaited<ReturnType<typeof getCurrentCoachSession>>
+  } as unknown as Awaited<ReturnType<typeof getCurrentCoachSession>>
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -88,6 +88,9 @@ describe('GET /api/storage/object', () => {
     )
 
     expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-store, max-age=0')
+    expect(response.headers.get('pragma')).toBe('no-cache')
+    expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow, noarchive')
     expect(downloadMock).toHaveBeenCalledWith('coach/coach-1/upload-fixed.png')
     expect(serviceRoleClientMock.from).not.toHaveBeenCalled()
   })
@@ -136,6 +139,9 @@ describe('GET /api/storage/object', () => {
     const payload = await response.json()
 
     expect(response.status).toBe(401)
+    expect(response.headers.get('cache-control')).toBe('no-store, max-age=0')
+    expect(response.headers.get('pragma')).toBe('no-cache')
+    expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow, noarchive')
     expect(payload.success).toBe(false)
     expect(payload.error).toBe('未授权访问')
     expect(downloadMock).not.toHaveBeenCalled()
@@ -187,6 +193,9 @@ describe('GET /api/storage/object', () => {
     )
 
     expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-store, max-age=0')
+    expect(response.headers.get('pragma')).toBe('no-cache')
+    expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow, noarchive')
     expect(downloadMock).toHaveBeenCalledWith(
       'public-share/reg-1/player-player-1/photo.png',
     )

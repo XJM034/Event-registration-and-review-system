@@ -14,6 +14,9 @@ const cookieBaseOptions = {
   path: '/',
 }
 
+const ADMIN_SESSION_USER_COLUMNS = 'id, auth_id, is_super'
+const COACH_SESSION_USER_COLUMNS = 'id'
+
 function tryClearAdminSessionCookies(cookieStore: Awaited<ReturnType<typeof cookies>>) {
   try {
     cookieStore.set({
@@ -120,7 +123,7 @@ export async function getCurrentAdminSession() {
 
   const { data: admin } = await serviceRoleClient
     .from('admin_users')
-    .select('*')
+    .select(ADMIN_SESSION_USER_COLUMNS)
     .eq('auth_id', session.user.id)
     .maybeSingle()
 
@@ -147,7 +150,7 @@ export async function getCurrentCoachSession() {
   // 查询 coaches 表获取完整信息
   const { data: coach } = await supabase
     .from('coaches')
-    .select('*')
+    .select(COACH_SESSION_USER_COLUMNS)
     .eq('auth_id', session.user.id)
     .single()
 

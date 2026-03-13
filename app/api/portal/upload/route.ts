@@ -134,12 +134,6 @@ export async function POST(request: NextRequest) {
       ? buildStorageObjectUrl(bucket, uploadData.path)
       : supabase.storage.from(bucket).getPublicUrl(fileName).data.publicUrl
 
-    console.log('Upload success:', {
-      path: uploadData.path,
-      url: fileUrl,
-      fileName,
-    })
-
     return NextResponse.json({
       success: true,
       data: {

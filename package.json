@@ -12,6 +12,7 @@
     "pretest": "node scripts/ensure-env.mjs",
     "test": "vitest run",
     "test:template-e2e": "tsx scripts/verify-template-export-e2e.ts",
+    "security:check": "node scripts/ensure-env.mjs && node scripts/verify-security-posture.mjs",
     "env:sync": "node scripts/ensure-env.mjs --sync"
   },
   "dependencies": {
@@ -44,17 +45,16 @@
     "clsx": "^2.1.1",
     "exceljs": "^4.4.0",
     "file-saver": "^2.0.5",
-    "jsonwebtoken": "^9.0.2",
+    "jsonwebtoken": "^9.0.3",
     "jszip": "^3.10.1",
     "lucide-react": "^0.511.0",
-    "next": "latest",
+    "next": "15.5.10",
     "next-themes": "^0.4.6",
     "pdf-lib": "^1.17.1",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "19.2.1",
+    "react-dom": "19.2.1",
     "react-hook-form": "^7.62.0",
     "tailwind-merge": "^3.3.0",
-    "xlsx": "^0.18.5",
     "zod": "^4.1.5"
   },
   "devDependencies": {
@@ -65,7 +65,7 @@
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.20",
     "eslint": "^9",
-    "eslint-config-next": "15.3.1",
+    "eslint-config-next": "15.5.10",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "tailwindcss-animate": "^1.0.7",
@@ -73,5 +73,10 @@
     "typescript": "^5",
     "vitest": "^4.0.18"
   },
-  "packageManager": "pnpm@10.15.1+sha512.34e538c329b5553014ca8e8f4535997f96180a1d0f614339357449935350d924e22f8614682191264ec33d1462ac21561aff97f6bb18065351c162c7e8f6de67"
+  "packageManager": "pnpm@10.15.1+sha512.34e538c329b5553014ca8e8f4535997f96180a1d0f614339357449935350d924e22f8614682191264ec33d1462ac21561aff97f6bb18065351c162c7e8f6de67",
+  "pnpm": {
+    "overrides": {
+      "minimatch": "3.1.4"
+    }
+  }
 }
