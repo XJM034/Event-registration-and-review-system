@@ -9,9 +9,33 @@ type TeamRequirementsShape = {
 }
 
 type RegistrationSettingShape = {
+  id?: string
+  event_id?: string
+  division_id?: string | null
+  created_at?: string
+  updated_at?: string
+  player_requirements?: unknown
   team_requirements?: TeamRequirementsShape
   [key: string]: unknown
 }
+
+function stripRegistrationSettingTimestamps(
+  setting: RegistrationSettingShape | null | undefined,
+): RegistrationSettingShape | null {
+  if (!setting) return null
+
+  const { created_at, updated_at, ...publicSetting } = setting
+  void created_at
+  void updated_at
+  return publicSetting
+}
+
+const PORTAL_EVENT_DETAIL_COLUMNS =
+  'id, name, short_name, poster_url, start_date, end_date, address, details, requirements, reference_templates, phone, is_visible'
+
+// pickEffectiveRegistrationSetting() uses timestamps to break ties within the same phase.
+const PORTAL_REGISTRATION_SETTINGS_COLUMNS =
+  'id, event_id, division_id, team_requirements, player_requirements, created_at, updated_at'
 
 const toDivisionRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value) return null
@@ -44,7 +68,7 @@ export async function GET(
     try {
       const result = await supabase
         .from('events')
-        .select('*')
+        .select(PORTAL_EVENT_DETAIL_COLUMNS)
         .eq('id', eventId)
         .eq('is_visible', true)
         .single()
@@ -73,7 +97,7 @@ export async function GET(
     try {
       const result = await supabase
         .from('registration_settings')
-        .select('*')
+        .select(PORTAL_REGISTRATION_SETTINGS_COLUMNS)
         .eq('event_id', eventId)
       settingsRows = result.data
       settingsError = result.error
@@ -124,30 +148,18 @@ export async function GET(
         ? [settingsRows]
         : []
 
-    const typedEffectiveSettings = effectiveSettings as RegistrationSettingShape | null
-
     const eventWithSettings = {
       ...event,
-      registration_settings: settingsError ? null : effectiveSettings,
-      registration_settings_by_division: settingsError ? [] : settingsList,
+      registration_settings: settingsError
+        ? null
+        : stripRegistrationSettingTimestamps(effectiveSettings as RegistrationSettingShape | null),
+      registration_settings_by_division: settingsError
+        ? []
+        : settingsList
+            .map((setting) => stripRegistrationSettingTimestamps(setting))
+            .filter((setting): setting is RegistrationSettingShape => setting !== null),
       divisions: divisions
     }
-
-    // 调试信息
-    console.log('Portal API debug - Event with settings:', {
-      eventId,
-      settingsCount: Array.isArray(settingsRows) ? settingsRows.length : settingsRows ? 1 : 0,
-      hasSettings: !!effectiveSettings,
-      hasDivisionSettings: settingsList.length > 0,
-      settingsType: typeof effectiveSettings,
-      teamRequirements: typedEffectiveSettings?.team_requirements,
-      teamReqType: typeof typedEffectiveSettings?.team_requirements,
-      allFields: typedEffectiveSettings?.team_requirements?.allFields,
-      commonFields: typedEffectiveSettings?.team_requirements?.commonFields,
-      customFields: typedEffectiveSettings?.team_requirements?.customFields,
-      rawSettings: effectiveSettings
-    })
-
     return NextResponse.json({
       success: true,
       data: eventWithSettings

@@ -10,7 +10,7 @@ vi.mock('@/lib/auth', () => ({
   getCurrentAdminSession: vi.fn(),
 }))
 
-import { ensureCoachRowDeleted } from '../../app/api/admin/coaches/[id]/route'
+import { ensureCoachRowDeleted } from '../coach-delete-fallback'
 
 type SelectStep = {
   type: 'select'
@@ -75,7 +75,7 @@ describe('ensureCoachRowDeleted', () => {
     ])
 
     const result = await ensureCoachRowDeleted('coach-1', {
-      client: client as unknown as ReturnType<typeof mockedCreateClient>,
+      client,
       retryDelayMs: 0,
     })
 
@@ -100,7 +100,7 @@ describe('ensureCoachRowDeleted', () => {
     ])
 
     const result = await ensureCoachRowDeleted('coach-1', {
-      client: client as unknown as ReturnType<typeof mockedCreateClient>,
+      client,
       retryDelayMs: 0,
     })
 
@@ -125,7 +125,7 @@ describe('ensureCoachRowDeleted', () => {
     ])
 
     const result = await ensureCoachRowDeleted('coach-1', {
-      client: client as unknown as ReturnType<typeof mockedCreateClient>,
+      client,
       retryDelayMs: 0,
     })
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -24,10 +25,11 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Plus, Search, Edit, Trash2, Key, Loader2 } from 'lucide-react'
-import CreateCoachDialog from './create-coach-dialog'
-import EditCoachDialog from './edit-coach-dialog'
-import ResetPasswordDialog from './reset-password-dialog'
-import ImportCoachesDialog from './import-coaches-dialog'
+
+const CreateCoachDialog = dynamic(() => import('./create-coach-dialog'))
+const EditCoachDialog = dynamic(() => import('./edit-coach-dialog'))
+const ResetPasswordDialog = dynamic(() => import('./reset-password-dialog'))
+const ImportCoachesDialog = dynamic(() => import('./import-coaches-dialog'))
 
 interface Coach {
   id: string
@@ -497,32 +499,40 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
       </div>
 
       {/* Dialogs */}
-      <CreateCoachDialog
-        open={showCreateDialog}
-        onOpenChange={setShowCreateDialog}
-        onSuccess={loadCoaches}
-      />
+      {showCreateDialog && (
+        <CreateCoachDialog
+          open={showCreateDialog}
+          onOpenChange={setShowCreateDialog}
+          onSuccess={loadCoaches}
+        />
+      )}
 
-      <ImportCoachesDialog
-        open={showImportDialog}
-        onOpenChange={setShowImportDialog}
-        onSuccess={loadCoaches}
-      />
+      {showImportDialog && (
+        <ImportCoachesDialog
+          open={showImportDialog}
+          onOpenChange={setShowImportDialog}
+          onSuccess={loadCoaches}
+        />
+      )}
 
       {selectedCoach && (
         <>
-          <EditCoachDialog
-            open={showEditDialog}
-            onOpenChange={setShowEditDialog}
-            coach={selectedCoach}
-            onSuccess={loadCoaches}
-          />
+          {showEditDialog && (
+            <EditCoachDialog
+              open={showEditDialog}
+              onOpenChange={setShowEditDialog}
+              coach={selectedCoach}
+              onSuccess={loadCoaches}
+            />
+          )}
 
-          <ResetPasswordDialog
-            open={showResetPasswordDialog}
-            onOpenChange={setShowResetPasswordDialog}
-            coach={selectedCoach}
-          />
+          {showResetPasswordDialog && (
+            <ResetPasswordDialog
+              open={showResetPasswordDialog}
+              onOpenChange={setShowResetPasswordDialog}
+              coach={selectedCoach}
+            />
+          )}
 
           <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
             <AlertDialogContent>

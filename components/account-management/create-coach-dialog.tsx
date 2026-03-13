@@ -14,6 +14,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Loader2 } from 'lucide-react'
+import {
+  PASSWORD_POLICY_HINT,
+  PASSWORD_POLICY_MIN_LENGTH,
+  PASSWORD_POLICY_PLACEHOLDER,
+  validatePasswordStrength,
+} from '@/lib/password-policy'
 
 interface CreateCoachDialogProps {
   open: boolean
@@ -45,8 +51,9 @@ export default function CreateCoachDialog({
     }
 
     // 验证密码
-    if (formData.password.length < 6) {
-      alert('密码长度至少为6位')
+    const passwordValidation = validatePasswordStrength(formData.password)
+    if (!passwordValidation.valid) {
+      alert(passwordValidation.message)
       return
     }
 
@@ -114,14 +121,14 @@ export default function CreateCoachDialog({
               <Input
                 id="password"
                 type="password"
-                placeholder="至少6位"
+                placeholder={PASSWORD_POLICY_PLACEHOLDER}
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 required
-                minLength={6}
+                minLength={PASSWORD_POLICY_MIN_LENGTH}
               />
               <p className="text-xs text-gray-500">
-                教练首次登录后可以自行修改密码
+                {PASSWORD_POLICY_HINT}
               </p>
             </div>
 

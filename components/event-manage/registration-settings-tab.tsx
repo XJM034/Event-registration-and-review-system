@@ -1310,11 +1310,6 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           return
         }
 
-        // 计算年龄范围并提示
-        const currentYear = new Date().getFullYear()
-        const minAge = currentYear - new Date(maxAgeDate).getFullYear()
-        const maxAge = currentYear - new Date(minAgeDate).getFullYear()
-        console.log(`年龄要求设置：${minAge}-${maxAge}岁（出生日期：${minAgeDate} 至 ${maxAgeDate}）`)
       }
     }
 
@@ -1559,26 +1554,11 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
       options: tempOptions.filter(opt => opt && opt.trim() !== '')
     }
 
-    console.log('Saving field with options:', {
-      fieldId: editingField.field.id,
-      oldOptions: editingField.field.options,
-      newOptions: updatedField.options,
-      tempOptions: tempOptions
-    })
-
     // 检查是否是新建字段（字段ID以custom_开头且在现有字段中找不到）
     const isNewField = editingField.field.id.startsWith('custom_') && !editingField.isCommon &&
       (editingField.type === 'team'
         ? !teamRequirements.customFields.find(f => f.id === editingField.field.id)
         : true) // 对于player类型，暂时简化处理
-
-    console.log('Field editing logic check:', {
-      fieldId: editingField.field.id,
-      isCommon: editingField.isCommon,
-      startsWithCustom: editingField.field.id.startsWith('custom_'),
-      existingCustomFields: teamRequirements.customFields.map(f => f.id),
-      isNewField: isNewField
-    })
 
     if (isNewField) {
       // 新增的自定义字段

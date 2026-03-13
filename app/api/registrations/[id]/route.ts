@@ -7,6 +7,9 @@ interface RouteParams {
   params: Promise<{ id: string }>
 }
 
+const REGISTRATION_DETAIL_COLUMNS =
+  'id, event_id, coach_id, team_data, players_data, status, submitted_at, reviewed_at'
+
 const NO_STORE_HEADERS = {
   'Cache-Control': 'no-store, max-age=0',
   Pragma: 'no-cache',
@@ -53,7 +56,7 @@ export async function GET(request: NextRequest, context: RouteParams) {
 
     let query = supabase
       .from('registrations')
-      .select('*')
+      .select(REGISTRATION_DETAIL_COLUMNS)
       .eq('id', id)
 
     if (eventId) {

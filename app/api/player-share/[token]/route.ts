@@ -12,16 +12,14 @@ import {
 } from '@/lib/player-share-token'
 import { applyRateLimitHeaders, buildRateLimitKey, type RateLimitDecision, takeRateLimit } from '@/lib/rate-limit'
 import { writeSecurityAuditLog } from '@/lib/security-audit-log'
+import { applySensitiveResponseHeaders } from '@/lib/sensitive-response-headers'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 
 interface RouteParams {
   params: Promise<{ token: string }>
 }
 
-const NO_STORE_HEADERS = {
-  'Cache-Control': 'no-store, max-age=0',
-  Pragma: 'no-cache',
-}
+const PUBLIC_SHARE_SETTINGS_COLUMNS = 'division_id, team_requirements, player_requirements'
 
 function jsonNoStore(
   body: unknown,
@@ -29,9 +27,7 @@ function jsonNoStore(
   rateLimit?: RateLimitDecision,
 ) {
   const headers = new Headers(init?.headers)
-  Object.entries(NO_STORE_HEADERS).forEach(([key, value]) => {
-    headers.set(key, value)
-  })
+  applySensitiveResponseHeaders(headers)
 
   const response = NextResponse.json(body, {
     ...init,
@@ -171,7 +167,7 @@ export async function GET(request: NextRequest, context: RouteParams) {
 
     const { data: settingsRows } = await supabase
       .from('registration_settings')
-      .select('*')
+      .select(PUBLIC_SHARE_SETTINGS_COLUMNS)
       .eq('event_id', shareTokenData.event_id)
       .order('created_at', { ascending: true })
 

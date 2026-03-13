@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, Suspense } from 'react'
+import { useState, useEffect, useRef, useMemo, Suspense } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { getSessionUserWithRetry } from '@/lib/supabase/client-auth'
@@ -10,6 +10,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  readCachedPortalCoachId,
+  writeCachedPortalCoachId,
+} from '@/lib/portal/coach-session-cache'
 import {
   Calendar,
   FileText,
@@ -24,7 +28,7 @@ interface Registration {
   id: string
   event_id: string
   team_data: any
-  players_data: any
+  players_data?: any
   status: 'draft' | 'submitted' | 'pending' | 'approved' | 'rejected' | 'cancelled'
   rejection_reason?: string
   submitted_at?: string
@@ -32,11 +36,12 @@ interface Registration {
   created_at: string
   registration_deadline?: string
   events?: {
-    name: string
-    start_date: string
-    end_date: string
+    id?: string
+    name?: string
+    start_date?: string
+    end_date?: string
     address?: string
-    type: string
+    type?: string
     registration_settings?: {
       team_requirements?: {
         registrationEndDate?: string
@@ -48,11 +53,31 @@ interface Registration {
 type RegistrationStatus = Registration['status']
 type RegistrationFilterTab = 'all' | 'pending' | 'approved' | 'rejected'
 
+const MY_REGISTRATION_COLUMNS = `
+  id,
+  event_id,
+  team_data,
+  status,
+  rejection_reason,
+  submitted_at,
+  reviewed_at,
+  created_at,
+  updated_at,
+  events (
+    id,
+    name,
+    start_date,
+    end_date,
+    address,
+    type
+  )
+`
+
 const REGISTRATION_TABS: Array<{ value: RegistrationFilterTab; label: string }> = [
   { value: 'all', label: '全部' },
   { value: 'pending', label: '待审核' },
   { value: 'approved', label: '已通过' },
-  { value: 'rejected', label: '已拒绝' },
+  { value: 'rejected', label: '已驳回' },
 ]
 
 function normalizeRegistrationTab(tab: string | null): RegistrationFilterTab {
@@ -74,6 +99,13 @@ function MyRegistrationsContent() {
   const activeTab = normalizeRegistrationTab(searchParams.get('tab'))
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const highlightRef = useRef<HTMLDivElement>(null)
+
+  const tabCounts = useMemo(() => {
+    const pending = registrations.filter(r => r.status === 'submitted' || r.status === 'pending').length
+    const approved = registrations.filter(r => r.status === 'approved').length
+    const rejected = registrations.filter(r => r.status === 'rejected').length
+    return { all: registrations.length, pending, approved, rejected }
+  }, [registrations])
 
   useEffect(() => {
     loadRegistrations(true)
@@ -148,34 +180,36 @@ function MyRegistrationsContent() {
         return
       }
 
-      // 获取教练信息
-      const { data: coach } = await supabase
-        .from('coaches')
-        .select('id')
-        .eq('auth_id', user.id)
-        .single()
+      let coachId = readCachedPortalCoachId(user.id)
 
-      if (coach) {
+      if (!coachId) {
+        const { data: coach } = await supabase
+          .from('coaches')
+          .select('id')
+          .eq('auth_id', user.id)
+          .single()
+
+        coachId = coach?.id || null
+        if (coachId) {
+          writeCachedPortalCoachId(user.id, coachId)
+        }
+      }
+
+      if (coachId) {
         // 获取报名记录和报名设置
         const { data: regs } = await supabase
           .from('registrations')
-          .select(`
-            *,
-            events (
-              id,
-              name,
-              start_date,
-              end_date,
-              address,
-              type
-            )
-          `)
-          .eq('coach_id', coach.id)
+          .select(MY_REGISTRATION_COLUMNS)
+          .eq('coach_id', coachId)
           .order('updated_at', { ascending: false })
 
         if (regs) {
           // 获取每个赛事的报名设置
           const eventIds = [...new Set(regs.map(r => r.event_id))]
+          if (eventIds.length === 0) {
+            setRegistrations([])
+            return
+          }
           const { data: settings } = await supabase
             .from('registration_settings')
             .select('event_id, team_requirements')
@@ -185,6 +219,7 @@ function MyRegistrationsContent() {
           const regsWithSettings = regs.map(reg => {
             const setting = settings?.find(s => s.event_id === reg.event_id)
             let teamReq = setting?.team_requirements
+            const eventRecord = Array.isArray(reg.events) ? reg.events[0] : reg.events
 
             // 如果 team_requirements 是字符串（JSON格式），需要解析
             if (typeof teamReq === 'string') {
@@ -200,7 +235,7 @@ function MyRegistrationsContent() {
               registration_deadline: teamReq?.registrationEndDate,
               // 将 registration_settings 合并到 events 对象中，供 handleCancelRegistration 使用
               events: {
-                ...reg.events,
+                ...(eventRecord || {}),
                 registration_settings: {
                   team_requirements: teamReq
                 }
@@ -225,7 +260,7 @@ function MyRegistrationsContent() {
     // 搜索过滤
     if (searchTerm) {
       filtered = filtered.filter(reg =>
-        reg.events?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        reg.events?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         reg.team_data?.team_name?.toLowerCase().includes(searchTerm.toLowerCase())
       )
     }
@@ -252,7 +287,7 @@ function MyRegistrationsContent() {
       submitted: { label: '待审核', variant: 'default', icon: Clock, className: 'border-amber-500/20 bg-amber-500/10 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300' },
       pending: { label: '待审核', variant: 'default', icon: Clock, className: 'border-amber-500/20 bg-amber-500/10 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300' },
       approved: { label: '已通过', variant: 'default', icon: CheckCircle, className: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300' },
-      rejected: { label: '已拒绝', variant: 'outline', icon: XCircle, className: 'border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300' },
+      rejected: { label: '已驳回', variant: 'outline', icon: XCircle, className: 'border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300' },
       cancelled: { label: '已取消', variant: 'outline', icon: AlertCircle, className: 'border-border bg-muted text-muted-foreground' }
     }
 
@@ -270,8 +305,68 @@ function MyRegistrationsContent() {
     )
   }
 
-  const getEventStatusBadge = (event: { start_date: string, end_date: string }) => {
+  const getEventStatusBadge = (event?: { start_date?: string, end_date?: string, registration_settings?: { team_requirements?: any } }) => {
+    if (!event) {
+      return null
+    }
+
     const now = new Date()
+    const teamReq = event.registration_settings?.team_requirements
+
+    // 优先使用报名设置中的时间
+    if (teamReq) {
+      const regStartDate = teamReq.registrationStartDate
+      const regEndDate = teamReq.registrationEndDate
+      const reviewEndDate = teamReq.reviewEndDate
+
+      const regStart = regStartDate ? new Date(regStartDate) : null
+      const regEnd = regEndDate ? new Date(regEndDate) : null
+      const reviewEnd = reviewEndDate ? new Date(reviewEndDate) : null
+
+      // 报名未开始
+      if (regStart && now < regStart) {
+        return (
+          <Badge variant="secondary" className="flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            报名未开始
+          </Badge>
+        )
+      }
+
+      // 报名中
+      if (regEnd && now <= regEnd) {
+        return (
+          <Badge variant="default" className="flex items-center gap-1 border-emerald-500/20 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300">
+            <Calendar className="h-3 w-3" />
+            报名中
+          </Badge>
+        )
+      }
+
+      // 审核中
+      if (reviewEnd && now <= reviewEnd) {
+        return (
+          <Badge variant="default" className="flex items-center gap-1 border-amber-500/20 bg-amber-500/10 text-amber-700 hover:bg-amber-500/10 dark:text-amber-300">
+            <Clock className="h-3 w-3" />
+            审核中
+          </Badge>
+        )
+      }
+
+      // 已结束
+      return (
+        <Badge variant="secondary" className="flex items-center gap-1">
+          <XCircle className="h-3 w-3" />
+          已结束
+        </Badge>
+      )
+    }
+
+    // 如果没有报名设置，fallback 到赛事时间
+    if (!event.start_date || !event.end_date) {
+      return null
+    }
+
     const start = new Date(event.start_date)
     const end = new Date(event.end_date)
 
@@ -291,7 +386,7 @@ function MyRegistrationsContent() {
       )
     } else {
       return (
-        <Badge variant="destructive" className="flex items-center gap-1">
+        <Badge variant="secondary" className="flex items-center gap-1">
           <XCircle className="h-3 w-3" />
           已结束
         </Badge>
@@ -299,7 +394,11 @@ function MyRegistrationsContent() {
     }
   }
 
-  const isEventEnded = (event: { end_date: string }) => {
+  const isEventEnded = (event?: { end_date?: string }) => {
+    if (!event?.end_date) {
+      return false
+    }
+
     const now = new Date()
     const end = new Date(event.end_date)
     return now > end
@@ -462,6 +561,9 @@ function MyRegistrationsContent() {
                 {REGISTRATION_TABS.map((tab) => (
                   <TabsTrigger key={tab.value} value={tab.value}>
                     {tab.label}
+                    <Badge variant="secondary" className="ml-1.5">
+                      {tabCounts[tab.value]}
+                    </Badge>
                   </TabsTrigger>
                 ))}
               </TabsList>
@@ -513,7 +615,6 @@ function MyRegistrationsContent() {
                         {reg.events?.name}
                       </h3>
                       {getStatusBadge(reg.status)}
-                      {reg.events && getEventStatusBadge(reg.events)}
                     </div>
 
                     {/* 显示团队信息的前三个字段 */}

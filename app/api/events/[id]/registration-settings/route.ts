@@ -6,6 +6,24 @@ interface RouteParams {
   params: Promise<{ id: string }>
 }
 
+const REGISTRATION_SETTINGS_COLUMNS =
+  'id, event_id, division_id, team_requirements, player_requirements'
+
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, max-age=0',
+  Pragma: 'no-cache',
+}
+
+function jsonNoStore(body: unknown, init?: ResponseInit) {
+  return NextResponse.json(body, {
+    ...init,
+    headers: {
+      ...NO_STORE_HEADERS,
+      ...(init?.headers ?? {}),
+    },
+  })
+}
+
 // 获取报名设置
 export async function GET(request: NextRequest, context: RouteParams) {
   try {
@@ -13,7 +31,7 @@ export async function GET(request: NextRequest, context: RouteParams) {
     const session = await getCurrentAdminSession()
 
     if (!session) {
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '未授权访问', success: false },
         { status: 401 }
       )
@@ -27,7 +45,7 @@ export async function GET(request: NextRequest, context: RouteParams) {
 
     let query = supabase
       .from('registration_settings')
-      .select('*')
+      .select(REGISTRATION_SETTINGS_COLUMNS)
       .eq('event_id', id)
 
     if (divisionId) {
@@ -36,13 +54,13 @@ export async function GET(request: NextRequest, context: RouteParams) {
 
       if (error && error.code !== 'PGRST116') {
         console.error('Fetch settings error:', error)
-        return NextResponse.json(
+        return jsonNoStore(
           { error: '获取设置失败', success: false },
           { status: 500 }
         )
       }
 
-      return NextResponse.json({
+      return jsonNoStore({
         success: true,
         data: data || null,
       })
@@ -52,7 +70,7 @@ export async function GET(request: NextRequest, context: RouteParams) {
 
       if (error) {
         console.error('Fetch settings error:', error)
-        return NextResponse.json(
+        return jsonNoStore(
           { error: '获取设置失败', success: false },
           { status: 500 }
         )
@@ -60,20 +78,20 @@ export async function GET(request: NextRequest, context: RouteParams) {
 
       // 兼容：如果只有一条且无 division_id，按旧逻辑返回单条
       if (data && data.length === 1 && !data[0].division_id) {
-        return NextResponse.json({
+        return jsonNoStore({
           success: true,
           data: data[0],
         })
       }
 
-      return NextResponse.json({
+      return jsonNoStore({
         success: true,
         data: data || [],
       })
     }
   } catch (error) {
     console.error('Settings API error:', error)
-    return NextResponse.json(
+    return jsonNoStore(
       { error: '服务器错误', success: false },
       { status: 500 }
     )
@@ -87,7 +105,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
     const session = await getCurrentAdminSession()
     
     if (!session) {
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '未授权访问', success: false },
         { status: 401 }
       )
@@ -140,19 +158,19 @@ export async function POST(request: NextRequest, context: RouteParams) {
 
     if (result.error) {
       console.error('Save settings error:', result.error)
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '保存设置失败', success: false },
         { status: 500 }
       )
     }
 
-    return NextResponse.json({
+    return jsonNoStore({
       success: true,
       data: result.data,
     })
   } catch (error) {
     console.error('Save settings API error:', error)
-    return NextResponse.json(
+    return jsonNoStore(
       { error: '服务器错误', success: false },
       { status: 500 }
     )

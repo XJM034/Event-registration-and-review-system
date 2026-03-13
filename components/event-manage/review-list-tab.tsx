@@ -198,7 +198,7 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
               </CardTitle>
               <CardDescription>等待审核的报名申请 ({registrations.length})</CardDescription>
             </div>
-            <Button variant="outline" onClick={handleDownload} className="w-full md:w-auto">
+            <Button variant="outline" onClick={handleDownload} className="w-full md:w-auto md:self-start">
               <Download className="h-4 w-4 mr-2" />
               下载 {selectedIds.length > 0 ? `(${selectedIds.length})` : ''}
             </Button>

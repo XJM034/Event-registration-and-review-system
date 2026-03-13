@@ -1,8 +1,8 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createClient } from '@supabase/supabase-js'
-import { loadEnvConfig } from '@next/env'
 
 type PublishedTemplateInfo = {
   name: string
@@ -20,7 +20,6 @@ type EventContext = {
 
 const ROOT = process.cwd()
 const ARTIFACT_DIR = path.join(ROOT, '.context', 'template-e2e')
-loadEnvConfig(ROOT)
 const BASE_URL = process.env.TEMPLATE_E2E_BASE_URL || 'http://localhost:3000'
 const EVENT_NAME = process.env.TEMPLATE_E2E_EVENT_NAME || '模板测试'
 const ADMIN_PHONE = process.env.TEMPLATE_E2E_ADMIN_PHONE || '18140044662'
@@ -28,6 +27,48 @@ const ADMIN_PASSWORD = process.env.TEMPLATE_E2E_ADMIN_PASSWORD || '000000'
 const COACH_PHONE = process.env.TEMPLATE_E2E_COACH_PHONE || '13800000001'
 const COACH_PASSWORD = process.env.TEMPLATE_E2E_COACH_PASSWORD || '000000'
 const HEADED = process.env.TEMPLATE_E2E_HEADED !== 'false'
+
+function loadEnvFile(filePath: string) {
+  if (!existsSync(filePath)) return
+
+  const content = readFileSync(filePath, 'utf8')
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+
+    const separatorIndex = trimmed.indexOf('=')
+    if (separatorIndex <= 0) continue
+
+    const key = trimmed.slice(0, separatorIndex).trim()
+    if (!key || process.env[key] !== undefined) continue
+
+    let value = trimmed.slice(separatorIndex + 1).trim()
+    if (
+      (value.startsWith('"') && value.endsWith('"'))
+      || (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1)
+    }
+
+    process.env[key] = value.replace(/\\n/g, '\n')
+  }
+}
+
+function loadLocalEnv(root: string) {
+  const env = process.env.NODE_ENV || 'development'
+  const files = [
+    `.env.${env}.local`,
+    env === 'test' ? null : '.env.local',
+    `.env.${env}`,
+    '.env',
+  ].filter((value): value is string => Boolean(value))
+
+  files.forEach((file) => {
+    loadEnvFile(path.join(root, file))
+  })
+}
+
+loadLocalEnv(ROOT)
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim()

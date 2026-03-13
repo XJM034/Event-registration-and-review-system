@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getCurrentAdminSession } from '@/lib/auth'
+import { validatePasswordStrength } from '@/lib/password-policy'
 import { writeSecurityAuditLog } from '@/lib/security-audit-log'
 
 const supabaseAdmin = createClient(
@@ -23,6 +24,7 @@ export async function POST(
     const { id } = await params
     const body = await request.json()
     const { password } = body
+    const passwordValidation = validatePasswordStrength(typeof password === 'string' ? password : '')
 
     // 获取当前管理员信息
     const currentAdmin = await getCurrentAdminSession()
@@ -46,7 +48,7 @@ export async function POST(
     }
 
     // 验证密码
-    if (!password || password.length < 6) {
+    if (!passwordValidation.valid) {
       await writeSecurityAuditLog({
         request,
         action: 'reset_admin_password',
@@ -60,7 +62,7 @@ export async function POST(
         reason: 'password_policy_violation',
       })
       return NextResponse.json(
-        { success: false, error: '密码长度至少为6位' },
+        { success: false, error: passwordValidation.message },
         { status: 400 }
       )
     }

@@ -5,6 +5,10 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { getSessionUserWithRetry } from '@/lib/supabase/client-auth'
 import { useNotification } from '@/contexts/notification-context'
+import {
+  readCachedPortalCoachId,
+  writeCachedPortalCoachId,
+} from '@/lib/portal/coach-session-cache'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -40,6 +44,24 @@ interface Notification {
 }
 
 type NotificationTab = 'all' | 'unread' | 'read'
+
+const NOTIFICATION_LIST_COLUMNS = `
+  id,
+  type,
+  title,
+  message,
+  is_read,
+  created_at,
+  event_id,
+  registration_id,
+  registrations:registration_id (
+    team_data
+  ),
+  events:event_id (
+    name,
+    short_name
+  )
+`
 
 function normalizeNotificationTab(tab: string | null): NotificationTab {
   if (tab === 'unread' || tab === 'read') {
@@ -120,37 +142,32 @@ export default function MyNotificationsPage() {
         return
       }
 
-      // 获取教练信息
-      const { data: coach } = await supabase
-        .from('coaches')
-        .select('id')
-        .eq('auth_id', user.id)
-        .single()
+      let coachId = readCachedPortalCoachId(user.id)
 
-      if (coach) {
-        console.log('Loading notifications for coach:', coach.id)
+      if (!coachId) {
+        const { data: coach } = await supabase
+          .from('coaches')
+          .select('id')
+          .eq('auth_id', user.id)
+          .single()
 
+        coachId = coach?.id || null
+        if (coachId) {
+          writeCachedPortalCoachId(user.id, coachId)
+        }
+      }
+
+      if (coachId) {
         // 从数据库获取真实通知，并关联报名信息和赛事信息
         const { data: notificationData, error: notifError } = await supabase
           .from('notifications')
-          .select(`
-            *,
-            registrations:registration_id (
-              team_data
-            ),
-            events:event_id (
-              name,
-              short_name
-            )
-          `)
-          .eq('coach_id', coach.id)
+          .select(NOTIFICATION_LIST_COLUMNS)
+          .eq('coach_id', coachId)
           .order('created_at', { ascending: false })
 
         if (notifError) {
           console.error('获取通知失败:', notifError)
         } else if (notificationData) {
-          console.log(`Loaded ${notificationData.length} notifications`)
-
           // 转换类型以匹配前端接口
           const formattedNotifications: Notification[] = notificationData.map((n: any) => {
             // 获取赛事名称
@@ -196,7 +213,6 @@ export default function MyNotificationsPage() {
           setNotifications(sortedNotifications)
           setHasLoaded(true)
         } else {
-          console.log('No notifications found')
           setNotifications([])
         }
       }
@@ -242,11 +258,8 @@ export default function MyNotificationsPage() {
       // 获取所有未读通知
       const unreadNotifications = notifications.filter(n => !n.is_read)
       if (unreadNotifications.length === 0) {
-        console.log('No unread notifications to mark')
         return
       }
-
-      console.log(`Marking ${unreadNotifications.length} notifications as read`)
 
       // 方法1：尝试使用简单的RPC函数
       try {
@@ -254,8 +267,6 @@ export default function MyNotificationsPage() {
           .rpc('simple_mark_all_read')
 
         if (!rpcError && rpcResult?.success) {
-          console.log(`Simple RPC succeeded: marked ${rpcResult.updated_count} notifications as read`)
-
           // 重新加载通知列表
           await loadNotifications()
           await refreshUnreadCount()
@@ -263,26 +274,21 @@ export default function MyNotificationsPage() {
         }
 
         if (rpcError) {
-          console.log('Simple RPC failed, trying complex RPC:', rpcError)
-
           // 尝试复杂的RPC函数
           const { data: complexResult, error: complexError } = await supabase
             .rpc('mark_all_notifications_as_read')
 
           if (!complexError && complexResult?.success) {
-            console.log(`Complex RPC succeeded: marked ${complexResult.updated_count} notifications as read`)
             await loadNotifications()
             await refreshUnreadCount()
             return
           }
         }
-      } catch (rpcErr) {
-        console.log('RPC call error:', rpcErr)
+      } catch {
       }
 
       // 方法2：直接批量更新（简单直接）
       const unreadIds = unreadNotifications.map(n => n.id)
-      console.log('Trying direct update for IDs:', unreadIds)
 
       const { error: updateError } = await supabase
         .from('notifications')
@@ -293,7 +299,6 @@ export default function MyNotificationsPage() {
         console.error('Direct update failed:', updateError)
 
         // 方法3：逐个更新（最后的备选方案）
-        console.log('Trying individual updates...')
         let successCount = 0
         for (const notif of unreadNotifications) {
           const { error: singleError } = await supabase
@@ -312,10 +317,6 @@ export default function MyNotificationsPage() {
           alert('无法标记通知为已读，请检查网络连接并重试')
           return
         }
-
-        console.log(`Successfully marked ${successCount}/${unreadNotifications.length} notifications as read`)
-      } else {
-        console.log('Direct batch update succeeded')
       }
 
       // 更新本地状态并重新排序
@@ -329,8 +330,6 @@ export default function MyNotificationsPage() {
 
       // 刷新未读计数
       await refreshUnreadCount()
-
-      console.log('All updates completed')
     } catch (error) {
       console.error('Unexpected error in markAllAsRead:', error)
 
@@ -482,13 +481,16 @@ export default function MyNotificationsPage() {
           </TabsTrigger>
           <TabsTrigger value="unread">
             未读
-            {unreadCount > 0 && (
-              <Badge variant="destructive" className="ml-2">
-                {unreadCount}
-              </Badge>
-            )}
+            <Badge variant={unreadCount > 0 ? "destructive" : "secondary"} className="ml-2">
+              {unreadCount}
+            </Badge>
           </TabsTrigger>
-          <TabsTrigger value="read">已读</TabsTrigger>
+          <TabsTrigger value="read">
+            已读
+            <Badge variant="secondary" className="ml-2">
+              {notifications.length - unreadCount}
+            </Badge>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value={activeTab} className="animate-in fade-in-0 duration-200">

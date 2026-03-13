@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
-import { useForm } from 'react-hook-form'
+import { useForm, type FieldErrors } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
@@ -44,6 +44,11 @@ import { createClient } from '@/lib/supabase/client'
 import { getSessionUserWithRetry } from '@/lib/supabase/client-auth'
 import Image from 'next/image'
 import { formatGender, parseIdCard, validateAgainstDivisionRules } from '@/lib/id-card-validator'
+import { resolveStorageObjectUrl, type UploadBucket } from '@/lib/storage-object'
+import {
+  readCachedPortalCoachId,
+  writeCachedPortalCoachId,
+} from '@/lib/portal/coach-session-cache'
 import { mergeSharedPlayerUpdates } from '@/lib/player-share-token'
 import { generateSecureId } from '@/lib/security-random'
 
@@ -191,6 +196,8 @@ interface Registration {
   status: 'draft' | 'submitted' | 'pending' | 'approved' | 'rejected' | 'cancelled'
   rejection_reason?: string | null
 }
+const REGISTRATION_FORM_COLUMNS =
+  'id, event_id, coach_id, team_data, players_data, status, rejection_reason'
 
 interface ShareDialogTarget {
   playerId: string
@@ -463,6 +470,37 @@ const createTeamSchema = (fields: any[]) => {
   })
   
   return z.object(schemaObject)
+}
+
+const extractTeamLogoValue = (teamData: Record<string, unknown> | null | undefined) => {
+  if (!teamData) return null
+
+  if (typeof teamData.team_logo === 'string' && teamData.team_logo.trim()) {
+    return teamData.team_logo.trim()
+  }
+
+  if (typeof teamData.logo === 'string' && teamData.logo.trim()) {
+    return teamData.logo.trim()
+  }
+
+  return null
+}
+
+const resolvePreviewImageUrl = (
+  value: unknown,
+  fallbackBucket?: UploadBucket,
+) => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+      return trimmed
+    }
+
+    return resolveStorageObjectUrl(trimmed, { fallbackBucket }) || trimmed
+  }
+
+  return resolveStorageObjectUrl(value, { fallbackBucket })
 }
 
 export default function RegisterPage() {
@@ -764,6 +802,9 @@ export default function RegisterPage() {
   const allFields = rawFields.filter((field, index, array) =>
     array.findIndex((f) => f.id === field.id) === index
   )
+  const allFieldsSignature = allFields
+    .map((field: any) => `${field.type || 'unknown'}:${field.id}`)
+    .join('|')
 
   const activeDivisionRules = useMemo<DivisionRules>(() => {
     if (!event?.divisions || event.divisions.length === 0) return {}
@@ -793,6 +834,47 @@ export default function RegisterPage() {
     resolver: zodResolver(teamSchema)
   })
 
+  const teamLogoFieldIds = useMemo(
+    () => allFieldsSignature
+      .split('|')
+      .filter(Boolean)
+      .flatMap((entry) => {
+        const separatorIndex = entry.indexOf(':')
+        if (separatorIndex === -1) return []
+
+        const type = entry.slice(0, separatorIndex)
+        const id = entry.slice(separatorIndex + 1)
+        if (type !== 'image') return []
+
+        return id === 'logo' || id === 'team_logo' ? [id] : []
+      }),
+    [allFieldsSignature]
+  )
+
+  const syncTeamLogoFieldValue = useCallback((
+    value: string | null,
+    options?: { shouldDirty?: boolean; shouldTouch?: boolean; shouldValidate?: boolean }
+  ) => {
+    teamLogoFieldIds.forEach((fieldId) => {
+      setValue(fieldId, value ?? '', {
+        shouldDirty: options?.shouldDirty ?? true,
+        shouldTouch: options?.shouldTouch ?? true,
+        shouldValidate: options?.shouldValidate ?? true,
+      })
+    })
+  }, [setValue, teamLogoFieldIds])
+
+  const teamLogoPreviewUrl = useMemo(() => {
+    if (!teamLogoPreview) return null
+    if (teamLogoPreview.startsWith('data:') || teamLogoPreview.startsWith('blob:')) {
+      return teamLogoPreview
+    }
+
+    return resolveStorageObjectUrl(teamLogoPreview, {
+      fallbackBucket: 'registration-files',
+    }) || teamLogoPreview
+  }, [teamLogoPreview])
+
   useEffect(() => {
     if (selectedDivision?.name) {
       setValue('participationGroup', selectedDivision.name)
@@ -808,12 +890,6 @@ export default function RegisterPage() {
   // 当registration数据更新时，确保表单被正确填充
   useEffect(() => {
     if (registration && registration.team_data && !isNewRegistration) {
-      console.log('useEffect: 填充表单数据', {
-        registration_status: registration.status,
-        team_data: registration.team_data,
-        players_count: registration.players_data?.length
-      })
-      
       // 填充表单数据
       Object.keys(registration.team_data).forEach(key => {
         setValue(key, registration.team_data[key])
@@ -824,25 +900,22 @@ export default function RegisterPage() {
       } else if (event?.divisions?.length && !selectedDivisionId) {
         setSelectedDivisionId(event.divisions[0].id)
       }
-      
-      // 设置logo预览
-      if (registration.team_data.team_logo) {
-        setTeamLogoPreview(registration.team_data.team_logo)
-      }
+
+      const existingTeamLogo = extractTeamLogoValue(registration.team_data)
+      setTeamLogoPreview(existingTeamLogo)
+      syncTeamLogoFieldValue(existingTeamLogo, {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      })
       
       // 设置队员数据
       if (registration.players_data) {
         setPlayers(registration.players_data)
         setPlayersByRole(organizePlayersByRole(registration.players_data))
       }
-    } else {
-      console.log('useEffect: 跳过数据填充', {
-        hasRegistration: !!registration,
-        hasTeamData: !!registration?.team_data,
-        isNewRegistration
-      })
     }
-  }, [registration, setValue, isNewRegistration, event?.divisions, selectedDivisionId])
+  }, [registration, setValue, isNewRegistration, event?.divisions, selectedDivisionId, syncTeamLogoFieldValue])
 
   useEffect(() => {
     if (event?.divisions?.length && !selectedDivisionId) {
@@ -884,11 +957,30 @@ export default function RegisterPage() {
 
     void syncFilledShareLinks()
 
+    const syncWhenVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void syncFilledShareLinks()
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void syncFilledShareLinks()
+      }
+    }
+
     const interval = setInterval(() => {
-      void syncFilledShareLinks()
+      syncWhenVisible()
     }, 5000)
 
-    return () => clearInterval(interval)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', syncWhenVisible)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', syncWhenVisible)
+    }
   }, [registration?.id])
 
   const fetchEventAndRegistration = async (retryCount = 0) => {
@@ -918,14 +1010,22 @@ export default function RegisterPage() {
         return
       }
       
-      // 获取教练信息
-      const { data: coachData } = await supabase
-        .from('coaches')
-        .select('*')
-        .eq('auth_id', user.id)
-        .single()
-      
-      if (!coachData) {
+      let resolvedCoachId = readCachedPortalCoachId(user.id)
+
+      if (!resolvedCoachId) {
+        const { data: coachData } = await supabase
+          .from('coaches')
+          .select('id')
+          .eq('auth_id', user.id)
+          .single()
+
+        resolvedCoachId = coachData?.id || null
+        if (resolvedCoachId) {
+          writeCachedPortalCoachId(user.id, resolvedCoachId)
+        }
+      }
+
+      if (!resolvedCoachId) {
         // 如果没有教练信息，创建一个
         const { data: newCoach } = await supabase
           .from('coaches')
@@ -934,12 +1034,16 @@ export default function RegisterPage() {
             email: user.email,
             name: user.email?.split('@')[0] || '教练'
           })
-          .select()
+          .select('id')
           .single()
-        
-        setCoach(newCoach)
+
+        resolvedCoachId = newCoach?.id || null
+        if (resolvedCoachId) {
+          writeCachedPortalCoachId(user.id, resolvedCoachId)
+          setCoach({ id: resolvedCoachId })
+        }
       } else {
-        setCoach(coachData)
+        setCoach({ id: resolvedCoachId })
       }
       
       // 获取赛事信息
@@ -952,39 +1056,34 @@ export default function RegisterPage() {
           setEvent(eventData)
           
           // 获取现有报名信息
-          if (coachData || coach) {
+          if (resolvedCoachId || coach?.id) {
             let regToLoad = null  // 在外层定义变量
 
             if (isNewRegistration) {
               // 新建报名：不加载任何现有报名数据，从空白开始
-              console.log('新建报名模式，不加载现有数据')
               setRegistration(null)
               setPlayers([])
               setPlayersByRole({})
               reset() // 重置表单为空
             } else if (editRegistrationId) {
               // 编辑特定的报名：根据ID加载指定的报名记录
-              console.log('编辑指定报名:', editRegistrationId)
               const { data: specificReg } = await supabase
                 .from('registrations')
-                .select('*')
+                .select(REGISTRATION_FORM_COLUMNS)
                 .eq('id', editRegistrationId)
-                .eq('coach_id', coachData?.id || coach?.id)  // 确保是自己的报名
+                .eq('coach_id', resolvedCoachId || coach?.id)  // 确保是自己的报名
                 .single()
 
               if (specificReg) {
                 regToLoad = specificReg
-                console.log('加载指定的报名数据:', regToLoad)
-              } else {
-                console.log('未找到指定的报名记录')
               }
             } else {
               // 默认模式：加载最新的草稿
               const { data: existingReg } = await supabase
                 .from('registrations')
-                .select('*')
+                .select(REGISTRATION_FORM_COLUMNS)
                 .eq('event_id', eventId)
-                .eq('coach_id', coachData?.id || coach?.id)
+                .eq('coach_id', resolvedCoachId || coach?.id)
                 .eq('status', 'draft')  // 只加载草稿
                 .order('created_at', { ascending: false })
                 .limit(1)
@@ -995,9 +1094,9 @@ export default function RegisterPage() {
               } else {
                 const { data: editableReg } = await supabase
                   .from('registrations')
-                  .select('*')
+                  .select(REGISTRATION_FORM_COLUMNS)
                   .eq('event_id', eventId)
-                  .eq('coach_id', coachData?.id || coach?.id)
+                  .eq('coach_id', resolvedCoachId || coach?.id)
                   .in('status', ['rejected', 'cancelled'])  // 被驳回或已取消的都可以编辑
                   .order('created_at', { ascending: false })
                   .limit(1)
@@ -1010,7 +1109,6 @@ export default function RegisterPage() {
 
             // 统一处理加载的报名数据（适用于所有非新建模式）
             if (regToLoad) {
-              console.log('加载报名数据:', regToLoad)
               setRegistration(regToLoad)
               const playersData = regToLoad.players_data || []
               setPlayers(playersData)
@@ -1018,18 +1116,18 @@ export default function RegisterPage() {
 
               // 填充表单数据
               if (regToLoad.team_data) {
-                console.log('填充团队数据:', regToLoad.team_data)
                 Object.keys(regToLoad.team_data).forEach(key => {
                   setValue(key, regToLoad.team_data[key])
                 })
 
-                // 设置logo预览
-                if (regToLoad.team_data.team_logo) {
-                  setTeamLogoPreview(regToLoad.team_data.team_logo)
-                }
+                const existingTeamLogo = extractTeamLogoValue(regToLoad.team_data)
+                setTeamLogoPreview(existingTeamLogo)
+                syncTeamLogoFieldValue(existingTeamLogo, {
+                  shouldDirty: false,
+                  shouldTouch: false,
+                  shouldValidate: false,
+                })
               }
-            } else if (!isNewRegistration) {
-              console.log('没有找到可编辑的报名数据')
             }
           }
         }
@@ -1057,8 +1155,10 @@ export default function RegisterPage() {
       setTeamLogoFile(file)
       
       const reader = new FileReader()
-      reader.onload = (e) => {
-        setTeamLogoPreview(e.target?.result as string)
+      reader.onload = (event) => {
+        const previewUrl = event.target?.result as string
+        setTeamLogoPreview(previewUrl)
+        syncTeamLogoFieldValue(previewUrl)
       }
       reader.readAsDataURL(file)
     }
@@ -1305,8 +1405,6 @@ export default function RegisterPage() {
   }
 
   const updatePlayer = (playerId: string, field: string, value: any) => {
-    console.log('Updating player:', playerId, 'field:', field, 'value:', value)
-
     // 更新队员信息
     const updatedPlayers = players.map(p =>
       p.id === playerId ? { ...p, [field]: value } : p
@@ -1579,9 +1677,12 @@ export default function RegisterPage() {
       let logoUrl = teamLogoPreview
       if (teamLogoFile) {
         const uploadedUrl = await uploadLogo(teamLogoFile)
-        if (uploadedUrl) {
-          logoUrl = uploadedUrl
+        if (!uploadedUrl) {
+          alert('队伍Logo上传失败，请重试')
+          return null
         }
+
+        logoUrl = uploadedUrl
       }
 
       const teamData = {
@@ -1591,7 +1692,6 @@ export default function RegisterPage() {
         participationGroup: selectedDivision?.name || data?.participationGroup
       }
 
-      console.log('Saving registration with players data:', players)
       const registrationData = {
         event_id: eventId,
         coach_id: coach.id,
@@ -1624,6 +1724,14 @@ export default function RegisterPage() {
         savedRegistration = newReg
       }
 
+      setTeamLogoPreview(logoUrl)
+      setTeamLogoFile(null)
+      syncTeamLogoFieldValue(logoUrl, {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      })
+
       alert('保存成功')
       return savedRegistration // 返回registration对象
     } catch (error: any) {
@@ -1633,6 +1741,29 @@ export default function RegisterPage() {
     } finally {
       setIsSaving(false)
     }
+  }
+
+  const handleInvalidTeamForm = (formErrors: FieldErrors<Record<string, unknown>>) => {
+    setActiveTab('team')
+
+    const firstErrorKey = Object.keys(formErrors)[0]
+    if (!firstErrorKey) {
+      alert('请先完善团队信息后再继续。')
+      return
+    }
+
+    const matchedField = allFields.find((field: any) => field.id === firstErrorKey)
+    const fieldLabel = matchedField?.label || firstErrorKey
+    const firstError = formErrors[firstErrorKey]
+    const errorMessage = typeof firstError?.message === 'string'
+      ? firstError.message
+      : ''
+
+    alert(
+      errorMessage
+        ? `请先完善团队信息中的“${fieldLabel}”\n\n${errorMessage}`
+        : `请先完善团队信息中的“${fieldLabel}”`
+    )
   }
 
   const handleSubmitRegistration = async (data: any) => {
@@ -1721,9 +1852,12 @@ export default function RegisterPage() {
       let logoUrl = teamLogoPreview
       if (teamLogoFile) {
         const uploadedUrl = await uploadLogo(teamLogoFile)
-        if (uploadedUrl) {
-          logoUrl = uploadedUrl
+        if (!uploadedUrl) {
+          alert('队伍Logo上传失败，请重试')
+          return
         }
+
+        logoUrl = uploadedUrl
       }
       
       const teamData = {
@@ -1732,8 +1866,7 @@ export default function RegisterPage() {
         division_id: selectedDivisionId || undefined,
         participationGroup: selectedDivision?.name || data?.participationGroup
       }
-      
-      console.log('Submitting registration with players data:', players)
+
       const registrationData = {
         event_id: eventId,
         coach_id: coach.id,
@@ -1765,6 +1898,14 @@ export default function RegisterPage() {
 
         if (error) throw error
       }
+
+      setTeamLogoPreview(logoUrl)
+      setTeamLogoFile(null)
+      syncTeamLogoFieldValue(logoUrl, {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      })
       
       alert('提交成功！请等待审核')
       router.push(`/portal/events/${eventId}`)
@@ -1990,7 +2131,7 @@ export default function RegisterPage() {
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button
               variant="outline"
-              onClick={handleSubmit(handleSaveDraft)}
+              onClick={handleSubmit(handleSaveDraft, handleInvalidTeamForm)}
               disabled={isSaving}
               className="w-full sm:w-auto"
             >
@@ -2007,7 +2148,7 @@ export default function RegisterPage() {
               )}
             </Button>
             <Button
-              onClick={handleSubmit(handleSubmitRegistration)}
+              onClick={handleSubmit(handleSubmitRegistration, handleInvalidTeamForm)}
               disabled={isSubmitting}
               className="w-full sm:w-auto"
             >
@@ -2156,10 +2297,11 @@ export default function RegisterPage() {
                           {teamLogoPreview ? (
                             <div className="relative w-32 h-32 border rounded-lg overflow-hidden">
                               <Image
-                                src={teamLogoPreview}
+                                src={teamLogoPreviewUrl || teamLogoPreview}
                                 alt="队伍logo"
                                 fill
                                 className="object-cover"
+                                unoptimized
                               />
                               <Button
                                 type="button"
@@ -2169,6 +2311,7 @@ export default function RegisterPage() {
                                 onClick={() => {
                                   setTeamLogoFile(null)
                                   setTeamLogoPreview(null)
+                                  syncTeamLogoFieldValue('')
                                 }}
                               >
                                 移除
@@ -2187,6 +2330,11 @@ export default function RegisterPage() {
                             </div>
                           )}
                         </div>
+                        {errors[field.id] && (
+                          <p className="text-red-600 text-sm mt-1">
+                            {errors[field.id]?.message as string}
+                          </p>
+                        )}
                       </div>
                     )
                   }
@@ -2278,19 +2426,21 @@ export default function RegisterPage() {
 
                   // 其他图片上传字段（非logo字段）
                   if (field.type === 'image' && field.id !== 'logo' && field.id !== 'team_logo') {
+                    const fieldImagePreviewUrl = resolvePreviewImageUrl(watch(field.id), 'team-documents')
                     return (
                       <div key={`${field.id}-${index}`}>
                         <Label htmlFor={field.id}>
                           {field.label}{field.required && ' *'}
                         </Label>
                         <div className="mt-2">
-                          {watch(field.id) ? (
+                          {fieldImagePreviewUrl ? (
                             <div className="relative w-32 h-32 border rounded-lg overflow-hidden">
                               <Image
-                                src={watch(field.id) as string}
+                                src={fieldImagePreviewUrl}
                                 alt={field.label}
                                 fill
                                 className="object-cover"
+                                unoptimized
                               />
                               <Button
                                 type="button"
@@ -3036,17 +3186,19 @@ export default function RegisterPage() {
                                     // TODO: 实现多选逻辑
                                     return null
                                   case 'image':
+                                    const playerImagePreviewUrl = resolvePreviewImageUrl(player[field.id], 'player-photos')
                                     return (
                                       <div key={`${field.id}-${index}`} className={PLAYER_FIELD_WRAPPER_CLASS}>
                                         <Label className={PLAYER_FIELD_LABEL_CLASS}>{fieldLabel}{isFieldRequired && ' *'}</Label>
                                         <div>
-                                          {player[field.id] ? (
+                                          {playerImagePreviewUrl ? (
                                             <div className="relative w-32 h-32 border rounded-lg overflow-hidden">
                                               <Image
-                                                src={player[field.id]}
+                                                src={playerImagePreviewUrl}
                                                 alt={field.label || '队员图片'}
                                                 fill
                                                 className="object-cover"
+                                                unoptimized
                                               />
                                               <Button
                                                 type="button"
@@ -3090,10 +3242,8 @@ export default function RegisterPage() {
                                                       })
 
                                                       const result = await response.json()
-                                                      console.log('Upload result:', result)
 
                                                       if (result.success) {
-                                                        console.log('Updating player with image URL:', result.data.url)
                                                         updatePlayer(player.id, field.id, result.data.url)
                                                         alert('上传成功！')
                                                       } else {

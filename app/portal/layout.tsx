@@ -42,6 +42,10 @@ import {
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { getSessionUserWithRetry, isTimeoutError, withTimeout } from '@/lib/supabase/client-auth'
+import {
+  clearCachedPortalCoachId,
+  writeCachedPortalCoachId,
+} from '@/lib/portal/coach-session-cache'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 
 interface PortalLayoutProps {
@@ -49,6 +53,7 @@ interface PortalLayoutProps {
 }
 
 const SIDEBAR_COLLAPSE_KEY = 'portal_sidebar_collapsed'
+const PORTAL_LAYOUT_PROFILE_COLUMNS = 'id, name, email'
 
 type PortalTabId = 'events' | 'my-registrations' | 'my-notifications'
 
@@ -145,6 +150,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
       }
 
       if (!sessionUser) {
+        clearCachedPortalCoachId()
         scheduleUserRecheck()
         return
       }
@@ -155,7 +161,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
         const { data: coach, error: coachError } = await withTimeout(
           supabase
             .from('coaches')
-            .select('*')
+            .select(PORTAL_LAYOUT_PROFILE_COLUMNS)
             .eq('auth_id', sessionUser.id)
             .single(),
           4000,
@@ -165,6 +171,10 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
         if (coachError) {
           setUser(sessionUser)
           return
+        }
+
+        if (coach?.id) {
+          writeCachedPortalCoachId(sessionUser.id, coach.id)
         }
 
         setUser(coach || sessionUser)
@@ -184,6 +194,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
 
   const handleLogout = async () => {
     const supabase = createClient()
+    clearCachedPortalCoachId()
     await supabase.auth.signOut()
     router.push('/auth/login')
   }
@@ -270,7 +281,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
       <div className="flex min-h-screen overflow-hidden bg-background">
         <aside className="w-16 shrink-0 border-r border-border bg-card" />
         <main className="min-w-0 flex-1 flex flex-col">
-          <header className="h-14 border-b border-border bg-background/95 backdrop-blur" />
+          <header className="h-[67px] border-b border-border bg-background/95 backdrop-blur" />
           <div className="flex-1 p-4 md:p-6" />
         </main>
       </div>
@@ -281,7 +292,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
     <>
       <div
         className={cn(
-          'flex h-14 items-center border-b border-border',
+          'flex h-[67px] items-center border-b border-border',
           isCollapsed ? 'px-2 justify-center' : 'px-3 justify-between'
         )}
       >
@@ -395,9 +406,9 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
       </aside>
 
       <main className="min-w-0 flex-1 flex flex-col">
-        <header className="border-b border-border bg-background/95 backdrop-blur">
-          <div className="flex items-start justify-between gap-3 px-4 py-2 sm:px-6">
-            <div className="flex min-w-0 items-start gap-3">
+        <header className="bg-background/95 backdrop-blur">
+          <div className="flex min-h-[67px] items-center justify-between gap-3 border-b border-border px-4 sm:px-6">
+            <div className="flex min-w-0 items-center gap-3">
               {isMobile ? (
                 <button
                   aria-label="打开侧边栏"
@@ -450,7 +461,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
+                    className="text-red-600 focus:bg-red-50 focus:text-red-700 dark:text-red-400 dark:focus:bg-red-500/15 dark:focus:text-red-300"
                     onClick={() => setShowLogoutDialog(true)}
                   >
                     <LogOut className="mr-2 h-4 w-4" />

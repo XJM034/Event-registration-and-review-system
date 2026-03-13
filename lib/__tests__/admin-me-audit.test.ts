@@ -68,7 +68,7 @@ describe('PUT /api/admin/me', () => {
       error: { message: 'internal auth stack trace' },
     })
 
-    const response = await PUT(createRequest('123456'))
+    const response = await PUT(createRequest('StrongPass123'))
     const payload = await response.json()
 
     expect(response.status).toBe(500)

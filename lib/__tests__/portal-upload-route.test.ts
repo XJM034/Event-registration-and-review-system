@@ -40,7 +40,7 @@ describe('POST /api/portal/upload', () => {
   const coachSession = {
     user: { id: 'coach-1' },
     session: null,
-  } as Awaited<ReturnType<typeof getCurrentCoachSession>>
+  } as unknown as Awaited<ReturnType<typeof getCurrentCoachSession>>
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -76,7 +76,7 @@ describe('POST /api/portal/upload', () => {
       storage: {
         from: fromMock,
       },
-    } as ReturnType<typeof createServiceRoleClient>)
+    } as unknown as ReturnType<typeof createServiceRoleClient>)
 
     const response = await POST(createUploadRequest('player-photos'))
     const payload = await response.json()

@@ -6,6 +6,24 @@ interface RouteParams {
   params: Promise<{ id: string }>
 }
 
+const EVENT_REGISTRATION_LIST_COLUMNS =
+  'id, team_data, status, submitted_at, reviewed_at'
+
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, max-age=0',
+  Pragma: 'no-cache',
+}
+
+function jsonNoStore(body: unknown, init?: ResponseInit) {
+  return NextResponse.json(body, {
+    ...init,
+    headers: {
+      ...NO_STORE_HEADERS,
+      ...(init?.headers ?? {}),
+    },
+  })
+}
+
 // 获取赛事报名列表
 export async function GET(request: NextRequest, context: RouteParams) {
   try {
@@ -13,7 +31,7 @@ export async function GET(request: NextRequest, context: RouteParams) {
     const session = await getCurrentAdminSession()
     
     if (!session?.user) {
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '未授权访问', success: false },
         { status: 401 }
       )
@@ -26,7 +44,7 @@ export async function GET(request: NextRequest, context: RouteParams) {
     
     let query = supabase
       .from('registrations')
-      .select('*')
+      .select(EVENT_REGISTRATION_LIST_COLUMNS)
       .eq('event_id', id)
       .neq('status', 'draft')  // 不显示草稿，显示所有其他状态的报名
       .order('submitted_at', { ascending: false })
@@ -39,19 +57,19 @@ export async function GET(request: NextRequest, context: RouteParams) {
 
     if (error) {
       console.error('Fetch registrations error:', error)
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '获取报名列表失败', success: false },
         { status: 500 }
       )
     }
 
-    return NextResponse.json({
+    return jsonNoStore({
       success: true,
       data: data || [],
     })
   } catch (error) {
     console.error('Registrations API error:', error)
-    return NextResponse.json(
+    return jsonNoStore(
       { error: '服务器错误', success: false },
       { status: 500 }
     )
@@ -65,7 +83,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
     const session = await getCurrentAdminSession()
     
     if (!session?.user) {
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '未授权访问', success: false },
         { status: 401 }
       )
@@ -90,19 +108,19 @@ export async function POST(request: NextRequest, context: RouteParams) {
 
     if (error) {
       console.error('Create registration error:', error)
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '创建报名失败', success: false },
         { status: 500 }
       )
     }
 
-    return NextResponse.json({
+    return jsonNoStore({
       success: true,
       data,
     })
   } catch (error) {
     console.error('Create registration API error:', error)
-    return NextResponse.json(
+    return jsonNoStore(
       { error: '服务器错误', success: false },
       { status: 500 }
     )

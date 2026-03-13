@@ -5,6 +5,9 @@ interface RouteParams {
   params: Promise<{ id: string }>
 }
 
+const EVENT_DETAIL_COLUMNS =
+  'id, name, short_name, poster_url, type, start_date, end_date, address, details, requirements, phone, is_visible, reference_templates'
+
 // 获取单个赛事
 export async function GET(request: NextRequest, context: RouteParams) {
   try {
@@ -22,7 +25,7 @@ export async function GET(request: NextRequest, context: RouteParams) {
     
     const { data: event, error } = await supabase
       .from('events')
-      .select('*')
+      .select(EVENT_DETAIL_COLUMNS)
       .eq('id', id)
       .single()
 

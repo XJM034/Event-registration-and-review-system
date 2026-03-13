@@ -91,6 +91,34 @@ describe('middleware auth guard', () => {
     expect(response.headers.get('location')).toBeNull()
   })
 
+  it('blocks cross-site mutations to protected api routes', async () => {
+    const request = new NextRequest('https://example.com/api/portal/me/password', {
+      method: 'PUT',
+      headers: {
+        origin: 'https://evil.example',
+        'sec-fetch-site': 'cross-site',
+      },
+    })
+
+    const response = await middleware(request)
+
+    expect(response.status).toBe(403)
+  })
+
+  it('allows same-origin mutations to protected api routes', async () => {
+    const request = new NextRequest('https://example.com/api/portal/me/password', {
+      method: 'PUT',
+      headers: {
+        origin: 'https://example.com',
+        'sec-fetch-site': 'same-origin',
+      },
+    })
+
+    const response = await middleware(request)
+
+    expect(response.status).toBe(200)
+  })
+
   it('blocks debug and test API routes in production', async () => {
     vi.stubEnv('NODE_ENV', 'production')
 
@@ -101,5 +129,15 @@ describe('middleware auth guard', () => {
     const testRequest = new NextRequest('https://example.com/api/test-connection')
     const testResponse = await middleware(testRequest)
     expect(testResponse.status).toBe(404)
+  })
+
+  it('returns 404 for deprecated self-signup pages', async () => {
+    const registerRequest = new NextRequest('https://example.com/auth/register')
+    const registerResponse = await middleware(registerRequest)
+    expect(registerResponse.status).toBe(404)
+
+    const signupRequest = new NextRequest('https://example.com/auth/sign-up')
+    const signupResponse = await middleware(signupRequest)
+    expect(signupResponse.status).toBe(404)
   })
 })

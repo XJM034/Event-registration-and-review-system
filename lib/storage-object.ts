@@ -270,6 +270,15 @@ export function resolveStorageObjectUrl(
     const trimmed = value.trim()
     if (!trimmed) return null
 
+    const managedRef = parseManagedStorageUrl(trimmed)
+    if (managedRef) {
+      return buildStorageObjectUrl(managedRef.bucket, managedRef.path, {
+        download: options?.download,
+        fileName: options?.fileName,
+        shareToken: managedRef.shareToken,
+      })
+    }
+
     const ref = extractStorageObjectRef(trimmed, options?.fallbackBucket)
     if (!ref) {
       return trimmed

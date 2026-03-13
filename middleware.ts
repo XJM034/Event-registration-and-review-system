@@ -6,6 +6,7 @@ import {
   ADMIN_TAB_SESSION_COOKIE_NAME,
   verifyAdminSessionToken,
 } from '@/lib/admin-session'
+import { isSameOriginMutationRequest } from '@/lib/csrf'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 
 const cookieBaseOptions = {
@@ -36,6 +37,11 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   let response = NextResponse.next()
   let adminDirectoryClient: ReturnType<typeof createServiceRoleClient> | null = null
+  const disabledAuthPaths = [
+    '/auth/register',
+    '/auth/sign-up',
+    '/auth/sign-up-success',
+  ]
 
   const getAdminDirectoryClient = () => {
     if (!adminDirectoryClient) {
@@ -43,8 +49,6 @@ export async function middleware(request: NextRequest) {
     }
     return adminDirectoryClient
   }
-
-  console.log('Middleware checking path:', pathname)
 
   // 公开路径 - 不需要任何认证
   const publicPaths = [
@@ -63,8 +67,11 @@ export async function middleware(request: NextRequest) {
   )
 
   if (isPublicPath) {
-    console.log('Public path, allowing access')
     return response
+  }
+
+  if (disabledAuthPaths.some(path => pathname === path || pathname.startsWith(path + '/'))) {
+    return new NextResponse('Not Found', { status: 404 })
   }
 
   if (
@@ -72,6 +79,10 @@ export async function middleware(request: NextRequest) {
     (pathname.startsWith('/api/debug/') || pathname.startsWith('/api/test-'))
   ) {
     return NextResponse.json({ error: 'Not Found' }, { status: 404 })
+  }
+
+  if (pathname.startsWith('/api') && !isSameOriginMutationRequest(request)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   // 创建 Supabase 客户端
@@ -219,7 +230,6 @@ export async function middleware(request: NextRequest) {
     const { isAdmin, isSuper } = await checkAdmin()
 
     if (!isAdmin) {
-      console.log('Non-admin trying to access admin area, redirecting to login')
       return withSessionCleanup(NextResponse.redirect(new URL('/auth/login', request.url)))
     }
 
@@ -275,7 +285,6 @@ export async function middleware(request: NextRequest) {
   }
 
   // 默认重定向到登录页
-  console.log('No matching route, redirecting to login')
   return withSessionCleanup(NextResponse.redirect(new URL('/auth/login', request.url)))
 }
 

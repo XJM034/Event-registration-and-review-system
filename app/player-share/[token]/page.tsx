@@ -292,7 +292,9 @@ export default function PlayerSharePage() {
   const fetchTokenData = async () => {
     try {
       // 使用新的API获取分享令牌信息
-      const response = await fetch(`/api/player-share/${token}`)
+      const response = await fetch(`/api/player-share/${token}`, {
+        cache: 'no-store',
+      })
       const result = await response.json()
 
       if (!result.success) {
@@ -504,9 +506,6 @@ export default function PlayerSharePage() {
     }
 
     setIsSubmitting(true)
-
-    console.log('Submitting player data:', playerData)
-    console.log('Token:', token)
 
     try {
       // 使用新的API来更新队员信息

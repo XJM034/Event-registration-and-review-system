@@ -72,6 +72,8 @@ describe('public share audit routes', () => {
     const payload = await response.json()
 
     expect(response.status).toBe(404)
+    expect(response.headers.get('cache-control')).toBe('no-store, max-age=0')
+    expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow, noarchive')
     expect(payload.success).toBe(false)
     expect(mockedWriteSecurityAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -157,6 +159,8 @@ describe('public share audit routes', () => {
     const payload = await response.json()
 
     expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('no-store, max-age=0')
+    expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow, noarchive')
     expect(payload.success).toBe(true)
     expect(mockedWriteSecurityAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -200,6 +204,8 @@ describe('public share audit routes', () => {
     const payload = await response.json()
 
     expect(response.status).toBe(404)
+    expect(response.headers.get('cache-control')).toBe('no-store, max-age=0')
+    expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow, noarchive')
     expect(payload.success).toBe(false)
     expect(mockedWriteSecurityAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({

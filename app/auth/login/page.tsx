@@ -1,14 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import AuthPageShell from '@/components/auth-page-shell'
 import { Loader2, Phone, Lock } from 'lucide-react'
-import { getSupabaseAnonKey, getSupabaseUrl } from '@/lib/env'
 import { createClient as createBrowserClient } from '@/lib/supabase/client'
 
 const ADMIN_TAB_SESSION_COOKIE_NAME = 'admin-session-tab'
@@ -41,20 +40,6 @@ function mapAdminSessionErrorMessage(rawError: string) {
   }
 }
 
-function createLoginClient() {
-  return createSupabaseClient(
-    getSupabaseUrl(),
-    getSupabaseAnonKey(),
-    {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false,
-      },
-    },
-  )
-}
-
 async function clearAdminSessionState() {
   if (typeof window !== 'undefined') {
     sessionStorage.removeItem('tab_admin_session_token')
@@ -83,6 +68,46 @@ export default function UnifiedLoginPage() {
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
 
+  const createAdminSession = async (accessToken: string | null) => {
+    await clearAdminSessionState()
+
+    let created = false
+    let createSessionError = ''
+    for (let i = 0; i < 3; i += 1) {
+      const adminSessionRes = await fetch('/api/auth/admin-session', {
+        method: 'POST',
+        credentials: 'include',
+        headers: accessToken
+          ? { Authorization: `Bearer ${accessToken}` }
+          : undefined,
+      })
+
+      if (adminSessionRes.ok) {
+        const payload = await adminSessionRes.json().catch(() => null)
+        const token = payload?.data?.token
+        if (typeof token === 'string' && token.length > 0) {
+          sessionStorage.setItem('tab_admin_session_token', token)
+          writeAdminTabSessionCookie(token)
+        }
+        created = true
+        break
+      }
+
+      try {
+        const payload = await adminSessionRes.json()
+        if (typeof payload?.error === 'string' && payload.error) {
+          createSessionError = mapAdminSessionErrorMessage(payload.error)
+        }
+      } catch {}
+
+      await new Promise((resolve) => setTimeout(resolve, (i + 1) * 200))
+    }
+
+    if (!created) {
+      throw new Error(createSessionError || '管理员会话创建失败，请重试')
+    }
+  }
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
@@ -102,95 +127,60 @@ export default function UnifiedLoginPage() {
     }
 
     try {
-      const loginClient = createLoginClient()
       const browserClient = createBrowserClient()
 
-      // 将手机号转换为邮箱格式用于登录
-      // 例如：18140044662 -> 18140044662@system.local
-      const email = `${phone}@system.local`
-
-      // 先用非持久化会话完成鉴权，避免新窗口登录时覆盖别的窗口的共享会话。
-      const { data, error: authError } = await loginClient.auth.signInWithPassword({
-        email: email,
-        password: password,
+      const loginResponse = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          phone,
+          password,
+        }),
       })
+      const loginPayload = await loginResponse.json().catch(() => null)
 
-      if (authError) {
-        console.error('Auth error:', authError)
-        setError('手机号或密码错误')
+      if (!loginResponse.ok || !loginPayload?.success) {
+        setError(loginPayload?.error || '登录失败，请稍后重试')
         setIsLoading(false)
         return
       }
 
-      if (!data.user) {
+      const data = loginPayload?.data
+      if (!data?.user) {
         setError('登录失败')
         setIsLoading(false)
         return
       }
 
       const accessToken = data.session?.access_token || null
+      const refreshToken = data.session?.refresh_token || null
 
       // 检查用户角色
       const role = data.user.user_metadata?.role
 
       if (role === 'admin') {
-        // 登录前先清理旧的管理员旁路会话，避免失败后残留上一次的管理员身份。
-        await clearAdminSessionState()
-
-        let created = false
-        let createSessionError = ''
-        for (let i = 0; i < 3; i += 1) {
-          const adminSessionRes = await fetch('/api/auth/admin-session', {
-            method: 'POST',
-            credentials: 'include',
-            headers: accessToken
-              ? { Authorization: `Bearer ${accessToken}` }
-              : undefined,
-          })
-
-          if (adminSessionRes.ok) {
-            const payload = await adminSessionRes.json().catch(() => null)
-            const token = payload?.data?.token
-            if (typeof token === 'string' && token.length > 0) {
-              // 每个标签页独立保存自己的管理员会话令牌
-              sessionStorage.setItem('tab_admin_session_token', token)
-              writeAdminTabSessionCookie(token)
-            }
-            created = true
-            break
-          }
-
-          try {
-            const payload = await adminSessionRes.json()
-            if (typeof payload?.error === 'string' && payload.error) {
-              createSessionError = mapAdminSessionErrorMessage(payload.error)
-            }
-          } catch {}
-
-          await new Promise(resolve => setTimeout(resolve, (i + 1) * 200))
-        }
-
-        if (!created) {
-          setError(createSessionError || '管理员会话创建失败，请重试')
+        if (!accessToken || !refreshToken) {
+          setError('管理员认证会话缺失，请重试')
           setIsLoading(false)
           return
         }
-
-        // 跳转到管理端主页
+        await createAdminSession(accessToken)
         window.location.href = '/events'
       } else {
         // 切回教练端时只清当前标签页的管理员 token，避免误删其他标签页仍在使用的 admin session。
         clearCurrentTabAdminSessionState()
 
-        if (!data.session?.access_token || !data.session.refresh_token) {
+        if (!accessToken || !refreshToken) {
           setError('教练会话创建失败，请重试')
           setIsLoading(false)
           return
         }
 
         const { error: persistError } = await browserClient.auth.setSession({
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token,
+          access_token: accessToken,
+          refresh_token: refreshToken,
         })
 
         if (persistError) {
@@ -203,7 +193,7 @@ export default function UnifiedLoginPage() {
         // 教练：检查或创建 coaches 记录
         const { data: coach } = await browserClient
           .from('coaches')
-          .select('*')
+          .select('id')
           .eq('auth_id', data.user.id)
           .single()
 
@@ -214,7 +204,7 @@ export default function UnifiedLoginPage() {
             .insert({
               auth_id: data.user.id,
               phone: phone,
-              email: email,
+              email: data.user.email || `${phone}@system.local`,
               name: data.user.user_metadata?.name || '',
               school: data.user.user_metadata?.school || '',
               organization: data.user.user_metadata?.organization || '',
@@ -234,13 +224,11 @@ export default function UnifiedLoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 px-4">
+    <AuthPageShell contentClassName="max-w-md">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold">赛事报名系统</CardTitle>
-          <CardDescription>
-            请输入您的手机号和密码登录
-          </CardDescription>
+          <CardDescription>请输入您的手机号和密码登录</CardDescription>
         </CardHeader>
 
         <CardContent>
@@ -284,21 +272,23 @@ export default function UnifiedLoginPage() {
               </div>
             </div>
 
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={isLoading}
-            >
-              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              登录
-            </Button>
+            <div className="space-y-2">
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={isLoading}
+              >
+                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                登录
+              </Button>
+            </div>
           </form>
 
-          <div className="mt-6 text-center text-sm text-gray-600">
+          <div className="mt-6 text-center text-sm text-muted-foreground">
             <p>账号请联系管理员开通</p>
           </div>
         </CardContent>
       </Card>
-    </div>
+    </AuthPageShell>
   )
 }

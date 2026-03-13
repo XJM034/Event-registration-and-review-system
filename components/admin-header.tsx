@@ -20,7 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Settings, LogOut, Plus, Settings2, Users } from 'lucide-react'
+import { Settings, LogOut, Plus, Settings2, Shield, Users } from 'lucide-react'
 
 interface AdminHeaderProps {
   onCreateEvent: () => void
@@ -159,6 +159,14 @@ export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
               </DropdownMenuItem>
               {isSuperAdmin && (
                 <DropdownMenuItem
+                  onClick={() => router.push('/admin/security-audit-logs')}
+                >
+                  <Shield className="h-4 w-4 mr-2" />
+                  安全审计
+                </DropdownMenuItem>
+              )}
+              {isSuperAdmin && (
+                <DropdownMenuItem
                   onClick={() => router.push('/admin/project-management')}
                 >
                   <Settings2 className="h-4 w-4 mr-2" />
@@ -167,7 +175,7 @@ export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
               )}
               <DropdownMenuItem
                 onClick={(e) => { e.preventDefault(); setShowLogoutDialog(true) }}
-                className="text-destructive focus:text-destructive"
+                className="text-red-600 focus:bg-red-50 focus:text-red-700 dark:text-red-400 dark:focus:bg-red-500/15 dark:focus:text-red-300"
               >
                 <LogOut className="h-4 w-4 mr-2" />
                 退出登录

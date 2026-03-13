@@ -13,6 +13,12 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Loader2 } from 'lucide-react'
+import {
+  PASSWORD_POLICY_HINT,
+  PASSWORD_POLICY_MIN_LENGTH,
+  PASSWORD_POLICY_PLACEHOLDER,
+  validatePasswordStrength,
+} from '@/lib/password-policy'
 
 interface Coach {
   id: string
@@ -39,8 +45,9 @@ export default function ResetPasswordDialog({
     e.preventDefault()
 
     // 验证密码
-    if (password.length < 6) {
-      alert('密码长度至少为6位')
+    const passwordValidation = validatePasswordStrength(password)
+    if (!passwordValidation.valid) {
+      alert(passwordValidation.message)
       return
     }
 
@@ -93,12 +100,13 @@ export default function ResetPasswordDialog({
               <Input
                 id="new-password"
                 type="password"
-                placeholder="至少6位"
+                placeholder={PASSWORD_POLICY_PLACEHOLDER}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                minLength={6}
+                minLength={PASSWORD_POLICY_MIN_LENGTH}
               />
+              <p className="text-xs text-muted-foreground">{PASSWORD_POLICY_HINT}</p>
             </div>
 
             <div className="space-y-2">
@@ -112,7 +120,7 @@ export default function ResetPasswordDialog({
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
-                minLength={6}
+                minLength={PASSWORD_POLICY_MIN_LENGTH}
               />
             </div>
 

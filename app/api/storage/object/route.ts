@@ -9,6 +9,7 @@ import {
 import { getCurrentAdminSession, getCurrentCoachSession } from '@/lib/auth'
 import { applyRateLimitHeaders, buildRateLimitKey, createRateLimitResponse, takeRateLimit } from '@/lib/rate-limit'
 import { writeSecurityAuditLog } from '@/lib/security-audit-log'
+import { applySensitiveResponseHeaders } from '@/lib/sensitive-response-headers'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import {
   isCoachOwnedStoragePath,
@@ -26,6 +27,20 @@ interface StorageAccessContext {
   eventId?: string | null
   registrationId?: string | null
   metadata?: Record<string, unknown>
+}
+
+function applyNoStoreHeaders(headers: Headers) {
+  applySensitiveResponseHeaders(headers)
+}
+
+function jsonNoStore(body: unknown, init?: ResponseInit) {
+  const headers = new Headers(init?.headers)
+  applySensitiveResponseHeaders(headers)
+
+  return NextResponse.json(body, {
+    ...init,
+    headers,
+  })
 }
 
 async function getAdminAccessContext(): Promise<StorageAccessContext | null> {
@@ -201,18 +216,20 @@ export async function GET(request: NextRequest) {
       : null
 
     if (!bucket || !path || !isUploadBucket(bucket)) {
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '文件参数无效', success: false },
         { status: 400 }
       )
     }
 
     if (shareRateLimit && !shareRateLimit.allowed) {
-      return createRateLimitResponse(
+      const response = createRateLimitResponse(
         { error: '请求过于频繁，请稍后重试', success: false },
         shareRateLimit,
         { status: 429 },
       )
+      applyNoStoreHeaders(response.headers)
+      return response
     }
 
     const ref: StorageObjectRef = {
@@ -221,7 +238,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (!ref.path || ref.path.includes('..')) {
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '文件路径无效', success: false },
         { status: 400 }
       )
@@ -263,7 +280,7 @@ export async function GET(request: NextRequest) {
         })
       }
 
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '未授权访问', success: false },
         { status: 401 }
       )
@@ -276,7 +293,7 @@ export async function GET(request: NextRequest) {
 
     if (error || !data) {
       console.error('Storage object download failed:', error)
-      return NextResponse.json(
+      return jsonNoStore(
         { error: '文件不存在', success: false },
         { status: 404 }
       )
@@ -287,9 +304,14 @@ export async function GET(request: NextRequest) {
       status: 200,
       headers: {
         'Content-Type': data.type || 'application/octet-stream',
-        'Cache-Control': isPrivateStorageBucket(bucket) ? 'private, max-age=60' : 'public, max-age=300',
+        'Cache-Control': isPrivateStorageBucket(bucket) ? 'no-store, max-age=0' : 'public, max-age=300',
       },
     })
+
+    if (isPrivateStorageBucket(bucket)) {
+      response.headers.set('Pragma', 'no-cache')
+      response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
+    }
 
     if (shareRateLimit) {
       applyRateLimitHeaders(response.headers, shareRateLimit)
@@ -326,7 +348,7 @@ export async function GET(request: NextRequest) {
     return response
   } catch (error) {
     console.error('Storage object route error:', error)
-    return NextResponse.json(
+    return jsonNoStore(
       { error: '服务器错误', success: false },
       { status: 500 }
     )

@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentAdminSession } from '@/lib/auth'
+import { buildWorkbookBuffer, type WorkbookSheetInput } from '@/lib/excel-workbook'
 import { applyExportFieldFilters, parseExportRequest, resolveRoleForExport } from '@/lib/export/export-route-utils'
-import { applyRateLimitHeaders, buildRateLimitKey, createRateLimitResponse, takeRateLimit } from '@/lib/rate-limit'
+import { applyRateLimitHeaders, buildRateLimitKey, takeRateLimit } from '@/lib/rate-limit'
 import { writeSecurityAuditLog } from '@/lib/security-audit-log'
+import { applySensitiveResponseHeaders } from '@/lib/sensitive-response-headers'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 import { collectStorageObjectRefs, type StorageObjectRef } from '@/lib/storage-object'
 import type { UploadBucket } from '@/lib/upload-file-validation'
-import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
 
 interface RouteParams {
@@ -15,6 +16,25 @@ interface RouteParams {
 
 const INVALID_SHEET_CHARS = /[:\\/?*\[\]]/g
 const INVALID_PATH_CHARS = /[\\/?%*:|"<>]/g
+const EXPORT_REGISTRATION_COLUMNS = 'id, team_data, players_data, submitted_at'
+const EXPORT_SETTINGS_COLUMNS = 'division_id, team_requirements, player_requirements'
+const EXPORT_NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store, max-age=0',
+  Pragma: 'no-cache',
+}
+
+type ExportDivisionRow = {
+  id: string
+  name: string
+}
+
+type ExportRegistrationRow = {
+  id: string
+  team_data?: Record<string, any> | null
+  players_data?: any[] | null
+  submitted_at?: string | null
+  division?: ExportDivisionRow | null
+}
 
 const sanitizeSheetName = (name: string, fallback: string) => {
   const cleaned = (name || '').replace(INVALID_SHEET_CHARS, '-').trim()
@@ -90,18 +110,28 @@ const ensureUniqueFolderName = (baseName: string, used: Set<string>): string => 
   return name
 }
 
+function createSensitiveExportJsonResponse(
+  body: unknown,
+  init?: ResponseInit,
+  rateLimit?: ReturnType<typeof takeRateLimit>,
+) {
+  const response = NextResponse.json(body, init)
+  applySensitiveResponseHeaders(response.headers)
+  if (rateLimit) {
+    applyRateLimitHeaders(response.headers, rateLimit)
+  }
+  return response
+}
+
 export async function POST(
   request: NextRequest,
   context: RouteParams
 ) {
-  console.log('Export route called')
   try {
     const { id: eventId } = await context.params
-    console.log('Event ID:', eventId)
 
     const session = await getCurrentAdminSession()
     const actorRole = session?.user?.is_super === true ? 'super_admin' : 'admin'
-    console.log('Session:', session ? 'Valid' : 'Invalid')
     if (!session) {
       await writeSecurityAuditLog({
         request,
@@ -114,7 +144,7 @@ export async function POST(
         result: 'denied',
         reason: 'unauthorized',
       })
-      return NextResponse.json(
+      return createSensitiveExportJsonResponse(
         { success: false, error: '未授权访问' },
         { status: 401 }
       )
@@ -143,10 +173,10 @@ export async function POST(
         result: 'denied',
         reason: 'rate_limited',
       })
-      return createRateLimitResponse(
+      return createSensitiveExportJsonResponse(
         { success: false, error: '导出过于频繁，请稍后再试' },
-        rateLimit,
         { status: 429 },
+        rateLimit,
       )
     }
 
@@ -165,14 +195,13 @@ export async function POST(
         result: 'failed',
         reason: 'invalid_request_body',
       })
-      return createRateLimitResponse(
+      return createSensitiveExportJsonResponse(
         { success: false, error: '请求参数无效' },
+        { status: 400 },
         rateLimit,
-        { status: 400 }
       )
     }
     const { registrationIds, config } = body
-    console.log('Export config:', config)
 
     const supabase = createServiceRoleClient()
 
@@ -197,17 +226,17 @@ export async function POST(
         result: 'failed',
         reason: 'event_lookup_failed',
       })
-      return createRateLimitResponse(
+      return createSensitiveExportJsonResponse(
         { success: false, error: '获取赛事信息失败' },
+        { status: 500 },
         rateLimit,
-        { status: 500 }
       )
     }
 
     // 构建查询条件
     let query = supabase
       .from('registrations')
-      .select('*')
+      .select(EXPORT_REGISTRATION_COLUMNS)
       .eq('event_id', eventId)
 
     // 根据 exportScope 添加条件
@@ -228,10 +257,10 @@ export async function POST(
             export_scope: config.exportScope,
           },
         })
-        return createRateLimitResponse(
+        return createSensitiveExportJsonResponse(
           { success: false, error: '请选择要导出的报名信息' },
+          { status: 400 },
           rateLimit,
-          { status: 400 }
         )
       }
       query = query.in('id', registrationIds)
@@ -264,14 +293,18 @@ export async function POST(
           export_scope: config.exportScope,
         },
       })
-      return createRateLimitResponse(
+      return createSensitiveExportJsonResponse(
         { success: false, error: '获取报名信息失败' },
+        { status: 500 },
         rateLimit,
-        { status: 500 }
       )
     }
 
-    if (!registrations || registrations.length === 0) {
+    const exportRegistrations: ExportRegistrationRow[] = (registrations || []).map((registration) => ({
+      ...registration,
+    }))
+
+    if (exportRegistrations.length === 0) {
       await writeSecurityAuditLog({
         request,
         action: 'export_registrations',
@@ -287,23 +320,21 @@ export async function POST(
           export_scope: config.exportScope,
         },
       })
-      return createRateLimitResponse(
+      return createSensitiveExportJsonResponse(
         { success: false, error: '未找到报名信息' },
+        { status: 404 },
         rateLimit,
-        { status: 404 }
       )
     }
 
-    console.log(`Found ${registrations.length} registrations to export`)
-
     // 获取组别信息（从 team_data.division_id）
     const divisionIds = [...new Set(
-      registrations
+      exportRegistrations
         .map(r => r.team_data?.division_id)
         .filter(Boolean)
     )]
 
-    let divisionMap = new Map()
+    let divisionMap = new Map<string, ExportDivisionRow>()
     if (divisionIds.length > 0) {
       const { data: divisions } = await supabase
         .from('divisions')
@@ -313,26 +344,26 @@ export async function POST(
     }
 
     // 将组别信息附加到报名数据
-    registrations.forEach((reg: any) => {
+    exportRegistrations.forEach((reg) => {
       const divisionId = reg.team_data?.division_id
       reg.division = divisionId ? divisionMap.get(divisionId) : null
     })
 
     // 根据 groupBy 排序
     if (config.groupBy === 'division') {
-      registrations.sort((a, b) => {
+      exportRegistrations.sort((a, b) => {
         const aDiv = a.division?.name || '未分组'
         const bDiv = b.division?.name || '未分组'
         return aDiv.localeCompare(bDiv, 'zh-CN')
       })
     } else if (config.groupBy === 'unit') {
-      registrations.sort((a, b) => {
+      exportRegistrations.sort((a, b) => {
         const aUnit = a.team_data?.unit || a.team_data?.['参赛单位'] || '未知单位'
         const bUnit = b.team_data?.unit || b.team_data?.['参赛单位'] || '未知单位'
         return aUnit.localeCompare(bUnit, 'zh-CN')
       })
     } else if (config.groupBy === 'division_unit') {
-      registrations.sort((a, b) => {
+      exportRegistrations.sort((a, b) => {
         const aDiv = a.division?.name || '未分组'
         const bDiv = b.division?.name || '未分组'
         if (aDiv !== bDiv) return aDiv.localeCompare(bDiv, 'zh-CN')
@@ -346,7 +377,7 @@ export async function POST(
     // 获取报名设置以了解字段配置
     const { data: settings } = await supabase
       .from('registration_settings')
-      .select('*')
+      .select(EXPORT_SETTINGS_COLUMNS)
       .eq('event_id', eventId)
 
     // 合并所有组别的字段配置
@@ -421,7 +452,7 @@ export async function POST(
     // 按分组处理报名数据
     const groupedRegistrations = new Map<string, any[]>()
 
-    registrations.forEach((reg: any) => {
+    exportRegistrations.forEach((reg) => {
       let groupKey = ''
 
       if (config.groupBy === 'none') {
@@ -443,8 +474,6 @@ export async function POST(
       }
       groupedRegistrations.get(groupKey)!.push(reg)
     })
-
-    console.log(`Grouped into ${groupedRegistrations.size} groups`)
 
     // 处理每个分组
     for (const [groupPath, groupRegs] of groupedRegistrations.entries()) {
@@ -482,8 +511,8 @@ export async function POST(
         const teamBasePath = groupPath === 'root' ? teamFolderName : `${groupPath}/${teamFolderName}`
 
         // 生成队伍 Excel
-        const wb = XLSX.utils.book_new()
         const usedSheetNames = new Set<string>()
+        const workbookSheets: WorkbookSheetInput[] = []
 
         // 队伍信息 sheet
         const teamRow: any = { '序号': index + 1 }
@@ -525,8 +554,10 @@ export async function POST(
           }
         })
 
-        const teamSheet = XLSX.utils.json_to_sheet([teamRow])
-        XLSX.utils.book_append_sheet(wb, teamSheet, '队伍信息')
+        workbookSheets.push({
+          name: '队伍信息',
+          rows: [teamRow],
+        })
 
         // 队员信息 sheets（按角色）
         const rolesById = new Map(allPlayerRoles.map(role => [role.id, role]))
@@ -592,14 +623,16 @@ export async function POST(
         allPlayerRoles.forEach(role => {
           const roleData = roleSheetData.get(role.id)
           if (roleData && roleData.length > 0) {
-            const roleSheet = XLSX.utils.json_to_sheet(roleData)
             const sheetName = ensureUniqueSheetName(String(role.name || role.id), usedSheetNames, '队员信息')
-            XLSX.utils.book_append_sheet(wb, roleSheet, sheetName)
+            workbookSheets.push({
+              name: sheetName,
+              rows: roleData,
+            })
           }
         })
 
         // 生成 Excel 文件
-        const excelBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+        const excelBuffer = await buildWorkbookBuffer(workbookSheets)
         const excelFileName = `${teamFolderName}_报名信息.xlsx`
         zip.file(`${teamBasePath}/${excelFileName}`, excelBuffer)
       }
@@ -607,9 +640,7 @@ export async function POST(
 
     // 等待所有附件下载完成
     if (attachmentPromises.length > 0) {
-      console.log(`Downloading ${attachmentPromises.length} attachments...`)
       await Promise.allSettled(attachmentPromises)
-      console.log('All attachments processed')
     }
 
     // 生成 zip 文件
@@ -625,8 +656,10 @@ export async function POST(
       headers: {
         'Content-Type': 'application/zip',
         'Content-Disposition': `attachment; filename="${encodeURIComponent(zipFileName)}"`,
+        ...EXPORT_NO_STORE_HEADERS,
       },
     })
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive')
     applyRateLimitHeaders(response.headers, rateLimit)
 
     await writeSecurityAuditLog({
@@ -642,7 +675,7 @@ export async function POST(
       metadata: {
         export_scope: config.exportScope,
         group_by: config.groupBy,
-        registration_count: registrations.length,
+        registration_count: exportRegistrations.length,
         file_name_prefix: config.fileNamePrefix || null,
       },
     })
@@ -654,7 +687,7 @@ export async function POST(
       message: error?.message,
       stack: error?.stack
     })
-    return NextResponse.json(
+    return createSensitiveExportJsonResponse(
       { success: false, error: '导出失败，请稍后重试' },
       { status: 500 }
     )

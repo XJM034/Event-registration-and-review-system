@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,10 @@ import { Calendar, MapPin, Phone, Clock, Users, ArrowLeft, FileText, AlertCircle
 import { createClient } from '@/lib/supabase/client'
 import { getSessionUser, getSessionUserWithRetry } from '@/lib/supabase/client-auth'
 import { MY_REGISTRATION_SCROLL_TARGET, resolveEventDetailScrollTarget } from '@/lib/portal/event-detail-navigation'
+import {
+  readCachedPortalCoachId,
+  writeCachedPortalCoachId,
+} from '@/lib/portal/coach-session-cache'
 import { toSafeHttpUrl } from '@/lib/url-security'
 
 // 工具函数：将文本中的 URL 转换为可点击的链接
@@ -97,13 +101,14 @@ interface TeamRequirementsConfig {
 }
 
 type RegistrationStatus = 'draft' | 'submitted' | 'pending' | 'approved' | 'rejected' | 'cancelled'
+const REGISTRATION_DETAIL_COLUMNS =
+  'id, event_id, status, team_data, submitted_at, created_at, rejection_reason, reviewed_at, last_status_read_at, last_status_change, cancelled_at'
 
 interface Registration {
   id: string
   event_id: string
   status: RegistrationStatus
   team_data: any
-  players_data: any
   submitted_at: string
   created_at?: string
   rejection_reason?: string
@@ -172,6 +177,7 @@ export default function EventDetailPage() {
   const [registration, setRegistration] = useState<Registration | null>(null)
   const [allRegistrations, setAllRegistrations] = useState<Registration[]>([])  // 存储所有报名记录
   const [isLoading, setIsLoading] = useState(true)
+  const checkRegistrationRef = useRef<() => Promise<void>>(async () => {})
 
   useEffect(() => {
     if (eventId) {
@@ -193,7 +199,6 @@ export default function EventDetailPage() {
       // 等待页面渲染完成后再滚动
       const scrollTimer = setTimeout(() => {
         const element = document.getElementById('my-registration-section')
-        console.log('Scrolling to my-registration-section:', element)
         if (element) {
           // 获取元素位置并滚动
           const elementPosition = element.getBoundingClientRect().top + window.pageYOffset
@@ -212,18 +217,32 @@ export default function EventDetailPage() {
 
   // 监听页面获得焦点，重新检查报名状态（用于从报名页面返回时更新状态）
   useEffect(() => {
-    const handleFocus = () => {
-      checkRegistration()
+    const refreshRegistration = () => {
+      if (document.visibilityState === 'visible') {
+        void checkRegistrationRef.current()
+      }
     }
 
-    window.addEventListener('focus', handleFocus)
-    return () => window.removeEventListener('focus', handleFocus)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void checkRegistrationRef.current()
+      }
+    }
+
+    window.addEventListener('focus', refreshRegistration)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.removeEventListener('focus', refreshRegistration)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [eventId])
 
   // 定期检查报名状态更新（每30秒检查一次）
   useEffect(() => {
     const interval = setInterval(() => {
-      checkRegistration()
+      if (document.visibilityState === 'visible') {
+        void checkRegistrationRef.current()
+      }
     }, 30000) // 30秒
 
     return () => clearInterval(interval)
@@ -240,7 +259,6 @@ export default function EventDetailPage() {
 
       if (sessionError && isNetworkError) {
         if (retryCount < 2) {
-          console.log('Session error, retrying in 800ms...')
           setTimeout(() => fetchEventDetails(retryCount + 1), 800)
           return
         }
@@ -252,7 +270,6 @@ export default function EventDetailPage() {
       if (!user) {
         // 没有session时也尝试重试，可能是初始化延迟
         if (retryCount < 2) {
-          console.log('No session yet, retrying in 700ms...')
           setTimeout(() => fetchEventDetails(retryCount + 1), 700)
           return
         }
@@ -279,7 +296,6 @@ export default function EventDetailPage() {
         if (response.status === 404) {
           // 404错误时也尝试重试一次，可能是认证状态问题
           if (retryCount < 1) {
-            console.log('Event not found, retrying in 1 second...')
             setTimeout(() => fetchEventDetails(retryCount + 1), 1000)
             return
           }
@@ -291,7 +307,6 @@ export default function EventDetailPage() {
         if (response.status === 503) {
           console.error('Service temporarily unavailable')
           if (retryCount < 2) {
-            console.log(`Service unavailable, retrying in ${(retryCount + 1) * 2} seconds...`)
             setTimeout(() => fetchEventDetails(retryCount + 1), (retryCount + 1) * 2000)
             return
           }
@@ -305,13 +320,6 @@ export default function EventDetailPage() {
       const result = await response.json()
 
       if (result.success && result.data) {
-        console.log('Event data loaded successfully:', {
-          id: result.data.id,
-          name: result.data.name,
-          hasRegistrationSettings: !!result.data.registration_settings,
-          registrationSettings: result.data.registration_settings
-        })
-
         setEvent(result.data)
       } else {
         console.error('API returned error:', result.error || '赛事未找到')
@@ -322,7 +330,6 @@ export default function EventDetailPage() {
 
       // 网络错误时重试
       if (retryCount < 2) {
-        console.log('Network error, retrying in 3 seconds...')
         setTimeout(() => fetchEventDetails(retryCount + 1), 3000)
         return
       }
@@ -338,20 +345,28 @@ export default function EventDetailPage() {
       const { user } = await getSessionUser(supabase)
 
       if (user) {
-        // 获取教练信息
-        const { data: coach } = await supabase
-          .from('coaches')
-          .select('*')
-          .eq('auth_id', user.id)
-          .single()
+        let coachId = readCachedPortalCoachId(user.id)
 
-        if (coach) {
+        if (!coachId) {
+          const { data: coach } = await supabase
+            .from('coaches')
+            .select('id')
+            .eq('auth_id', user.id)
+            .single()
+
+          coachId = coach?.id || null
+          if (coachId) {
+            writeCachedPortalCoachId(user.id, coachId)
+          }
+        }
+
+        if (coachId) {
           // 获取所有报名记录（支持多个报名）
           const { data: allRegistrations, error } = await supabase
             .from('registrations')
-            .select('*')
+            .select(REGISTRATION_DETAIL_COLUMNS)
             .eq('event_id', eventId)
-            .eq('coach_id', coach.id)
+            .eq('coach_id', coachId)
             .order('created_at', { ascending: false })
 
           if (error) {
@@ -368,18 +383,6 @@ export default function EventDetailPage() {
             )
 
             const primaryReg = sortedRegistrations[0]
-            console.log('获取到的报名信息:', {
-              total: registrationRows.length,
-              primary: {
-                id: primaryReg.id,
-                status: primaryReg.status,
-                reviewed_at: primaryReg.reviewed_at,
-                last_status_read_at: primaryReg.last_status_read_at,
-                last_status_change: primaryReg.last_status_change
-              },
-              allRegistrations: registrationRows
-            })
-
             // 设置主要显示的报名（用于显示状态）
             setRegistration(primaryReg)
 
@@ -395,6 +398,8 @@ export default function EventDetailPage() {
       console.error('检查报名状态失败:', error)
     }
   }
+
+  checkRegistrationRef.current = checkRegistration
 
   const getEventStatus = () => {
     if (!event) return null
@@ -453,12 +458,6 @@ export default function EventDetailPage() {
     const teamReqRaw = event.registration_settings.team_requirements
     let teamReq: TeamRequirementsConfig | undefined
 
-    // 调试：打印原始数据
-    console.log('Team Requirements Raw Data:', {
-      type: typeof teamReq,
-      value: teamReq
-    })
-
     // 处理各种可能的数据格式
     if (typeof teamReqRaw === 'string') {
       // 处理空字符串情况
@@ -469,7 +468,6 @@ export default function EventDetailPage() {
 
       try {
         teamReq = JSON.parse(teamReqRaw) as TeamRequirementsConfig
-        console.log('Team Requirements After Parse:', teamReq)
       } catch (e) {
         console.error('解析 team_requirements 失败:', e, 'Raw data:', teamReqRaw)
         return { canRegister: false, text: '报名设置格式错误', variant: 'secondary' as const, inReviewPeriod: false }
@@ -487,12 +485,6 @@ export default function EventDetailPage() {
     const regStartDate = teamReq.registrationStartDate
     const regEndDate = teamReq.registrationEndDate
     const reviewEndDate = teamReq.reviewEndDate  // 新增：审核结束时间
-
-    console.log('Registration Dates:', {
-      regStartDate,
-      regEndDate,
-      reviewEndDate
-    })
 
     // 检查日期字段是否存在且有效
     if (!regStartDate || !regEndDate) {
@@ -528,24 +520,12 @@ export default function EventDetailPage() {
 
     const now = new Date()
 
-    console.log('Date Comparison:', {
-      now: now.toISOString(),
-      regStart: regStart.toISOString(),
-      regEnd: regEnd.toISOString(),
-      reviewEnd: reviewEnd?.toISOString(),
-      isBeforeRegStart: now < regStart,
-      isDuringReg: now <= regEnd,
-      isAfterRegEnd: now > regEnd,
-      isDuringReview: reviewEnd && now > regEnd && now <= reviewEnd
-    })
-
     if (now < regStart) {
       return { canRegister: false, text: '报名未开始', variant: 'secondary' as const, inReviewPeriod: false }
     } else if (now <= regEnd) {
       return { canRegister: true, text: '新建报名', variant: 'default' as const, inReviewPeriod: false }
     } else if (reviewEnd && now <= reviewEnd) {
       // 报名已结束，但在审核期内，不允许新建报名
-      console.log('>>> IN REVIEW PERIOD <<<')
       return { canRegister: false, text: '报名已结束', variant: 'destructive' as const, inReviewPeriod: true }
     } else {
       return { canRegister: false, text: '报名已结束', variant: 'destructive' as const, inReviewPeriod: false }
@@ -772,15 +752,6 @@ export default function EventDetailPage() {
       }
     })
     .filter((file): file is EventReferenceTemplate & { url: string } => Boolean(file))
-
-  // 调试日志
-  console.log('Event Details Page - Review Period Check:', {
-    eventId: event?.id,
-    eventName: event?.name,
-    newRegStatus,
-    inReviewPeriod: newRegStatus?.inReviewPeriod,
-    registrations: allRegistrations.map(r => ({ id: r.id, status: r.status }))
-  })
 
   return (
     <div className="space-y-6">
