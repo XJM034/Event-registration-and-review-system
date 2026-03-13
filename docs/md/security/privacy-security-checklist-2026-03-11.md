@@ -133,6 +133,7 @@
   - 发布判断：需由业务/法务/安全共同明确脱敏或加密要求
 - CSRF 与平台侧密码策略已完成本轮最低可用收口
   - 当前代码状态：关键密码入口已统一到应用层共享策略，要求至少 10 位且包含大小写字母与数字；教练改密也已切到受控 API；受保护 API 的危险方法已加同源校验
+  - 当前代码状态：同源校验现已优先识别 `x-forwarded-host` / `x-forwarded-proto`，兼容 Zeabur / 反向代理场景下外部域名与内部服务主机名不一致导致的误判 `403 Forbidden`
   - 当前代码状态：浏览器安全头已补充基础 CSP（`base-uri/form-action/frame-ancestors/object-src`）与 `Origin-Agent-Cluster`
   - 当前代码状态：根据当前业务决策，已移除管理员端内置 TOTP MFA 绑定与登录验证码流程，管理员与教练均保持纯密码登录，以避免额外使用门槛影响现有用户习惯
   - 目标环境复核（2026-03-13）：`/auth/v1/settings` 已确认 email 登录开启、`disable_signup=true`、`mfa_enabled=false`；MemFire 控制台已人工确认最小密码长度已调为 `10`

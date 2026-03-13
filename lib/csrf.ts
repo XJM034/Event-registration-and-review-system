@@ -11,6 +11,29 @@ export function isUnsafeMutationMethod(method: string) {
   return UNSAFE_METHODS.has(String(method || '').toUpperCase())
 }
 
+function readForwardedHeader(
+  request: RequestLike,
+  headerName: string,
+) {
+  return request.headers.get(headerName)?.split(',')[0]?.trim() || null
+}
+
+function getExpectedRequestOrigin(request: RequestLike) {
+  const forwardedHost = readForwardedHeader(request, 'x-forwarded-host')
+  const forwardedProto = readForwardedHeader(request, 'x-forwarded-proto')
+  const host = forwardedHost || readForwardedHeader(request, 'host')
+
+  if (host) {
+    const fallbackOrigin = new URL(request.url).origin
+    const fallbackProtocol = new URL(fallbackOrigin).protocol
+    const protocol = forwardedProto ? `${forwardedProto.replace(/:$/, '')}:` : fallbackProtocol
+
+    return `${protocol}//${host}`
+  }
+
+  return new URL(request.url).origin
+}
+
 export function isSameOriginMutationRequest(request: RequestLike) {
   if (!isUnsafeMutationMethod(request.method)) {
     return true
@@ -20,7 +43,7 @@ export function isSameOriginMutationRequest(request: RequestLike) {
 
   if (originHeader) {
     try {
-      const requestOrigin = new URL(request.url).origin
+      const requestOrigin = getExpectedRequestOrigin(request)
       const origin = new URL(originHeader).origin
 
       if (origin !== requestOrigin) {
