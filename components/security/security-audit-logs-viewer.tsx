@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Eye, RefreshCw } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { getCurrentTabAdminSessionToken } from '@/lib/admin-session-client'
 import {
   Dialog,
   DialogContent,
@@ -27,42 +29,25 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-
-type AuditLog = {
-  id: string
-  created_at: string
-  actor_type: string | null
-  actor_id: string | null
-  actor_role: string | null
-  action: string | null
-  resource_type: string | null
-  resource_id: string | null
-  event_id: string | null
-  registration_id: string | null
-  target_user_id: string | null
-  result: string | null
-  reason: string | null
-  metadata: Record<string, unknown> | null
-  ip_address: string | null
-  user_agent: string | null
-  request_id: string | null
-}
-
-type QueryFilters = {
-  action: string
-  actorType: string
-  result: string
-  from: string
-  to: string
-}
-
-const defaultFilters: QueryFilters = {
-  action: '',
-  actorType: 'all',
-  result: 'all',
-  from: '',
-  to: '',
-}
+import {
+  AUDIT_ACTION_OPTIONS,
+  AUDIT_ACTOR_TYPE_OPTIONS,
+  AUDIT_RESULT_OPTIONS,
+  AUDIT_SCOPE_OPTIONS,
+  areSecurityAuditLogFiltersEqual,
+  buildSecurityAuditLogViewerSearchParams,
+  DEFAULT_SECURITY_AUDIT_LOG_PAGE,
+  formatAuditTechnicalMetadata,
+  getAuditActionLabel,
+  getAuditActorLabel,
+  getAuditObjectLabel,
+  getAuditResultLabel,
+  getAuditSummary,
+  parseSecurityAuditLogViewerSearchParams,
+  SECURITY_AUDIT_LOG_PAGE_SIZE_OPTIONS,
+  type SecurityAuditLogQueryFilters,
+  type SecurityAuditLogRecord,
+} from '@/lib/security-audit-log-view'
 
 function formatDateTime(value: string | null) {
   if (!value) return '-'
@@ -81,41 +66,12 @@ function formatDateTime(value: string | null) {
   }).format(date)
 }
 
-function formatActor(log: AuditLog) {
-  if (log.actor_role) {
-    return `${log.actor_role}${log.actor_id ? ` · ${log.actor_id}` : ''}`
-  }
-  if (log.actor_type) {
-    return `${log.actor_type}${log.actor_id ? ` · ${log.actor_id}` : ''}`
-  }
-  return '-'
-}
-
-function formatResource(log: AuditLog) {
-  const parts = [
-    log.resource_type,
-    log.resource_id,
-    log.event_id ? `event:${log.event_id}` : '',
-    log.registration_id ? `registration:${log.registration_id}` : '',
-  ].filter(Boolean)
-
-  return parts.length > 0 ? parts.join(' / ') : '-'
-}
-
-function formatMetadata(metadata: AuditLog['metadata']) {
-  if (!metadata || Object.keys(metadata).length === 0) {
-    return '无额外元数据'
-  }
-
-  return JSON.stringify(metadata, null, 2)
-}
-
 function getResultBadgeClass(result: string | null) {
   if (result === 'success') {
     return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300'
   }
 
-  if (result === 'failure') {
+  if (result === 'failed') {
     return 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'
   }
 
@@ -123,7 +79,7 @@ function getResultBadgeClass(result: string | null) {
 }
 
 async function syncAdminSession() {
-  const tabToken = sessionStorage.getItem('tab_admin_session_token')
+  const tabToken = getCurrentTabAdminSessionToken()
   if (!tabToken) {
     return
   }
@@ -138,15 +94,53 @@ async function syncAdminSession() {
 }
 
 export default function SecurityAuditLogsViewer() {
-  const [filters, setFilters] = useState<QueryFilters>(defaultFilters)
-  const [query, setQuery] = useState<QueryFilters>(defaultFilters)
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
-  const [logs, setLogs] = useState<AuditLog[]>([])
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const searchParamsString = searchParams.toString()
+  const initialState = useMemo(
+    () => parseSecurityAuditLogViewerSearchParams(searchParams),
+    [searchParams],
+  )
+  const [filters, setFilters] = useState<SecurityAuditLogQueryFilters>(initialState.filters)
+  const [query, setQuery] = useState<SecurityAuditLogQueryFilters>(initialState.filters)
+  const [page, setPage] = useState(initialState.page)
+  const [pageSize, setPageSize] = useState(initialState.pageSize)
+  const [logs, setLogs] = useState<SecurityAuditLogRecord[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null)
+  const [selectedLog, setSelectedLog] = useState<SecurityAuditLogRecord | null>(null)
+
+  useEffect(() => {
+    const nextState = parseSecurityAuditLogViewerSearchParams(searchParams)
+
+    setFilters((current) => (
+      areSecurityAuditLogFiltersEqual(current, nextState.filters) ? current : nextState.filters
+    ))
+    setQuery((current) => (
+      areSecurityAuditLogFiltersEqual(current, nextState.filters) ? current : nextState.filters
+    ))
+    setPage((current) => (current === nextState.page ? current : nextState.page))
+    setPageSize((current) => (current === nextState.pageSize ? current : nextState.pageSize))
+  }, [searchParams, searchParamsString])
+
+  useEffect(() => {
+    const nextSearchParams = buildSecurityAuditLogViewerSearchParams({
+      filters: query,
+      page,
+      pageSize,
+    })
+    const nextSearchString = nextSearchParams.toString()
+    if (nextSearchString === searchParamsString) {
+      return
+    }
+
+    router.replace(
+      nextSearchString ? `${pathname}?${nextSearchString}` : pathname,
+      { scroll: false },
+    )
+  }, [page, pageSize, pathname, query, router, searchParamsString])
 
   useEffect(() => {
     let cancelled = false
@@ -157,29 +151,13 @@ export default function SecurityAuditLogsViewer() {
 
       try {
         await syncAdminSession()
-
-        const searchParams = new URLSearchParams({
-          page: String(page),
-          pageSize: String(pageSize),
+        const requestSearchParams = buildSecurityAuditLogViewerSearchParams({
+          filters: query,
+          page,
+          pageSize,
         })
 
-        if (query.action.trim()) {
-          searchParams.set('action', query.action.trim())
-        }
-        if (query.actorType !== 'all') {
-          searchParams.set('actorType', query.actorType)
-        }
-        if (query.result !== 'all') {
-          searchParams.set('result', query.result)
-        }
-        if (query.from) {
-          searchParams.set('from', query.from)
-        }
-        if (query.to) {
-          searchParams.set('to', query.to)
-        }
-
-        const response = await fetch(`/api/admin/security-audit-logs?${searchParams.toString()}`, {
+        const response = await fetch(`/api/admin/security-audit-logs?${requestSearchParams.toString()}`, {
           cache: 'no-store',
           credentials: 'include',
         })
@@ -187,7 +165,7 @@ export default function SecurityAuditLogsViewer() {
         const result = await response.json()
 
         if (!response.ok || !result?.success) {
-          throw new Error(result?.error || '获取审计日志失败')
+          throw new Error(result?.error || '获取关键操作轨迹失败')
         }
 
         if (cancelled) {
@@ -202,7 +180,7 @@ export default function SecurityAuditLogsViewer() {
         }
         setLogs([])
         setTotal(0)
-        setError(fetchError instanceof Error ? fetchError.message : '获取审计日志失败')
+        setError(fetchError instanceof Error ? fetchError.message : '获取关键操作轨迹失败')
       } finally {
         if (!cancelled) {
           setLoading(false)
@@ -219,30 +197,105 @@ export default function SecurityAuditLogsViewer() {
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
 
-  const handleSearch = () => {
-    setPage(1)
-    setQuery(filters)
-  }
+  const pageStats = useMemo(() => {
+    return logs.reduce(
+      (stats, log) => {
+        if (log.result === 'success') stats.success += 1
+        else if (log.result === 'failed') stats.failed += 1
+        else if (log.result === 'denied') stats.denied += 1
+        return stats
+      },
+      { success: 0, failed: 0, denied: 0 },
+    )
+  }, [logs])
 
-  const handleReset = () => {
-    setFilters(defaultFilters)
-    setPage(1)
-    setPageSize(20)
-    setQuery(defaultFilters)
+  const handleSearch = () => {
+    setPage(DEFAULT_SECURITY_AUDIT_LOG_PAGE)
+    setQuery(filters)
   }
 
   const handleRefresh = () => {
     setQuery({ ...query })
   }
 
+  const applyQuickScope = (scope: string) => {
+    const nextFilters: SecurityAuditLogQueryFilters = {
+      ...filters,
+      scope,
+      action: 'all',
+    }
+    setFilters(nextFilters)
+    setPage(1)
+    setQuery(nextFilters)
+  }
+
+  const applyLoginTrailFilter = () => {
+    const nextFilters: SecurityAuditLogQueryFilters = {
+      ...filters,
+      scope: 'all',
+      action: 'account_login',
+    }
+    setFilters(nextFilters)
+    setPage(DEFAULT_SECURITY_AUDIT_LOG_PAGE)
+    setQuery(nextFilters)
+  }
+
   return (
-    <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <Input
+    <div className="space-y-5">
+      <div className="rounded-xl border bg-background p-4">
+        <div className="mb-3 text-sm font-medium text-foreground">常用关键范围</div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => applyQuickScope('critical')}>
+            全部关键操作
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => applyQuickScope('review_flow')}>
+            审批与报名
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => applyQuickScope('account_changes')}>
+            账号与权限
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => applyQuickScope('export_and_files')}>
+            导出与资料
+          </Button>
+          <Button variant="outline" size="sm" onClick={applyLoginTrailFilter}>
+            账号登录
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <Select
+          value={filters.scope}
+          onValueChange={(value) => setFilters((current) => ({ ...current, scope: value, action: 'all' }))}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="关键范围" />
+          </SelectTrigger>
+          <SelectContent>
+            {AUDIT_SCOPE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
           value={filters.action}
-          onChange={(event) => setFilters((current) => ({ ...current, action: event.target.value }))}
-          placeholder="按 action 精确筛选"
-        />
+          onValueChange={(value) => setFilters((current) => ({ ...current, action: value }))}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="关键动作" />
+          </SelectTrigger>
+          <SelectContent>
+            {AUDIT_ACTION_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         <Select
           value={filters.actorType}
           onValueChange={(value) => setFilters((current) => ({ ...current, actorType: value }))}
@@ -251,27 +304,30 @@ export default function SecurityAuditLogsViewer() {
             <SelectValue placeholder="操作人类型" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">全部操作人</SelectItem>
-            <SelectItem value="admin">管理员</SelectItem>
-            <SelectItem value="coach">教练</SelectItem>
-            <SelectItem value="public">公开访问</SelectItem>
-            <SelectItem value="system">系统</SelectItem>
+            {AUDIT_ACTOR_TYPE_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
+
         <Select
           value={filters.result}
           onValueChange={(value) => setFilters((current) => ({ ...current, result: value }))}
         >
           <SelectTrigger className="w-full">
-            <SelectValue placeholder="操作结果" />
+            <SelectValue placeholder="结果" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">全部结果</SelectItem>
-            <SelectItem value="success">成功</SelectItem>
-            <SelectItem value="failure">失败</SelectItem>
-            <SelectItem value="denied">拒绝</SelectItem>
+            {AUDIT_RESULT_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
+
         <Input
           type="date"
           value={filters.from}
@@ -286,27 +342,27 @@ export default function SecurityAuditLogsViewer() {
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <Badge variant="outline">总记录 {total}</Badge>
+          <Badge variant="outline">关键记录 {total}</Badge>
           <Badge variant="outline">当前页 {page}/{pageCount}</Badge>
-          <Badge variant="outline">每页 {pageSize}</Badge>
+          <Badge variant="outline">本页成功 {pageStats.success}</Badge>
+          <Badge variant="outline">需关注 {pageStats.failed + pageStats.denied}</Badge>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Select value={String(pageSize)} onValueChange={(value) => {
-            setPage(1)
+            setPage(DEFAULT_SECURITY_AUDIT_LOG_PAGE)
             setPageSize(Number.parseInt(value, 10))
           }}>
             <SelectTrigger className="w-[120px]">
               <SelectValue placeholder="每页条数" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="20">20 / 页</SelectItem>
-              <SelectItem value="50">50 / 页</SelectItem>
-              <SelectItem value="100">100 / 页</SelectItem>
+              {SECURITY_AUDIT_LOG_PAGE_SIZE_OPTIONS.map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size} / 页
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" onClick={handleReset} disabled={loading}>
-            重置筛选
-          </Button>
           <Button variant="outline" onClick={handleRefresh} disabled={loading}>
             <RefreshCw className="mr-2 h-4 w-4" />
             刷新
@@ -327,11 +383,11 @@ export default function SecurityAuditLogsViewer() {
         <TableHeader>
           <TableRow>
             <TableHead>时间</TableHead>
-            <TableHead>操作人</TableHead>
-            <TableHead>动作</TableHead>
-            <TableHead>资源</TableHead>
+            <TableHead>谁在操作</TableHead>
+            <TableHead>关键操作</TableHead>
+            <TableHead>影响对象</TableHead>
             <TableHead>结果</TableHead>
-            <TableHead>请求 ID</TableHead>
+            <TableHead>操作轨迹</TableHead>
             <TableHead className="text-right">详情</TableHead>
           </TableRow>
         </TableHeader>
@@ -339,13 +395,13 @@ export default function SecurityAuditLogsViewer() {
           {loading ? (
             <TableRow>
               <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
-                正在加载审计日志...
+                正在加载关键操作轨迹...
               </TableCell>
             </TableRow>
           ) : logs.length === 0 ? (
             <TableRow>
               <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
-                当前筛选条件下没有审计日志
+                当前筛选条件下没有关键操作记录
               </TableCell>
             </TableRow>
           ) : (
@@ -354,22 +410,22 @@ export default function SecurityAuditLogsViewer() {
                 <TableCell className="max-w-[160px] whitespace-normal text-xs">
                   {formatDateTime(log.created_at)}
                 </TableCell>
-                <TableCell className="max-w-[180px] whitespace-normal text-xs">
-                  {formatActor(log)}
+                <TableCell className="max-w-[140px] whitespace-normal text-sm">
+                  {getAuditActorLabel(log)}
                 </TableCell>
-                <TableCell className="max-w-[220px] whitespace-normal font-medium">
-                  {log.action || '-'}
+                <TableCell className="max-w-[180px] whitespace-normal font-medium">
+                  {getAuditActionLabel(log.action)}
                 </TableCell>
-                <TableCell className="max-w-[240px] whitespace-normal text-xs">
-                  {formatResource(log)}
+                <TableCell className="max-w-[220px] whitespace-normal text-sm">
+                  {getAuditObjectLabel(log)}
                 </TableCell>
                 <TableCell>
                   <Badge variant="outline" className={getResultBadgeClass(log.result)}>
-                    {log.result || 'unknown'}
+                    {getAuditResultLabel(log.result)}
                   </Badge>
                 </TableCell>
-                <TableCell className="max-w-[180px] whitespace-normal text-xs text-muted-foreground">
-                  {log.request_id || '-'}
+                <TableCell className="max-w-[420px] whitespace-normal text-sm text-muted-foreground">
+                  {getAuditSummary(log)}
                 </TableCell>
                 <TableCell className="text-right">
                   <Button variant="outline" size="sm" onClick={() => setSelectedLog(log)}>
@@ -407,68 +463,45 @@ export default function SecurityAuditLogsViewer() {
       }}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>审计日志详情</DialogTitle>
+            <DialogTitle>{selectedLog ? `${getAuditActionLabel(selectedLog.action)} · 轨迹详情` : '日志详情'}</DialogTitle>
             <DialogDescription>
-              用于排查单次安全相关操作的上下文信息，仅超级管理员可见。
+              先看“操作轨迹”“影响对象”和“结果”，只有排查技术问题时才需要展开最下面的技术详情。
             </DialogDescription>
           </DialogHeader>
           {selectedLog ? (
             <div className="space-y-4 text-sm">
+              <div className="rounded-lg border bg-muted/20 p-4">
+                <div className="mb-2 text-sm font-medium text-foreground">操作轨迹</div>
+                <div className="text-sm text-muted-foreground">{getAuditSummary(selectedLog)}</div>
+              </div>
+
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <div className="text-muted-foreground">时间</div>
+                  <div className="text-muted-foreground">发生时间</div>
                   <div>{formatDateTime(selectedLog.created_at)}</div>
                 </div>
                 <div>
                   <div className="text-muted-foreground">结果</div>
-                  <div>{selectedLog.result || '-'}</div>
+                  <div>{getAuditResultLabel(selectedLog.result)}</div>
                 </div>
                 <div>
                   <div className="text-muted-foreground">操作人</div>
-                  <div>{formatActor(selectedLog)}</div>
+                  <div>{getAuditActorLabel(selectedLog)}</div>
                 </div>
                 <div>
-                  <div className="text-muted-foreground">动作</div>
-                  <div>{selectedLog.action || '-'}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">资源</div>
-                  <div>{formatResource(selectedLog)}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">请求 ID</div>
-                  <div className="break-all">{selectedLog.request_id || '-'}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">IP</div>
-                  <div className="break-all">{selectedLog.ip_address || '-'}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">目标用户</div>
-                  <div className="break-all">{selectedLog.target_user_id || '-'}</div>
+                  <div className="text-muted-foreground">影响对象</div>
+                  <div>{getAuditObjectLabel(selectedLog)}</div>
                 </div>
               </div>
 
-              <div>
-                <div className="mb-1 text-muted-foreground">原因</div>
-                <div className="rounded-md border bg-muted/20 px-3 py-2 whitespace-pre-wrap break-words">
-                  {selectedLog.reason || '无'}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-1 text-muted-foreground">User-Agent</div>
-                <div className="rounded-md border bg-muted/20 px-3 py-2 whitespace-pre-wrap break-all">
-                  {selectedLog.user_agent || '-'}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-1 text-muted-foreground">元数据</div>
-                <pre className="max-h-[320px] overflow-auto rounded-md border bg-muted/20 px-3 py-3 text-xs whitespace-pre-wrap break-all">
-                  {formatMetadata(selectedLog.metadata)}
+              <details className="rounded-lg border p-4">
+                <summary className="cursor-pointer text-sm font-medium">
+                  查看技术详情（仅排查异常时需要）
+                </summary>
+                <pre className="mt-3 overflow-x-auto rounded-md bg-muted p-3 text-xs leading-5 text-muted-foreground">
+                  {formatAuditTechnicalMetadata(selectedLog)}
                 </pre>
-              </div>
+              </details>
             </div>
           ) : null}
         </DialogContent>

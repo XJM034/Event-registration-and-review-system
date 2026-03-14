@@ -1,11 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter, usePathname } from 'next/navigation'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
+import { usePathname, useRouter } from 'next/navigation'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Button } from '@/components/ui/button'
-import { NotificationProvider, useNotification } from '@/contexts/notification-context'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,33 +29,47 @@ import {
 } from '@/components/ui/tooltip'
 import {
   Calendar,
-  ClipboardList,
-  Bell,
-  Menu,
+  FileText,
   LogOut,
+  Menu,
   PanelLeftClose,
   PanelLeftOpen,
-  Settings,
+  Settings2,
+  Users,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { createClient } from '@/lib/supabase/client'
-import { getSessionUserWithRetry, isTimeoutError, withTimeout } from '@/lib/supabase/client-auth'
 import {
-  clearCachedPortalCoachId,
-  writeCachedPortalCoachId,
-} from '@/lib/portal/coach-session-cache'
+  clearCurrentTabAdminClientState,
+  readStoredAdminProfile,
+  type AdminShellProfile,
+  writeStoredAdminProfile,
+} from '@/lib/admin-session-client'
 import { ThemeSwitcher } from '@/components/theme-switcher'
+import { cn } from '@/lib/utils'
 
-interface PortalLayoutProps {
-  children: React.ReactNode
+interface AdminShellProps {
+  children: ReactNode
+  title: string
+  actions?: ReactNode
+  forceSuperNavigation?: boolean
 }
 
-const SIDEBAR_COLLAPSE_KEY = 'portal_sidebar_collapsed'
-const PORTAL_LAYOUT_PROFILE_COLUMNS = 'id, name, email'
+type AdminNavItem = {
+  id: 'events' | 'account-management' | 'logs' | 'project-management'
+  label: string
+  href: string
+  icon: typeof Calendar
+  active: boolean
+}
 
-type PortalTabId = 'events' | 'my-registrations' | 'my-notifications' | 'my-settings'
+const SIDEBAR_COLLAPSE_KEY = 'admin_sidebar_collapsed'
 
-function PortalLayoutContent({ children }: PortalLayoutProps) {
+const DEFAULT_ADMIN_PROFILE: AdminShellProfile = {
+  name: '管理员',
+  phone: null,
+  isSuper: false,
+}
+
+export default function AdminShell({ children, title, actions, forceSuperNavigation = false }: AdminShellProps) {
   const router = useRouter()
   const pathname = usePathname()
   const [desktopCollapsed, setDesktopCollapsed] = useState(false)
@@ -66,12 +78,18 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
   const [viewportWidth, setViewportWidth] = useState(1280)
   const [hydrated, setHydrated] = useState(false)
   const [isSidebarAnimating, setIsSidebarAnimating] = useState(false)
-  const [user, setUser] = useState<any>(null)
-  const { unreadCount } = useNotification()
   const [showLogoutDialog, setShowLogoutDialog] = useState(false)
+  const [profile, setProfile] = useState<AdminShellProfile>(() => {
+    const storedProfile = readStoredAdminProfile() || DEFAULT_ADMIN_PROFILE
+    if (forceSuperNavigation && !storedProfile.isSuper) {
+      return {
+        ...storedProfile,
+        isSuper: true,
+      }
+    }
+    return storedProfile
+  })
   const sidebarAnimationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const authRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const authRetryCountRef = useRef(0)
 
   useEffect(() => {
     setHydrated(true)
@@ -84,7 +102,6 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
       setDesktopCollapsed(savedPreference === 'true')
     }
 
-    checkUser()
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
@@ -111,93 +128,55 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
       if (sidebarAnimationTimerRef.current) {
         clearTimeout(sidebarAnimationTimerRef.current)
       }
-      if (authRetryTimerRef.current) {
-        clearTimeout(authRetryTimerRef.current)
-      }
     }
   }, [])
 
-  const scheduleUserRecheck = () => {
-    if (authRetryCountRef.current >= 2) {
-      router.push('/auth/login')
-      return
-    }
-
-    authRetryCountRef.current += 1
-    if (authRetryTimerRef.current) {
-      clearTimeout(authRetryTimerRef.current)
-    }
-    authRetryTimerRef.current = setTimeout(() => {
-      checkUser()
-    }, 500)
-  }
-
-  const checkUser = async () => {
-    try {
-      const supabase = createClient()
-      const { user: sessionUser, error: sessionError, isNetworkError } = await getSessionUserWithRetry(supabase, {
-        maxRetries: 2,
-        baseDelayMs: 400,
-      })
-
-      if (sessionError) {
-        if (isNetworkError) {
-          console.error('门户布局会话请求网络异常（已重试）:', sessionError)
-          return
-        }
-        scheduleUserRecheck()
-        return
-      }
-
-      if (!sessionUser) {
-        clearCachedPortalCoachId()
-        scheduleUserRecheck()
-        return
-      }
-      authRetryCountRef.current = 0
-
-      // 获取教练信息
+  useEffect(() => {
+    const loadAdminProfile = async () => {
       try {
-        const { data: coach, error: coachError } = await withTimeout(
-          supabase
-            .from('coaches')
-            .select(PORTAL_LAYOUT_PROFILE_COLUMNS)
-            .eq('auth_id', sessionUser.id)
-            .single(),
-          4000,
-          'Coach profile lookup timed out'
-        )
+        const response = await fetch('/api/admin/me', {
+          credentials: 'include',
+          cache: 'no-store',
+        })
 
-        if (coachError) {
-          setUser(sessionUser)
+        if (response.status === 401) {
+          clearCurrentTabAdminClientState()
+          router.push('/auth/login')
           return
         }
 
-        if (coach?.id) {
-          writeCachedPortalCoachId(sessionUser.id, coach.id)
+        const result = await response.json()
+        if (!response.ok || !result?.success) {
+          return
         }
 
-        setUser(coach || sessionUser)
-      } catch (error) {
-        if (!isTimeoutError(error)) {
-          console.error('获取教练资料失败:', error)
+        const nextProfile = {
+          name: result.data?.name?.trim?.() || '管理员',
+          phone: result.data?.phone || null,
+          isSuper: result.data?.is_super === true,
         }
-        setUser(sessionUser)
-        return
-      }
-    } catch (error) {
-      if (!isTimeoutError(error)) {
-        console.error('获取用户信息失败:', error)
+        setProfile(nextProfile)
+        writeStoredAdminProfile(nextProfile)
+      } catch (error) {
+        console.error('Load admin profile failed:', error)
       }
     }
-  }
 
-  const handleLogout = async () => {
-    const supabase = createClient()
-    clearCachedPortalCoachId()
-    await supabase.auth.signOut()
-    router.push('/auth/login')
-  }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadAdminProfile()
+      }
+    }
+
+    loadAdminProfile()
+    window.addEventListener('focus', loadAdminProfile)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener('focus', loadAdminProfile)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [router])
 
   const effectiveViewportWidth = hydrated ? viewportWidth : 1280
   const effectiveDesktopCollapsed = hydrated ? desktopCollapsed : false
@@ -208,57 +187,48 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
   const isCollapsed = !isMobile && (isTablet ? !effectiveTabletPinnedExpanded : effectiveDesktopCollapsed)
   const sidebarWidthClass = isCollapsed ? 'w-16' : 'w-[200px]'
 
-  const pageTitle = useMemo(() => {
-    if (pathname === '/portal') return '赛事活动'
-    if (pathname === '/portal/my/registrations') return '我的报名'
-    if (pathname === '/portal/my/notifications') return '我的通知'
-    if (pathname === '/portal/my/settings') return '账号设置'
-    if (pathname.startsWith('/portal/events/') && pathname.includes('/register')) return '赛事报名'
-    if (pathname.startsWith('/portal/events/')) return '赛事详情'
-    return '教练端主页'
-  }, [pathname])
+  const menuItems = useMemo<AdminNavItem[]>(() => {
+    const items: AdminNavItem[] = [
+      {
+        id: 'events',
+        label: '赛事管理',
+        href: '/events',
+        icon: Calendar,
+        active: pathname === '/' || pathname === '/events' || pathname.startsWith('/events/'),
+      },
+      {
+        id: 'account-management',
+        label: '账号管理',
+        href: '/admin/account-management',
+        icon: Users,
+        active: pathname.startsWith('/admin/account-management'),
+      },
+    ]
 
-  const menuItems: Array<{
-    id: PortalTabId
-    label: string
-    icon: typeof Calendar
-    href: string
-    active: boolean
-    badge?: number | null
-  }> = [
-    {
-      id: 'events',
-      label: '赛事活动',
-      icon: Calendar,
-      href: '/portal',
-      active: pathname === '/portal' || pathname.startsWith('/portal/events')
-    },
-    {
-      id: 'my-registrations',
-      label: '我的报名',
-      icon: ClipboardList,
-      href: '/portal/my/registrations',
-      active: pathname === '/portal/my/registrations'
-    },
-    {
-      id: 'my-notifications',
-      label: '我的通知',
-      icon: Bell,
-      href: '/portal/my/notifications',
-      active: pathname === '/portal/my/notifications',
-      badge: unreadCount > 0 ? unreadCount : null,
-    },
-    {
-      id: 'my-settings',
-      label: '账号设置',
-      icon: Settings,
-      href: '/portal/my/settings',
-      active: pathname === '/portal/my/settings'
+    if (profile.isSuper) {
+      items.push(
+        {
+          id: 'logs',
+          label: '日志查询',
+          href: '/admin/security-audit-logs',
+          icon: FileText,
+          active: pathname.startsWith('/admin/security-audit-logs'),
+        },
+        {
+          id: 'project-management',
+          label: '项目管理',
+          href: '/admin/project-management',
+          icon: Settings2,
+          active: pathname.startsWith('/admin/project-management'),
+        },
+      )
     }
-  ]
 
-  const userInitial = (user?.name || user?.email || 'U').slice(0, 1).toUpperCase()
-  const coachDisplayName = (user?.name?.trim?.() || '教练')
+    return items
+  }, [pathname, profile.isSuper])
+
+  const adminDisplayName = profile.name || '管理员'
+  const userInitial = adminDisplayName.slice(0, 1).toUpperCase()
 
   const toggleSidebar = () => {
     setIsSidebarAnimating(true)
@@ -282,7 +252,20 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
     setDesktopCollapsed((current) => !current)
   }
 
-  // Keep the first paint deterministic between SSR and CSR to avoid hydration mismatch.
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/admin-session', {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      clearCurrentTabAdminClientState()
+      router.push('/auth/login')
+      router.refresh()
+    } catch (error) {
+      console.error('Logout error:', error)
+    }
+  }
+
   if (!hydrated) {
     return (
       <div className="flex min-h-screen overflow-hidden bg-background">
@@ -300,12 +283,12 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
       <div
         className={cn(
           'flex h-[67px] items-center border-b border-border',
-          isCollapsed ? 'px-2 justify-center' : 'px-3 justify-between'
+          isCollapsed ? 'justify-center px-2' : 'justify-between px-3',
         )}
       >
         {!isCollapsed ? (
           <div className="min-w-0 ml-2">
-            <p className="truncate whitespace-nowrap text-base font-semibold text-foreground">赛事报名工作台</p>
+            <p className="truncate whitespace-nowrap text-base font-semibold text-foreground">赛事管理后台</p>
           </div>
         ) : null}
 
@@ -315,12 +298,11 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
               onClick={toggleSidebar}
               className={cn(
                 'rounded-lg transition-colors hover:bg-muted',
-                isCollapsed
-                  ? 'relative flex w-full items-center justify-center px-3 py-2'
-                  : 'p-2'
+                isCollapsed ? 'relative flex w-full items-center justify-center px-3 py-2' : 'p-2',
               )}
               disabled={isSidebarAnimating}
               aria-label={isCollapsed ? '展开菜单' : '收起菜单'}
+              type="button"
             >
               {isCollapsed ? (
                 <PanelLeftOpen className="h-5 w-5 text-muted-foreground" />
@@ -347,15 +329,10 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                       onClick={() => setMobileMenuOpen(false)}
                       className={cn(
                         'relative flex items-center justify-center rounded-lg px-3 py-2 transition-colors hover:bg-muted',
-                        item.active && 'bg-primary/10 text-primary'
+                        item.active && 'bg-primary/10 text-primary',
                       )}
                     >
                       <item.icon className="h-5 w-5 flex-shrink-0" />
-                      {item.badge ? (
-                        <span className="absolute right-1 top-1 min-w-4 rounded-full bg-red-500 px-1 text-[10px] leading-4 text-white">
-                          {item.badge > 99 ? '99+' : item.badge}
-                        </span>
-                      ) : null}
                     </Link>
                   </TooltipTrigger>
                   <TooltipContent side="right" sideOffset={10}>
@@ -367,24 +344,18 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                   href={item.href}
                   onClick={() => setMobileMenuOpen(false)}
                   className={cn(
-                    'flex items-center justify-between gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-muted',
-                    item.active && 'bg-primary/10 text-primary'
+                    'flex items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-muted',
+                    item.active && 'bg-primary/10 text-primary',
                   )}
                 >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <item.icon className="h-5 w-5 flex-shrink-0" />
-                    <span className="truncate whitespace-nowrap text-base">{item.label}</span>
-                  </div>
-                  {item.badge ? (
-                    <span className="ml-2 shrink-0 rounded-full bg-red-500 px-2 py-0.5 text-xs text-white">{item.badge}</span>
-                  ) : null}
+                  <item.icon className="h-5 w-5 flex-shrink-0" />
+                  <span className="truncate whitespace-nowrap text-base">{item.label}</span>
                 </Link>
               )}
             </li>
           ))}
         </ul>
       </nav>
-
     </>
   )
 
@@ -395,6 +366,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
           aria-label="关闭侧边栏"
           className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
           onClick={() => setMobileMenuOpen(false)}
+          type="button"
         />
       ) : null}
 
@@ -404,9 +376,9 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
           isMobile
             ? cn(
                 'fixed inset-y-0 left-0 z-50 w-[240px] transform',
-                mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+                mobileMenuOpen ? 'translate-x-0' : '-translate-x-full',
               )
-            : cn('relative', sidebarWidthClass)
+            : cn('relative', sidebarWidthClass),
         )}
       >
         {sidebarMenu}
@@ -421,29 +393,22 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                   aria-label="打开侧边栏"
                   onClick={() => setMobileMenuOpen(true)}
                   className="rounded-md p-2 transition-colors hover:bg-muted"
+                  type="button"
                 >
                   <Menu className="h-5 w-5" />
                 </button>
               ) : null}
               <div className="min-w-0">
-                <h1 className="truncate text-base font-semibold text-foreground sm:text-lg">{pageTitle}</h1>
-                <p className="mt-0.5 truncate text-sm text-muted-foreground">{coachDisplayName}，您好</p>
+                <h1 className="truncate text-base font-semibold text-foreground sm:text-lg">{title}</h1>
+                <p className="mt-0.5 truncate text-sm text-muted-foreground">
+                  {profile.phone ? `${adminDisplayName} · ${profile.phone}` : `${adminDisplayName}，您好`}
+                </p>
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-1 sm:gap-2 md:gap-3">
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+              {actions}
               <ThemeSwitcher />
-              <Button variant="ghost" size="icon" asChild className="relative">
-                <Link href="/portal/my/notifications" aria-label="通知">
-                  <Bell className="h-5 w-5" />
-                  {unreadCount > 0 ? (
-                    <span className="absolute right-1 top-1 min-w-4 rounded-full bg-red-500 px-1 text-[10px] leading-4 text-white">
-                      {unreadCount > 99 ? '99+' : unreadCount}
-                    </span>
-                  ) : null}
-                </Link>
-              </Button>
-
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -457,8 +422,13 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                     </Avatar>
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuLabel>{user?.name || user?.email || '教练用户'}</DropdownMenuLabel>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel className="space-y-1">
+                    <div className="truncate">{adminDisplayName}</div>
+                    {profile.phone ? (
+                      <div className="truncate text-xs font-normal text-muted-foreground">{profile.phone}</div>
+                    ) : null}
+                  </DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     className="text-red-600 focus:bg-red-50 focus:text-red-700 dark:text-red-400 dark:focus:bg-red-500/15 dark:focus:text-red-300"
@@ -498,13 +468,5 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
         </AlertDialogContent>
       </AlertDialog>
     </div>
-  )
-}
-
-export default function PortalLayout({ children }: PortalLayoutProps) {
-  return (
-    <NotificationProvider>
-      <PortalLayoutContent>{children}</PortalLayoutContent>
-    </NotificationProvider>
   )
 }

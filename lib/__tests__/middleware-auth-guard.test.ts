@@ -21,6 +21,12 @@ vi.mock('@/lib/env', () => ({
   getSupabaseUrl: vi.fn(() => 'https://project-ref.supabase.co'),
 }))
 
+vi.mock('@/lib/supabase/service-role', () => ({
+  createServiceRoleClient: vi.fn(() => ({
+    from: fromMock,
+  })),
+}))
+
 vi.mock('@/lib/admin-session', () => ({
   ADMIN_SESSION_COOKIE_NAME: 'admin-session',
   ADMIN_TAB_SESSION_COOKIE_NAME: 'admin-session-tab',
@@ -82,6 +88,37 @@ describe('middleware auth guard', () => {
     const request = new NextRequest('https://example.com/api/portal/registrations', {
       headers: {
         cookie: 'admin-session=valid-admin-token',
+      },
+    })
+
+    const response = await middleware(request)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('location')).toBeNull()
+  })
+
+  it('blocks /events when only the shared admin cookie remains alongside a coach session', async () => {
+    maybeSingleMock.mockResolvedValueOnce({
+      data: null,
+      error: null,
+    })
+
+    const request = new NextRequest('https://example.com/events', {
+      headers: {
+        cookie: 'admin-session=valid-admin-token',
+      },
+    })
+
+    const response = await middleware(request)
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe('https://example.com/auth/login')
+  })
+
+  it('still allows /events when the current tab explicitly presents an admin tab token', async () => {
+    const request = new NextRequest('https://example.com/events', {
+      headers: {
+        cookie: 'admin-session-tab=valid-admin-token',
       },
     })
 

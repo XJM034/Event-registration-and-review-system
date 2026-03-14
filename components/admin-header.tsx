@@ -21,22 +21,14 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Settings, LogOut, Plus, Settings2, Shield, Users } from 'lucide-react'
+import {
+  clearCurrentTabAdminClientState,
+  getCurrentTabAdminSessionToken,
+  writeAdminTabSessionCookie,
+} from '@/lib/admin-session-client'
 
 interface AdminHeaderProps {
   onCreateEvent: () => void
-}
-
-const ADMIN_TAB_SESSION_COOKIE_NAME = 'admin-session-tab'
-
-function writeAdminTabSessionCookie(token: string | null) {
-  if (typeof document === 'undefined') return
-  const secure = window.location.protocol === 'https:' ? '; Secure' : ''
-  if (token) {
-    // 会话级 cookie，浏览器关闭后失效，降低可读 token 的持久暴露风险。
-    document.cookie = `${ADMIN_TAB_SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; SameSite=Lax${secure}`
-    return
-  }
-  document.cookie = `${ADMIN_TAB_SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; SameSite=Lax${secure}`
 }
 
 export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
@@ -46,7 +38,7 @@ export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
   const router = useRouter()
 
   const syncTabSession = async () => {
-    const tabToken = sessionStorage.getItem('tab_admin_session_token')
+    const tabToken = getCurrentTabAdminSessionToken()
     if (!tabToken) return
 
     try {
@@ -121,8 +113,7 @@ export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
         method: 'DELETE',
         credentials: 'include',
       })
-      sessionStorage.removeItem('tab_admin_session_token')
-      writeAdminTabSessionCookie(null)
+      clearCurrentTabAdminClientState()
       router.push('/auth/login')
       router.refresh()
     } catch (error) {
@@ -162,7 +153,7 @@ export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
                   onClick={() => router.push('/admin/security-audit-logs')}
                 >
                   <Shield className="h-4 w-4 mr-2" />
-                  安全审计
+                  日志查询
                 </DropdownMenuItem>
               )}
               {isSuperAdmin && (
