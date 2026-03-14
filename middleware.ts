@@ -131,7 +131,12 @@ export async function middleware(request: NextRequest) {
   const adminTabSessionToken = request.cookies.get(ADMIN_TAB_SESSION_COOKIE_NAME)?.value
   const adminHeaderSession = await verifyAdminSessionToken(adminSessionTokenFromHeader)
   const adminTabSession = await verifyAdminSessionToken(adminTabSessionToken)
-  const adminSession = adminHeaderSession || adminTabSession || await verifyAdminSessionToken(adminSessionToken)
+  const tabBoundAdminSession = adminHeaderSession || adminTabSession
+  // 共享 admin-session cookie 仅用于无冲突的兜底场景，避免 coach 登录后继续借用旧管理员身份。
+  const allowSharedAdminCookie = !sessionUser || sessionUser.user_metadata?.role === 'admin'
+  const adminSession = tabBoundAdminSession || (
+    allowSharedAdminCookie ? await verifyAdminSessionToken(adminSessionToken) : null
+  )
   let adminChecked = false
   let shouldClearAdminSession = false
   let adminInfo: { isAdmin: boolean; isSuper: boolean } = { isAdmin: false, isSuper: false }

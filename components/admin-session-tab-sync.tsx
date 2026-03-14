@@ -2,22 +2,13 @@
 
 import { useEffect } from 'react'
 import { usePathname } from 'next/navigation'
-
-const ADMIN_TAB_SESSION_COOKIE_NAME = 'admin-session-tab'
+import {
+  getCurrentTabAdminSessionToken,
+  writeAdminTabSessionCookie,
+} from '@/lib/admin-session-client'
 
 function shouldSync(pathname: string) {
-  return pathname.startsWith('/events') || pathname.startsWith('/admin')
-}
-
-function writeAdminTabSessionCookie(token: string | null) {
-  if (typeof document === 'undefined') return
-  const secure = window.location.protocol === 'https:' ? '; Secure' : ''
-  if (token) {
-    // 会话级 cookie，浏览器关闭后失效，降低可读 token 的持久暴露风险。
-    document.cookie = `${ADMIN_TAB_SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; SameSite=Lax${secure}`
-    return
-  }
-  document.cookie = `${ADMIN_TAB_SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; SameSite=Lax${secure}`
+  return pathname === '/' || pathname.startsWith('/events') || pathname.startsWith('/admin')
 }
 
 export default function AdminSessionTabSync() {
@@ -27,7 +18,7 @@ export default function AdminSessionTabSync() {
     if (!shouldSync(pathname)) return
 
     const syncSession = async () => {
-      const tabToken = sessionStorage.getItem('tab_admin_session_token')
+      const tabToken = getCurrentTabAdminSessionToken()
       if (!tabToken) {
         writeAdminTabSessionCookie(null)
         return
@@ -56,7 +47,7 @@ export default function AdminSessionTabSync() {
     }
 
     const syncCookieOnly = () => {
-      const tabToken = sessionStorage.getItem('tab_admin_session_token')
+      const tabToken = getCurrentTabAdminSessionToken()
       writeAdminTabSessionCookie(tabToken)
     }
 

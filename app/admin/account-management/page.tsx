@@ -2,12 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
-import { useRouter } from 'next/navigation'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import AdminShell from '@/components/admin/admin-shell'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ThemeSwitcher } from '@/components/theme-switcher'
-import { ChevronLeft } from 'lucide-react'
 
 function TabPanelLoading() {
   return (
@@ -33,7 +30,6 @@ const MyAccountTab = dynamic(() => import('@/components/account-management/my-ac
 })
 
 export default function AccountManagementPage() {
-  const router = useRouter()
   const [isSuper, setIsSuper] = useState(false)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('my-account')
@@ -73,33 +69,23 @@ export default function AccountManagementPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="text-muted-foreground">加载中...</div>
-      </div>
+      <AdminShell title="账号管理">
+        <div className="flex min-h-[240px] items-center justify-center rounded-xl border border-dashed border-border bg-card/40">
+          <div className="text-muted-foreground">加载中...</div>
+        </div>
+      </AdminShell>
     )
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6">
+    <AdminShell title="账号管理">
+      <div className="mx-auto max-w-7xl">
         <Card>
           <CardHeader className="border-b">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => router.push('/events')}
-                >
-                  <ChevronLeft className="mr-1 h-4 w-4" />
-                  返回
-                </Button>
-                <CardTitle className="text-xl sm:text-2xl">账号管理</CardTitle>
-              </div>
-              <div className="self-end sm:self-auto">
-                <ThemeSwitcher />
-              </div>
-            </div>
+            <CardTitle className="text-xl sm:text-2xl">账号管理</CardTitle>
+            <CardDescription>
+              超级管理员可管理教练和管理员账号；普通管理员可维护自己的账号信息和密码。
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-4 sm:p-6">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -127,6 +113,6 @@ export default function AccountManagementPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </AdminShell>
   )
 }

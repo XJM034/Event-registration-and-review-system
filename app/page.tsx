@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import AdminHeader from '@/components/admin-header'
+import { Button } from '@/components/ui/button'
+import AdminShell from '@/components/admin/admin-shell'
 import EventList from '@/components/event-list'
 import type { Event } from '@/lib/types'
 
@@ -77,18 +78,31 @@ export default function HomePage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background">
+      <AdminShell
+        title="赛事管理"
+        actions={(
+          <Button onClick={handleCreateEvent} className="shrink-0">
+            创建赛事
+          </Button>
+        )}
+      >
         <div className="flex items-center justify-center py-12">
           <div className="text-muted-foreground">加载中...</div>
         </div>
-      </div>
+      </AdminShell>
     )
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <AdminHeader onCreateEvent={handleCreateEvent} />
-      <main className="px-4 py-4 sm:px-6">
+    <AdminShell
+      title="赛事管理"
+      actions={(
+        <Button onClick={handleCreateEvent} className="shrink-0">
+          创建赛事
+        </Button>
+      )}
+    >
+      <div className="mx-auto w-full max-w-7xl">
         {error && (
           <div className="mb-4 rounded-md border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive">
             {error}
@@ -100,7 +114,7 @@ export default function HomePage() {
           onManageEvent={handleManageEvent}
           onDeleteEvent={handleDeleteEvent}
         />
-      </main>
-    </div>
+      </div>
+    </AdminShell>
   )
 }

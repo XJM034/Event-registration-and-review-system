@@ -77,7 +77,12 @@ export async function getCurrentAdminSession() {
   const adminTabSessionToken = cookieStore.get(ADMIN_TAB_SESSION_COOKIE_NAME)?.value
   const adminHeaderSession = await verifyAdminSessionToken(adminSessionTokenFromHeader)
   const adminTabSession = await verifyAdminSessionToken(adminTabSessionToken)
-  const adminSession = adminHeaderSession || adminTabSession || await verifyAdminSessionToken(adminSessionToken)
+  const tabBoundAdminSession = adminHeaderSession || adminTabSession
+  // 共享 admin-session cookie 只作为兜底使用，避免同一浏览器切到教练身份后继续沿用旧管理员态。
+  const allowSharedAdminCookie = !session || session.user.user_metadata?.role === 'admin'
+  const adminSession = tabBoundAdminSession || (
+    allowSharedAdminCookie ? await verifyAdminSessionToken(adminSessionToken) : null
+  )
 
   // 优先使用独立管理端会话（允许与教练端会话并存）
   if (adminSession) {

@@ -8,20 +8,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import AuthPageShell from '@/components/auth-page-shell'
 import { Loader2, Phone, Lock } from 'lucide-react'
+import {
+  clearCurrentTabAdminClientState,
+  setCurrentTabAdminSessionToken,
+  writeAdminTabSessionCookie,
+} from '@/lib/admin-session-client'
 import { createClient as createBrowserClient } from '@/lib/supabase/client'
-
-const ADMIN_TAB_SESSION_COOKIE_NAME = 'admin-session-tab'
-
-function writeAdminTabSessionCookie(token: string | null) {
-  if (typeof document === 'undefined') return
-  const secure = window.location.protocol === 'https:' ? '; Secure' : ''
-  if (token) {
-    // 会话级 cookie，浏览器关闭后失效，降低可读 token 的持久暴露风险。
-    document.cookie = `${ADMIN_TAB_SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; SameSite=Lax${secure}`
-    return
-  }
-  document.cookie = `${ADMIN_TAB_SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; SameSite=Lax${secure}`
-}
 
 function mapAdminSessionErrorMessage(rawError: string) {
   switch (rawError) {
@@ -41,10 +33,7 @@ function mapAdminSessionErrorMessage(rawError: string) {
 }
 
 async function clearAdminSessionState() {
-  if (typeof window !== 'undefined') {
-    sessionStorage.removeItem('tab_admin_session_token')
-  }
-  writeAdminTabSessionCookie(null)
+  clearCurrentTabAdminClientState()
 
   try {
     await fetch('/api/auth/admin-session', {
@@ -53,12 +42,6 @@ async function clearAdminSessionState() {
     })
   } catch (error) {
     console.warn('Clear admin session state failed:', error)
-  }
-}
-
-function clearCurrentTabAdminSessionState() {
-  if (typeof window !== 'undefined') {
-    sessionStorage.removeItem('tab_admin_session_token')
   }
 }
 
@@ -86,7 +69,7 @@ export default function UnifiedLoginPage() {
         const payload = await adminSessionRes.json().catch(() => null)
         const token = payload?.data?.token
         if (typeof token === 'string' && token.length > 0) {
-          sessionStorage.setItem('tab_admin_session_token', token)
+          setCurrentTabAdminSessionToken(token)
           writeAdminTabSessionCookie(token)
         }
         created = true
@@ -169,9 +152,6 @@ export default function UnifiedLoginPage() {
         await createAdminSession(accessToken)
         window.location.href = '/events'
       } else {
-        // 切回教练端时只清当前标签页的管理员 token，避免误删其他标签页仍在使用的 admin session。
-        clearCurrentTabAdminSessionState()
-
         if (!accessToken || !refreshToken) {
           setError('教练会话创建失败，请重试')
           setIsLoading(false)
@@ -189,6 +169,9 @@ export default function UnifiedLoginPage() {
           setIsLoading(false)
           return
         }
+
+        // 切回教练端后，当前标签页不应再携带任何管理员可读态，避免沿用旧 header/cookie。
+        clearCurrentTabAdminClientState()
 
         // 教练：检查或创建 coaches 记录
         const { data: coach } = await browserClient
