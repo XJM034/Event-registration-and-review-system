@@ -755,12 +755,12 @@ export default function EventDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* 头部导航 */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* 头部导航 - 固定在顶部 */}
+      <div className="sticky top-0 z-30 -mx-4 -mt-4 border-b border-border bg-background/95 px-4 py-3 backdrop-blur md:-mx-6 md:-mt-6 md:px-6">
         <Button
           variant="ghost"
           onClick={() => router.push('/portal')}
-          className="h-10 w-full justify-center gap-2 sm:w-auto sm:justify-start"
+          className="h-10 gap-2"
         >
           <ArrowLeft className="h-4 w-4" />
           返回赛事列表
@@ -1024,7 +1024,7 @@ export default function EventDetailPage() {
                           </Badge>
                         </div>
 
-                        <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
                           {/* 赛事已结束时，所有状态都只能查看，不能编辑或操作 */}
                           {isEventEnded() ? (
                             <>

@@ -33,7 +33,6 @@ import {
   Calendar,
   ClipboardList,
   Bell,
-  Menu,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
@@ -62,7 +61,6 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
   const pathname = usePathname()
   const [desktopCollapsed, setDesktopCollapsed] = useState(false)
   const [tabletPinnedExpanded, setTabletPinnedExpanded] = useState(false)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [viewportWidth, setViewportWidth] = useState(1280)
   const [hydrated, setHydrated] = useState(false)
   const [isSidebarAnimating, setIsSidebarAnimating] = useState(false)
@@ -96,9 +94,6 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
     window.localStorage.setItem(SIDEBAR_COLLAPSE_KEY, String(desktopCollapsed))
   }, [desktopCollapsed, hydrated])
 
-  useEffect(() => {
-    setMobileMenuOpen(false)
-  }, [pathname])
 
   useEffect(() => {
     if (viewportWidth < 768 || viewportWidth > 1023) {
@@ -269,11 +264,6 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
       setIsSidebarAnimating(false)
     }, 320)
 
-    if (isMobile) {
-      setMobileMenuOpen((current) => !current)
-      return
-    }
-
     if (isTablet) {
       setTabletPinnedExpanded((current) => !current)
       return
@@ -344,7 +334,6 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                   <TooltipTrigger asChild>
                     <Link
                       href={item.href}
-                      onClick={() => setMobileMenuOpen(false)}
                       className={cn(
                         'relative flex min-h-10 items-center justify-center rounded-lg px-3 py-2 transition-colors hover:bg-muted',
                         item.active && 'bg-primary/10 text-primary'
@@ -365,7 +354,6 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
               ) : (
                 <Link
                   href={item.href}
-                  onClick={() => setMobileMenuOpen(false)}
                   className={cn(
                     'flex min-h-10 items-center justify-between gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-muted',
                     item.active && 'bg-primary/10 text-primary'
@@ -390,41 +378,22 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
 
   return (
     <div className="flex min-h-screen overflow-hidden bg-background">
-      {isMobile && mobileMenuOpen ? (
-        <button
-          aria-label="关闭侧边栏"
-          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
-          onClick={() => setMobileMenuOpen(false)}
-        />
+      {!isMobile ? (
+        <aside
+          className={cn(
+            'flex shrink-0 flex-col border-r border-border bg-card shadow-sm transition-[width] duration-300 ease-in-out',
+            'relative',
+            sidebarWidthClass
+          )}
+        >
+          {sidebarMenu}
+        </aside>
       ) : null}
-
-      <aside
-        className={cn(
-          'flex shrink-0 flex-col border-r border-border bg-card shadow-sm transition-[width,transform] duration-300 ease-in-out',
-          isMobile
-            ? cn(
-                'fixed inset-y-0 left-0 z-50 w-[min(18rem,calc(100vw-1.5rem))] transform',
-                mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
-              )
-            : cn('relative', sidebarWidthClass)
-        )}
-      >
-        {sidebarMenu}
-      </aside>
 
       <main className="min-w-0 flex-1 flex flex-col">
         <header className="bg-background/95 backdrop-blur">
           <div className="flex h-14 items-center justify-between gap-2 border-b border-border px-3 sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
-              {isMobile ? (
-                <button
-                  aria-label="打开侧边栏"
-                  onClick={() => setMobileMenuOpen(true)}
-                  className="flex h-10 w-10 items-center justify-center rounded-md transition-colors hover:bg-muted"
-                >
-                  <Menu className="h-5 w-5" />
-                </button>
-              ) : null}
               <div className="min-w-0">
                 <p className="mt-0.5 truncate text-sm text-muted-foreground">{coachDisplayName}，您好</p>
               </div>
@@ -472,10 +441,40 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto p-4 md:p-6">
+        <div className={cn(
+          'flex-1 overflow-auto p-4 md:p-6',
+          isMobile && 'pb-[calc(4rem+env(safe-area-inset-bottom))]'
+        )}>
           {children}
         </div>
       </main>
+
+      {isMobile ? (
+        <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+          <div className="flex h-16 items-center justify-around px-2 pb-[env(safe-area-inset-bottom)]">
+            {menuItems.map((item) => (
+              <Link
+                key={item.id}
+                href={item.href}
+                className={cn(
+                  'flex flex-1 flex-col items-center justify-center gap-1 min-w-0 py-2 px-1 rounded-lg transition-colors touch-manipulation',
+                  item.active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <div className="relative">
+                  <item.icon className="h-6 w-6" />
+                  {item.badge ? (
+                    <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-red-500 px-1 text-[10px] leading-4 text-white">
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </span>
+                  ) : null}
+                </div>
+                <span className="text-xs truncate max-w-full">{item.label}</span>
+              </Link>
+            ))}
+          </div>
+        </nav>
+      ) : null}
 
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
         <AlertDialogContent>

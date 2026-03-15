@@ -31,7 +31,6 @@ import {
   Calendar,
   FileText,
   LogOut,
-  Menu,
   PanelLeftClose,
   PanelLeftOpen,
   Settings2,
@@ -77,7 +76,6 @@ export default function AdminShell({ children, actions, forceSuperNavigation = f
     || pathname.startsWith('/admin/project-management')
   const [desktopCollapsed, setDesktopCollapsed] = useState(false)
   const [tabletPinnedExpanded, setTabletPinnedExpanded] = useState(false)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [viewportWidth, setViewportWidth] = useState(1280)
   const [hydrated, setHydrated] = useState(false)
   const [isSidebarAnimating, setIsSidebarAnimating] = useState(false)
@@ -116,9 +114,6 @@ export default function AdminShell({ children, actions, forceSuperNavigation = f
     window.localStorage.setItem(SIDEBAR_COLLAPSE_KEY, String(desktopCollapsed))
   }, [desktopCollapsed, hydrated])
 
-  useEffect(() => {
-    setMobileMenuOpen(false)
-  }, [pathname])
 
   useEffect(() => {
     if (viewportWidth < 768 || viewportWidth > 1023) {
@@ -242,11 +237,6 @@ export default function AdminShell({ children, actions, forceSuperNavigation = f
       setIsSidebarAnimating(false)
     }, 320)
 
-    if (isMobile) {
-      setMobileMenuOpen((current) => !current)
-      return
-    }
-
     if (isTablet) {
       setTabletPinnedExpanded((current) => !current)
       return
@@ -274,7 +264,9 @@ export default function AdminShell({ children, actions, forceSuperNavigation = f
       <div className="flex min-h-screen overflow-hidden bg-background">
         <aside className="w-16 shrink-0 border-border bg-card" />
         <main className="min-w-0 flex-1 flex flex-col border-l border-border">
-          <header className="min-h-14 border-b border-border bg-background/95 backdrop-blur" />
+          <header className="bg-background/95 backdrop-blur">
+            <div className="h-14 border-b border-border" />
+          </header>
           <div className="flex-1 p-4 md:p-6" />
         </main>
       </div>
@@ -330,7 +322,6 @@ export default function AdminShell({ children, actions, forceSuperNavigation = f
                   <TooltipTrigger asChild>
                     <Link
                       href={item.href}
-                      onClick={() => setMobileMenuOpen(false)}
                       className={cn(
                         'relative flex min-h-10 items-center justify-center rounded-lg px-3 py-2 transition-colors hover:bg-muted',
                         item.active && 'bg-primary/10 text-primary',
@@ -346,7 +337,6 @@ export default function AdminShell({ children, actions, forceSuperNavigation = f
               ) : (
                 <Link
                   href={item.href}
-                  onClick={() => setMobileMenuOpen(false)}
                   className={cn(
                     'flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-muted',
                     item.active && 'bg-primary/10 text-primary',
@@ -365,43 +355,22 @@ export default function AdminShell({ children, actions, forceSuperNavigation = f
 
   return (
     <div className="flex min-h-screen overflow-hidden bg-background">
-      {isMobile && mobileMenuOpen ? (
-        <button
-          aria-label="关闭侧边栏"
-          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
-          onClick={() => setMobileMenuOpen(false)}
-          type="button"
-        />
+      {!isMobile ? (
+        <aside
+          className={cn(
+            'flex shrink-0 flex-col border-border bg-card shadow-sm transition-[width] duration-300 ease-in-out',
+            'relative',
+            sidebarWidthClass,
+          )}
+        >
+          {sidebarMenu}
+        </aside>
       ) : null}
 
-      <aside
-        className={cn(
-          'flex shrink-0 flex-col border-border bg-card shadow-sm transition-[width,transform] duration-300 ease-in-out',
-          isMobile
-            ? cn(
-                'fixed inset-y-0 left-0 z-50 w-[min(18rem,calc(100vw-1.5rem))] transform',
-                mobileMenuOpen ? 'translate-x-0' : '-translate-x-full',
-              )
-            : cn('relative', sidebarWidthClass),
-        )}
-      >
-        {sidebarMenu}
-      </aside>
-
       <main className="min-w-0 flex-1 flex flex-col border-l border-border">
-        <header className="border-b border-border bg-background/95 backdrop-blur min-h-14">
-          <div className="flex min-h-14 items-center justify-between gap-2 px-3 sm:px-6">
+        <header className="bg-background/95 backdrop-blur">
+          <div className={cn('flex items-center justify-between gap-2 border-b border-border px-3 sm:px-6', SHELL_TOP_BAR_HEIGHT_CLASS)}>
               <div className="flex min-w-0 items-center gap-3">
-                {isMobile ? (
-                  <button
-                    aria-label="打开侧边栏"
-                    onClick={() => setMobileMenuOpen(true)}
-                    className="flex h-10 w-10 items-center justify-center rounded-md transition-colors hover:bg-muted"
-                    type="button"
-                  >
-                    <Menu className="h-5 w-5" />
-                  </button>
-                ) : null}
                 <div className="min-w-0">
                   <p className="mt-0.5 truncate text-sm text-muted-foreground">
                     {profile.phone ? `${adminDisplayName} · ${profile.phone}` : `${adminDisplayName}，您好`}
@@ -446,16 +415,41 @@ export default function AdminShell({ children, actions, forceSuperNavigation = f
           </div>
 
           {isMobile && actions ? (
-            <div className="mt-3 flex w-full px-3 [&>*]:h-10 [&>*]:w-full">
+            <div className="flex w-full border-b border-border px-3 py-2 [&>*]:h-10 [&>*]:w-full">
               {actions}
             </div>
           ) : null}
         </header>
 
-        <div className="flex-1 overflow-auto p-4 md:p-6">
+        <div className={cn(
+          'flex-1 overflow-auto p-4 md:p-6',
+          isMobile && 'pb-[calc(4rem+env(safe-area-inset-bottom))]'
+        )}>
           {children}
         </div>
       </main>
+
+      {isMobile ? (
+        <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+          <div className="flex h-16 items-center justify-around px-2 pb-[env(safe-area-inset-bottom)]">
+            {menuItems.map((item) => (
+              <Link
+                key={item.id}
+                href={item.href}
+                className={cn(
+                  'flex flex-1 flex-col items-center justify-center gap-1 min-w-0 py-2 px-1 rounded-lg transition-colors touch-manipulation',
+                  item.active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <div className="relative">
+                  <item.icon className="h-6 w-6" />
+                </div>
+                <span className="text-xs truncate max-w-full">{item.label}</span>
+              </Link>
+            ))}
+          </div>
+        </nav>
+      ) : null}
 
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>
         <AlertDialogContent>
