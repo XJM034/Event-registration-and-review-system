@@ -234,19 +234,19 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
     <div className="space-y-4">
       {/* 工具栏 */}
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex flex-1 flex-col gap-2 lg:max-w-3xl lg:flex-row">
-          <div className="relative flex-1 lg:max-w-md">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="搜索手机号、姓名、参赛单位..."
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value)
-                setPage(1)
-              }}
-              className="h-11 pl-10"
-            />
-          </div>
+        <div className="relative flex-1 xl:max-w-md">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="搜索手机号、姓名、参赛单位..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value)
+              setPage(1)
+            }}
+            className="h-10 pl-10"
+          />
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 xl:flex">
           <Select
             value={schoolFilter}
             onValueChange={(value) => {
@@ -254,7 +254,7 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
               setPage(1)
             }}
           >
-            <SelectTrigger className="h-11 w-full lg:w-[220px]">
+            <SelectTrigger className="h-10 w-full xl:w-[180px]">
               <SelectValue placeholder="筛选参赛单位" />
             </SelectTrigger>
             <SelectContent>
@@ -266,8 +266,6 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex">
           <Button variant="outline" onClick={() => setShowImportDialog(true)} className="h-10 w-full xl:w-auto">
             批量导入
           </Button>

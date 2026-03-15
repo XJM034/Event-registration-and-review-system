@@ -79,7 +79,6 @@ export default function HomePage() {
   if (isLoading) {
     return (
       <AdminShell
-        title="赛事管理"
         actions={(
           <Button onClick={handleCreateEvent} className="h-10 w-full shrink-0 sm:w-auto">
             创建赛事
@@ -95,7 +94,6 @@ export default function HomePage() {
 
   return (
     <AdminShell
-      title="赛事管理"
       actions={(
         <Button onClick={handleCreateEvent} className="h-10 w-full shrink-0 sm:w-auto">
           创建赛事

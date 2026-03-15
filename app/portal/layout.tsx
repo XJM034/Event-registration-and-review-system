@@ -288,7 +288,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
       <div className="flex min-h-screen overflow-hidden bg-background">
         <aside className="w-16 shrink-0 border-r border-border bg-card" />
         <main className="min-w-0 flex-1 flex flex-col">
-          <header className="h-[67px] border-b border-border bg-background/95 backdrop-blur" />
+          <header className="h-14 border-b border-border bg-background/95 backdrop-blur" />
           <div className="flex-1 p-4 md:p-6" />
         </main>
       </div>
@@ -299,7 +299,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
     <>
       <div
         className={cn(
-          'flex h-[67px] items-center border-b border-border',
+          'flex h-14 items-center border-b border-border',
           isCollapsed ? 'px-2 justify-center' : 'px-3 justify-between'
         )}
       >
@@ -414,7 +414,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
 
       <main className="min-w-0 flex-1 flex flex-col">
         <header className="bg-background/95 backdrop-blur">
-          <div className="flex min-h-[67px] items-center justify-between gap-2 border-b border-border px-3 sm:px-6">
+          <div className="flex h-14 items-center justify-between gap-2 border-b border-border px-3 sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
               {isMobile ? (
                 <button
@@ -426,7 +426,6 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                 </button>
               ) : null}
               <div className="min-w-0">
-                <h1 className="truncate text-base font-semibold text-foreground sm:text-lg">{pageTitle}</h1>
                 <p className="mt-0.5 truncate text-sm text-muted-foreground">{coachDisplayName}，您好</p>
               </div>
             </div>

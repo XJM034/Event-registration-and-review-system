@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation'
-import { Card, CardContent } from '@/components/ui/card'
 import SecurityAuditLogsViewer from '@/components/security/security-audit-logs-viewer'
 import { getCurrentAdminSession } from '@/lib/auth'
 
@@ -19,11 +18,7 @@ export default async function SecurityAuditLogsPage() {
 
   return (
     <div className="mx-auto max-w-7xl">
-      <Card>
-        <CardContent className="p-4 sm:p-6">
-          <SecurityAuditLogsViewer />
-        </CardContent>
-      </Card>
+      <SecurityAuditLogsViewer />
     </div>
   )
 }

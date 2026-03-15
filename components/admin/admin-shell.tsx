@@ -48,7 +48,6 @@ import { cn } from '@/lib/utils'
 
 interface AdminShellProps {
   children: ReactNode
-  title?: string
   actions?: ReactNode
   forceSuperNavigation?: boolean
 }
@@ -62,6 +61,7 @@ type AdminNavItem = {
 }
 
 const SIDEBAR_COLLAPSE_KEY = 'admin_sidebar_collapsed'
+const SHELL_TOP_BAR_HEIGHT_CLASS = 'h-14'
 
 const DEFAULT_ADMIN_PROFILE: AdminShellProfile = {
   name: '管理员',
@@ -69,7 +69,7 @@ const DEFAULT_ADMIN_PROFILE: AdminShellProfile = {
   isSuper: false,
 }
 
-export default function AdminShell({ children, title, actions, forceSuperNavigation = false }: AdminShellProps) {
+export default function AdminShell({ children, actions, forceSuperNavigation = false }: AdminShellProps) {
   const router = useRouter()
   const pathname = usePathname()
   const derivedForceSuperNavigation = forceSuperNavigation
@@ -232,14 +232,6 @@ export default function AdminShell({ children, title, actions, forceSuperNavigat
 
   const adminDisplayName = profile.name || '管理员'
   const userInitial = adminDisplayName.slice(0, 1).toUpperCase()
-  const pageTitle = useMemo(() => {
-    if (title) return title
-    if (pathname === '/' || pathname === '/events' || pathname.startsWith('/events/')) return '赛事管理'
-    if (pathname.startsWith('/admin/account-management')) return '账号管理'
-    if (pathname.startsWith('/admin/security-audit-logs')) return '日志查询'
-    if (pathname.startsWith('/admin/project-management')) return '项目管理'
-    return '管理后台'
-  }, [pathname, title])
 
   const toggleSidebar = () => {
     setIsSidebarAnimating(true)
@@ -280,9 +272,9 @@ export default function AdminShell({ children, title, actions, forceSuperNavigat
   if (!hydrated) {
     return (
       <div className="flex min-h-screen overflow-hidden bg-background">
-        <aside className="w-16 shrink-0 border-r border-border bg-card" />
-        <main className="min-w-0 flex-1 flex flex-col">
-          <header className="h-[67px] border-b border-border bg-background/95 backdrop-blur" />
+        <aside className="w-16 shrink-0 border-border bg-card" />
+        <main className="min-w-0 flex-1 flex flex-col border-l border-border">
+          <header className="min-h-14 border-b border-border bg-background/95 backdrop-blur" />
           <div className="flex-1 p-4 md:p-6" />
         </main>
       </div>
@@ -293,7 +285,8 @@ export default function AdminShell({ children, title, actions, forceSuperNavigat
     <>
       <div
         className={cn(
-          'flex h-[67px] items-center border-b border-border',
+          'flex items-center border-b border-border',
+          SHELL_TOP_BAR_HEIGHT_CLASS,
           isCollapsed ? 'justify-center px-2' : 'justify-between px-3',
         )}
       >
@@ -383,7 +376,7 @@ export default function AdminShell({ children, title, actions, forceSuperNavigat
 
       <aside
         className={cn(
-          'flex shrink-0 flex-col border-r border-border bg-card shadow-sm transition-[width,transform] duration-300 ease-in-out',
+          'flex shrink-0 flex-col border-border bg-card shadow-sm transition-[width,transform] duration-300 ease-in-out',
           isMobile
             ? cn(
                 'fixed inset-y-0 left-0 z-50 w-[min(18rem,calc(100vw-1.5rem))] transform',
@@ -395,10 +388,9 @@ export default function AdminShell({ children, title, actions, forceSuperNavigat
         {sidebarMenu}
       </aside>
 
-      <main className="min-w-0 flex-1 flex flex-col">
-        <header className="bg-background/95 backdrop-blur">
-          <div className="border-b border-border px-3 py-3 sm:px-6">
-            <div className="flex items-center justify-between gap-2">
+      <main className="min-w-0 flex-1 flex flex-col border-l border-border">
+        <header className="border-b border-border bg-background/95 backdrop-blur min-h-14">
+          <div className="flex min-h-14 items-center justify-between gap-2 px-3 sm:px-6">
               <div className="flex min-w-0 items-center gap-3">
                 {isMobile ? (
                   <button
@@ -411,7 +403,6 @@ export default function AdminShell({ children, title, actions, forceSuperNavigat
                   </button>
                 ) : null}
                 <div className="min-w-0">
-                  <h1 className="truncate text-base font-semibold text-foreground sm:text-lg">{pageTitle}</h1>
                   <p className="mt-0.5 truncate text-sm text-muted-foreground">
                     {profile.phone ? `${adminDisplayName} · ${profile.phone}` : `${adminDisplayName}，您好`}
                   </p>
@@ -452,14 +443,13 @@ export default function AdminShell({ children, title, actions, forceSuperNavigat
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-            </div>
-
-            {isMobile && actions ? (
-              <div className="mt-3 flex w-full [&>*]:h-10 [&>*]:w-full">
-                {actions}
-              </div>
-            ) : null}
           </div>
+
+          {isMobile && actions ? (
+            <div className="mt-3 flex w-full px-3 [&>*]:h-10 [&>*]:w-full">
+              {actions}
+            </div>
+          ) : null}
         </header>
 
         <div className="flex-1 overflow-auto p-4 md:p-6">
