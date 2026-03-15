@@ -464,17 +464,20 @@ export default function CreateEventPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background py-4 sm:py-6">
-      <div className="mx-auto max-w-4xl px-4 sm:px-6">
-        {/* 头部导航 */}
-        <div className="mb-4 sm:mb-6">
-          <Button variant="ghost" asChild className="h-10 w-full justify-start px-3 sm:w-auto">
+    <div className="min-h-screen bg-background">
+      <div className="sticky top-0 z-30 border-b border-border bg-background/95 px-4 py-2 backdrop-blur sm:px-6 sm:py-3">
+        <div className="mx-auto max-w-4xl">
+          <Button variant="ghost" asChild className="h-10 gap-2">
             <Link href="/events">
-              <ArrowLeft className="mr-2 h-4 w-4" />
+              <ArrowLeft className="h-4 w-4" />
               返回赛事列表
             </Link>
           </Button>
         </div>
+      </div>
+
+      <div className="py-4 sm:py-6">
+        <div className="mx-auto max-w-4xl px-4 sm:px-6">
 
         <Card>
           <CardHeader>
@@ -856,6 +859,7 @@ export default function CreateEventPage() {
             </form>
           </CardContent>
         </Card>
+        </div>
       </div>
     </div>
   )

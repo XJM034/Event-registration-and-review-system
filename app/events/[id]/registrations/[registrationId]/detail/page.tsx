@@ -404,9 +404,38 @@ export default function RegistrationDetailPage() {
     const divisionValue = getReadableDivisionValue(source)
     let hasDivisionEntry = false
 
+    // First, add division field if it exists (to make it appear first)
+    if (divisionValue) {
+      const divisionField = configuredFields.find((field) => isDivisionField(field.id))
+      if (divisionField) {
+        entries.push({
+          key: divisionField.id,
+          label: resolveFieldLabel(divisionField.id, divisionValue, configuredFields),
+          value: divisionValue,
+          type: divisionField.type,
+        })
+        usedKeys.add(divisionField.id)
+        hasDivisionEntry = true
+        DIVISION_FIELD_IDS.forEach((divisionFieldId) => usedKeys.add(divisionFieldId))
+      } else {
+        // If division field is not in configured fields, add it as participationGroup
+        entries.push({
+          key: 'participationGroup',
+          label: resolveFieldLabel('participationGroup', divisionValue, configuredFields),
+          value: divisionValue,
+        })
+        hasDivisionEntry = true
+        DIVISION_FIELD_IDS.forEach((divisionFieldId) => usedKeys.add(divisionFieldId))
+      }
+    }
+
+    // Then add other configured fields
     configuredFields.forEach((field) => {
-      const value = isDivisionField(field.id) && divisionValue ? divisionValue : source[field.id]
-      if (value !== undefined && value !== null && value !== '' && field.id !== 'role') {
+      if (usedKeys.has(field.id) || field.id === 'role') {
+        return
+      }
+      const value = source[field.id]
+      if (value !== undefined && value !== null && value !== '') {
         entries.push({
           key: field.id,
           label: resolveFieldLabel(field.id, value, configuredFields),
@@ -414,25 +443,8 @@ export default function RegistrationDetailPage() {
           type: field.type,
         })
         usedKeys.add(field.id)
-
-        if (isDivisionField(field.id)) {
-          hasDivisionEntry = true
-          if (divisionValue) {
-            DIVISION_FIELD_IDS.forEach((divisionFieldId) => usedKeys.add(divisionFieldId))
-          }
-        }
       }
     })
-
-    if (!hasDivisionEntry && divisionValue) {
-      entries.push({
-        key: 'participationGroup',
-        label: resolveFieldLabel('participationGroup', divisionValue, configuredFields),
-        value: divisionValue,
-      })
-      hasDivisionEntry = true
-      DIVISION_FIELD_IDS.forEach((divisionFieldId) => usedKeys.add(divisionFieldId))
-    }
 
     const unusedFields = configuredFields.filter((field) => !usedKeys.has(field.id))
 
@@ -456,12 +468,17 @@ export default function RegistrationDetailPage() {
 
       const mappedField = mappedIndex >= 0 ? unusedFields.splice(mappedIndex, 1)[0] : undefined
 
-      entries.push({
-        key,
-        label: mappedField?.label || resolveFieldLabel(key, value, configuredFields),
-        value,
-        type: mappedField?.type,
-      })
+      // Only add this entry if we found a matching unused field
+      // This prevents duplicate rendering when data has extra keys that don't match any configured field
+      if (mappedField) {
+        entries.push({
+          key,
+          label: mappedField.label || resolveFieldLabel(key, value, configuredFields),
+          value,
+          type: mappedField.type,
+        })
+        usedKeys.add(key)
+      }
     })
 
     return entries
@@ -615,14 +632,18 @@ export default function RegistrationDetailPage() {
   })
 
   return (
-    <div className="min-h-screen bg-background px-3 py-4 sm:p-6">
-      <div className="max-w-6xl mx-auto space-y-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <Button className="w-full sm:w-auto" variant="outline" onClick={() => router.push(registrationListPath)}>
+    <div className="min-h-screen bg-background">
+      <div className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur px-3 py-2 sm:px-6 sm:py-3">
+        <div className="max-w-6xl mx-auto flex items-center justify-between">
+          <Button className="h-10" variant="outline" onClick={() => router.push(registrationListPath)}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             返回报名列表
           </Button>
         </div>
+      </div>
+
+      <div className="px-3 py-4 sm:p-6">
+        <div className="max-w-6xl mx-auto space-y-6">
 
         <Card>
           <CardHeader>
@@ -696,6 +717,7 @@ export default function RegistrationDetailPage() {
             })}
           </CardContent>
         </Card>
+        </div>
       </div>
 
       {viewingImage && (

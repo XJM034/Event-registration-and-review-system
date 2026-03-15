@@ -2132,60 +2132,62 @@ export default function RegisterPage() {
         </div>
       )}
       
-      {/* 头部 */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-4">
-          <Button
-            variant="ghost"
-            onClick={() => router.push(`/portal/events/${eventId}`)}
-            className="h-10 w-full justify-center gap-2 sm:w-auto sm:justify-start"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            返回
-          </Button>
-          <h1 className="text-xl font-bold sm:text-2xl">{event.name} - 报名</h1>
-        </div>
-        
-        {/* 根据状态判断是否显示保存和提交按钮 */}
-        {shouldShowActionButtons() && (
-          <div className="flex flex-col gap-2 sm:flex-row">
+      {/* 头部 - 固定在顶部 */}
+      <div className="sticky top-0 z-30 -mx-4 -mt-4 border-b border-border bg-background/95 px-4 py-3 backdrop-blur md:-mx-6 md:-mt-6 md:px-6">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3">
             <Button
-              variant="outline"
-              onClick={handleSubmit(handleSaveDraft, handleInvalidTeamForm)}
-              disabled={isSaving}
-              className="h-10 w-full sm:w-auto"
+              variant="ghost"
+              onClick={() => router.push(`/portal/events/${eventId}`)}
+              className="h-10 shrink-0 gap-2"
             >
-              {isSaving ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  保存中...
-                </>
-              ) : (
-                <>
-                  <Save className="h-4 w-4 mr-2" />
-                  保存草稿
-                </>
-              )}
+              <ArrowLeft className="h-4 w-4" />
+              返回
             </Button>
-            <Button
-              onClick={handleSubmit(handleSubmitRegistration, handleInvalidTeamForm)}
-              disabled={isSubmitting}
-              className="h-10 w-full sm:w-auto"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  提交中...
-                </>
-              ) : (
-                <>
-                  <Send className="h-4 w-4 mr-2" />
-                  提交报名
-                </>
-              )}
-            </Button>
+            <h1 className="truncate text-lg font-bold sm:text-xl lg:text-2xl">{event.name} - 报名</h1>
           </div>
-        )}
+
+          {/* 根据状态判断是否显示保存和提交按钮 */}
+          {shouldShowActionButtons() && (
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={handleSubmit(handleSaveDraft, handleInvalidTeamForm)}
+                disabled={isSaving}
+                className="h-10 flex-1 sm:flex-none"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    保存中...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    保存草稿
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={handleSubmit(handleSubmitRegistration, handleInvalidTeamForm)}
+                disabled={isSubmitting}
+                className="h-10 flex-1 sm:flex-none"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    提交中...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4 mr-2" />
+                    提交报名
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 审核期内新建报名的提示 */}

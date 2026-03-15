@@ -412,9 +412,38 @@ export default function ReviewRegistrationPage() {
     const divisionValue = getReadableDivisionValue(source)
     let hasDivisionEntry = false
 
+    // First, add division field if it exists (to make it appear first)
+    if (divisionValue) {
+      const divisionField = configuredFields.find((field) => isDivisionField(field.id))
+      if (divisionField) {
+        entries.push({
+          key: divisionField.id,
+          label: resolveFieldLabel(divisionField.id, divisionValue, configuredFields),
+          value: divisionValue,
+          type: divisionField.type,
+        })
+        usedKeys.add(divisionField.id)
+        hasDivisionEntry = true
+        DIVISION_FIELD_IDS.forEach((divisionFieldId) => usedKeys.add(divisionFieldId))
+      } else {
+        // If division field is not in configured fields, add it as participationGroup
+        entries.push({
+          key: 'participationGroup',
+          label: resolveFieldLabel('participationGroup', divisionValue, configuredFields),
+          value: divisionValue,
+        })
+        hasDivisionEntry = true
+        DIVISION_FIELD_IDS.forEach((divisionFieldId) => usedKeys.add(divisionFieldId))
+      }
+    }
+
+    // Then add other configured fields
     configuredFields.forEach((field) => {
-      const value = isDivisionField(field.id) && divisionValue ? divisionValue : source[field.id]
-      if (value !== undefined && value !== null && value !== '' && field.id !== 'role') {
+      if (usedKeys.has(field.id) || field.id === 'role') {
+        return
+      }
+      const value = source[field.id]
+      if (value !== undefined && value !== null && value !== '') {
         entries.push({
           key: field.id,
           label: resolveFieldLabel(field.id, value, configuredFields),
@@ -422,25 +451,8 @@ export default function ReviewRegistrationPage() {
           type: field.type,
         })
         usedKeys.add(field.id)
-
-        if (isDivisionField(field.id)) {
-          hasDivisionEntry = true
-          if (divisionValue) {
-            DIVISION_FIELD_IDS.forEach((divisionFieldId) => usedKeys.add(divisionFieldId))
-          }
-        }
       }
     })
-
-    if (!hasDivisionEntry && divisionValue) {
-      entries.push({
-        key: 'participationGroup',
-        label: resolveFieldLabel('participationGroup', divisionValue, configuredFields),
-        value: divisionValue,
-      })
-      hasDivisionEntry = true
-      DIVISION_FIELD_IDS.forEach((divisionFieldId) => usedKeys.add(divisionFieldId))
-    }
 
     const unusedFields = configuredFields.filter((field) => !usedKeys.has(field.id))
 
@@ -464,12 +476,17 @@ export default function ReviewRegistrationPage() {
 
       const mappedField = mappedIndex >= 0 ? unusedFields.splice(mappedIndex, 1)[0] : undefined
 
-      entries.push({
-        key,
-        label: mappedField?.label || resolveFieldLabel(key, value, configuredFields),
-        value,
-        type: mappedField?.type,
-      })
+      // Only add this entry if we found a matching unused field
+      // This prevents duplicate rendering when data has extra keys that don't match any configured field
+      if (mappedField) {
+        entries.push({
+          key,
+          label: mappedField.label || resolveFieldLabel(key, value, configuredFields),
+          value,
+          type: mappedField.type,
+        })
+        usedKeys.add(key)
+      }
     })
 
     return entries

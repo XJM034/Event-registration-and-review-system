@@ -110,7 +110,7 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, onM
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 items-start gap-3">
         <button
-          className="flex h-9 w-9 shrink-0 cursor-grab items-center justify-center rounded-md border border-border/60 bg-muted/20 text-muted-foreground active:cursor-grabbing sm:h-8 sm:w-8 sm:border-0 sm:bg-transparent"
+          className="hidden h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground active:cursor-grabbing lg:flex"
           {...attributes}
           {...listeners}
           aria-label={`拖动排序 ${field.label}`}
@@ -146,7 +146,7 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, onM
               variant="outline"
               onClick={onMoveUp}
               disabled={!canMoveUp}
-              className="h-9 justify-start px-3 sm:h-8"
+              className="h-9 justify-start px-3 sm:h-8 lg:hidden"
             >
               <ChevronUp className="mr-1 h-4 w-4" />
               上移
@@ -158,7 +158,7 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, onM
               variant="outline"
               onClick={onMoveDown}
               disabled={!canMoveDown}
-              className="h-9 justify-start px-3 sm:h-8"
+              className="h-9 justify-start px-3 sm:h-8 lg:hidden"
             >
               <ChevronDown className="mr-1 h-4 w-4" />
               下移
