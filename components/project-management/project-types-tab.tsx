@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import {
   Dialog,
   DialogContent,
@@ -23,7 +22,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Plus, Edit, Trash2, Loader2 } from 'lucide-react'
+import { Plus, Loader2 } from 'lucide-react'
+import EntityCardActions from '@/components/project-management/entity-card-actions'
 
 interface ProjectType {
   id: string
@@ -172,7 +172,7 @@ export default function ProjectTypesTab({ onUpdate }: ProjectTypesTabProps) {
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted-foreground">共 {types.length} 个赛事类型</p>
-        <Button onClick={handleAdd} className="w-full sm:w-auto">
+        <Button onClick={handleAdd} className="h-10 w-full sm:w-auto">
           <Plus className="mr-2 h-4 w-4" />
           添加类型
         </Button>
@@ -182,52 +182,36 @@ export default function ProjectTypesTab({ onUpdate }: ProjectTypesTabProps) {
         {types.map((type) => (
           <div
             key={type.id}
-            className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 transition-shadow hover:shadow-sm sm:flex-row sm:items-center sm:justify-between"
+            className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4 transition-shadow hover:shadow-sm sm:flex-row sm:items-start sm:justify-between"
           >
-            <div className="flex items-center space-x-4 flex-1">
-              <div className="flex-1">
+            <div className="flex flex-1 items-start space-x-4">
+              <div className="min-w-0 flex-1">
                 <h3 className="font-medium">{type.name}</h3>
-                <p className="text-sm text-muted-foreground">
-                  排序: {type.display_order} | 项目数: {type.projects?.[0]?.count || 0}
-                </p>
+                <div className="mt-1 flex flex-col gap-1 text-sm text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-1">
+                  <span>排序: {type.display_order}</span>
+                  <span>项目数: {type.projects?.[0]?.count || 0}</span>
+                </div>
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:space-x-4">
-              <div className="flex items-center justify-between sm:justify-start sm:space-x-2">
-                <Label htmlFor={`enabled-${type.id}`} className="text-sm">
-                  {type.is_enabled ? '已启用' : '已禁用'}
-                </Label>
-                <Switch
-                  id={`enabled-${type.id}`}
-                  checked={type.is_enabled}
-                  onCheckedChange={() => handleToggleEnabled(type)}
-                />
-              </div>
-
-              <Button variant="ghost" size="sm" onClick={() => handleEdit(type)} className="justify-start sm:justify-center">
-                <Edit className="h-4 w-4" />
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                className="justify-start sm:justify-center"
-                onClick={() => {
-                  setDeletingType(type)
-                  setShowDeleteDialog(true)
-                }}
-              >
-                <Trash2 className="h-4 w-4 text-red-600" />
-              </Button>
-            </div>
+            <EntityCardActions
+              enabled={type.is_enabled}
+              itemName={type.name}
+              switchId={`enabled-${type.id}`}
+              onToggle={() => handleToggleEnabled(type)}
+              onEdit={() => handleEdit(type)}
+              onDelete={() => {
+                setDeletingType(type)
+                setShowDeleteDialog(true)
+              }}
+            />
           </div>
         ))}
       </div>
 
       {/* Add/Edit Dialog */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
             <DialogTitle>{editingType ? '编辑类型' : '添加类型'}</DialogTitle>
             <DialogDescription>
@@ -236,17 +220,18 @@ export default function ProjectTypesTab({ onUpdate }: ProjectTypesTabProps) {
           </DialogHeader>
 
           <div className="space-y-4">
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="name">类型名称 *</Label>
               <Input
                 id="name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 placeholder="例如：体育、科创、艺术"
+                className="h-11"
               />
             </div>
 
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="display_order">排序</Label>
               <Input
                 id="display_order"
@@ -255,15 +240,16 @@ export default function ProjectTypesTab({ onUpdate }: ProjectTypesTabProps) {
                 onChange={(e) =>
                   setFormData({ ...formData, display_order: parseInt(e.target.value) || 0 })
                 }
+                className="h-11"
               />
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDialog(false)}>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowDialog(false)} className="h-10">
               取消
             </Button>
-            <Button onClick={handleSubmit} disabled={submitting}>
+            <Button onClick={handleSubmit} disabled={submitting} className="h-10">
               {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               {editingType ? '保存' : '创建'}
             </Button>
@@ -287,12 +273,12 @@ export default function ProjectTypesTab({ onUpdate }: ProjectTypesTabProps) {
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel className="h-10">取消</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={submitting || (deletingType?.projects?.[0]?.count || 0) > 0}
-              className="bg-red-600 hover:bg-red-700"
+              className="h-10 bg-red-600 hover:bg-red-700"
             >
               {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               确认删除

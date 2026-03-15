@@ -23,6 +23,7 @@ export const COACH_ALLOWED_UPLOAD_BUCKETS = new Set<UploadBucket>([
 
 export const PUBLIC_SHARE_ALLOWED_UPLOAD_BUCKETS = new Set<UploadBucket>([
   'player-photos',
+  'team-documents',
 ])
 
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp'])

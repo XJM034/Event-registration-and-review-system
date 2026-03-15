@@ -98,6 +98,7 @@ export function CreateAdminDialog({ open, onOpenChange, onSuccess }: CreateAdmin
                 onChange={(e) => setPhone(e.target.value)}
                 maxLength={11}
                 required
+                className="h-11"
               />
             </div>
             <div className="space-y-2">
@@ -107,6 +108,7 @@ export function CreateAdminDialog({ open, onOpenChange, onSuccess }: CreateAdmin
                 placeholder="管理员姓名"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                className="h-11"
               />
             </div>
             <div className="space-y-2">
@@ -119,10 +121,11 @@ export function CreateAdminDialog({ open, onOpenChange, onSuccess }: CreateAdmin
                 onChange={(e) => setPassword(e.target.value)}
                 minLength={PASSWORD_POLICY_MIN_LENGTH}
                 required
+                className="h-11"
               />
               <p className="text-xs text-muted-foreground">{PASSWORD_POLICY_HINT}</p>
             </div>
-            <div className="flex items-center space-x-2">
+            <div className="flex items-start space-x-2">
               <Checkbox
                 id="is_super"
                 checked={isSuper}
@@ -130,7 +133,7 @@ export function CreateAdminDialog({ open, onOpenChange, onSuccess }: CreateAdmin
               />
               <Label
                 htmlFor="is_super"
-                className="text-sm font-normal cursor-pointer"
+                className="cursor-pointer text-sm font-normal leading-5"
               >
                 授予超级管理员权限
               </Label>

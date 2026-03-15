@@ -198,7 +198,7 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
               </CardTitle>
               <CardDescription>等待审核的报名申请 ({registrations.length})</CardDescription>
             </div>
-            <Button variant="outline" onClick={handleDownload} className="w-full md:w-auto md:self-start">
+            <Button variant="outline" onClick={handleDownload} className="h-10 w-full sm:w-auto md:self-start">
               <Download className="h-4 w-4 mr-2" />
               下载 {selectedIds.length > 0 ? `(${selectedIds.length})` : ''}
             </Button>
@@ -209,7 +209,7 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
             <div className="py-8 text-center text-muted-foreground">暂无待审核的报名</div>
           ) : (
             <>
-              <div className="mb-4 flex items-center gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 md:hidden">
+              <div className="mb-4 flex items-center gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 lg:hidden">
                 <Checkbox
                   checked={selectedIds.length === registrations.length && registrations.length > 0}
                   onCheckedChange={toggleSelectAll}
@@ -217,7 +217,7 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
                 <span className="text-sm text-muted-foreground">全选当前列表</span>
               </div>
 
-              <div className="space-y-3 md:hidden">
+              <div className="space-y-3 lg:hidden">
                 {registrations.map((registration) => (
                   <div key={registration.id} className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
                     <div className="flex items-start justify-between gap-3">
@@ -227,7 +227,7 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
                           return (
                             <div key={field.id}>
                               <p className="text-xs text-muted-foreground">{field.label}</p>
-                              <p className="text-sm font-medium text-foreground">{renderCellValue(value)}</p>
+                              <p className="break-words text-sm font-medium text-foreground">{renderCellValue(value)}</p>
                             </div>
                           )
                         })}
@@ -244,7 +244,7 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="mt-4 w-full"
+                      className="mt-4 h-10 w-full"
                       onClick={() => router.push(`/events/${eventId}/registrations/${registration.id}/review`)}
                     >
                       <Eye className="mr-1 h-4 w-4" />
@@ -254,7 +254,7 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
                 ))}
               </div>
 
-              <div className="hidden overflow-hidden rounded-xl border border-border/60 md:block">
+              <div className="hidden overflow-hidden rounded-xl border border-border/60 lg:block">
                 <Table className="table-fixed">
                   <TableHeader>
                     <TableRow className="bg-muted/40">

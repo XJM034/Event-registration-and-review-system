@@ -246,17 +246,17 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
                 setSearch(e.target.value)
                 setPage(1)
               }}
-              className="pl-10"
+              className="h-11 pl-10"
             />
           </div>
         </div>
-        <Button onClick={() => setShowCreateDialog(true)} className="w-full md:w-auto">
+        <Button onClick={() => setShowCreateDialog(true)} className="h-10 w-full md:w-auto">
           <Plus className="mr-2 h-4 w-4" />
           创建管理员
         </Button>
       </div>
 
-      <Card className="hidden md:block">
+      <Card className="hidden xl:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -361,7 +361,7 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
         </Table>
       </Card>
 
-      <div className="grid gap-3 md:hidden">
+      <div className="grid gap-3 xl:hidden">
         {loading ? (
           <div className="rounded-lg border border-dashed border-border py-10 text-center">
             <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
@@ -406,6 +406,7 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
                 <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <Button
                     variant="outline"
+                    className="h-10"
                     onClick={() => {
                       setSelectedAdmin(admin)
                       setShowEditDialog(true)
@@ -416,6 +417,7 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
                   </Button>
                   <Button
                     variant="outline"
+                    className="h-10"
                     onClick={() => {
                       setSelectedAdmin(admin)
                       setPassword('')
@@ -428,6 +430,7 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
                   </Button>
                   <Button
                     variant="destructive"
+                    className="h-10"
                     onClick={() => {
                       setSelectedAdmin(admin)
                       setShowDeleteDialog(true)
@@ -444,7 +447,7 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
       </div>
 
       {total > 0 && (
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="text-sm text-muted-foreground">
             共 {total} 个管理员
           </div>
@@ -456,7 +459,7 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
                 setPage(1)
               }}
             >
-              <SelectTrigger className="w-full sm:w-[100px]">
+              <SelectTrigger className="h-10 w-full sm:w-[120px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -468,7 +471,7 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
             <div className="flex items-center justify-between gap-2 sm:justify-start">
               <Button
                 variant="outline"
-                size="sm"
+                className="h-10"
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
               >
@@ -479,7 +482,7 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
               </span>
               <Button
                 variant="outline"
-                size="sm"
+                className="h-10"
                 onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
               >
@@ -529,6 +532,7 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   minLength={PASSWORD_POLICY_MIN_LENGTH}
+                  className="h-11"
                 />
                 <p className="text-xs text-muted-foreground">{PASSWORD_POLICY_HINT}</p>
               </div>
@@ -545,6 +549,7 @@ export function AdminsTab({ enabled = true }: AdminsTabProps) {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
                   minLength={PASSWORD_POLICY_MIN_LENGTH}
+                  className="h-11"
                 />
               </div>
 

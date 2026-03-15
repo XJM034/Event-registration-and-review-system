@@ -351,13 +351,13 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
               <Button
                 variant="outline"
                 onClick={handleDownload}
-                className="w-full sm:w-auto"
+                className="h-10 w-full sm:w-auto"
               >
                 <Download className="h-4 w-4 mr-2" />
                 下载 {selectedIds.length > 0 ? `(${selectedIds.length})` : ''}
               </Button>
               <Button
-                className="w-full sm:w-auto"
+                className="h-10 w-full sm:w-auto"
                 onClick={() => setShowAddDialog(true)}
               >
                 <Plus className="h-4 w-4 mr-2" />
@@ -373,7 +373,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
             </div>
           ) : (
             <>
-              <div className="mb-4 flex items-center gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 md:hidden">
+              <div className="mb-4 flex items-center gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 lg:hidden">
                 <Checkbox
                   checked={selectedIds.length === registrations.length && registrations.length > 0}
                   onCheckedChange={toggleSelectAll}
@@ -381,7 +381,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                 <span className="text-sm text-muted-foreground">全选当前列表</span>
               </div>
 
-              <div className="space-y-3 md:hidden">
+              <div className="space-y-3 lg:hidden">
                 {registrations.map((registration) => (
                   <div key={registration.id} className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
                     <div className="flex items-start justify-between gap-3">
@@ -410,6 +410,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                       <Button
                         size="sm"
                         variant="outline"
+                        className="h-10"
                         onClick={() => {
                           router.push(`/events/${eventId}/registrations/${registration.id}/detail`)
                         }}
@@ -420,7 +421,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                       <Button
                         size="sm"
                         variant="outline"
-                        className="text-destructive hover:text-destructive"
+                        className="h-10 text-destructive hover:text-destructive"
                         onClick={() => {
                           setSelectedRegistration(registration)
                           setShowRejectDialog(true)
@@ -434,7 +435,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                 ))}
               </div>
 
-              <div className="hidden overflow-hidden rounded-xl border border-border/60 md:block">
+              <div className="hidden overflow-hidden rounded-xl border border-border/60 lg:block">
                 <Table className="table-fixed">
                   <TableHeader>
                     <TableRow className="bg-muted/40">
@@ -547,20 +548,21 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
             <Button
               variant="outline"
               onClick={() => {
                 setShowRejectDialog(false)
                 setRejectionReason('')
               }}
+              className="w-full sm:w-auto"
             >
               取消
             </Button>
             <Button
               onClick={handleReject}
               disabled={!rejectionReason.trim() || processingId === selectedRegistration?.id}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="w-full bg-destructive text-destructive-foreground hover:bg-destructive/90 sm:w-auto"
             >
               确认驳回
             </Button>
@@ -570,7 +572,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
 
       {/* 添加报名对话框 */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-h-[80vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>添加报名</DialogTitle>
             <DialogDescription>
@@ -590,6 +592,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                     value={newRegistration.teamName}
                     onChange={(e) => setNewRegistration(prev => ({ ...prev, teamName: e.target.value }))}
                     placeholder="输入队伍名称"
+                    className="mt-2 h-11"
                   />
                 </div>
                 <div>
@@ -599,6 +602,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                     value={newRegistration.campus}
                     onChange={(e) => setNewRegistration(prev => ({ ...prev, campus: e.target.value }))}
                     placeholder="输入报名校区"
+                    className="mt-2 h-11"
                   />
                 </div>
                 <div>
@@ -608,6 +612,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                     value={newRegistration.contact}
                     onChange={(e) => setNewRegistration(prev => ({ ...prev, contact: e.target.value }))}
                     placeholder="输入联系人"
+                    className="mt-2 h-11"
                   />
                 </div>
                 <div>
@@ -617,6 +622,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                     value={newRegistration.phone}
                     onChange={(e) => setNewRegistration(prev => ({ ...prev, phone: e.target.value }))}
                     placeholder="输入联系电话"
+                    className="mt-2 h-11"
                   />
                 </div>
               </div>
@@ -624,13 +630,14 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
 
             {/* 队员信息 */}
             <div>
-              <div className="flex items-center justify-between mb-3">
+              <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <h3 className="font-semibold">队员信息</h3>
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
                   onClick={addPlayer}
+                  className="h-10 w-full sm:w-auto"
                 >
                   <UserPlus className="h-4 w-4 mr-1" />
                   添加队员
@@ -648,8 +655,10 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                           size="sm"
                           variant="ghost"
                           onClick={() => removePlayer(index)}
+                          className="h-9 px-3"
                         >
                           <X className="h-4 w-4" />
+                          <span className="ml-1 text-xs">删除</span>
                         </Button>
                       )}
                     </div>
@@ -660,6 +669,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                           value={player.name}
                           onChange={(e) => updatePlayer(index, 'name', e.target.value)}
                           placeholder="输入姓名"
+                          className="mt-2 h-11"
                         />
                       </div>
                       <div>
@@ -667,7 +677,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                         <select
                           value={player.gender}
                           onChange={(e) => updatePlayer(index, 'gender', e.target.value)}
-                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
+                          className="mt-2 h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
                         >
                           <option value="男">男</option>
                           <option value="女">女</option>
@@ -680,6 +690,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                           value={player.age}
                           onChange={(e) => updatePlayer(index, 'age', e.target.value)}
                           placeholder="输入年龄"
+                          className="mt-2 h-11"
                         />
                       </div>
                       <div>
@@ -688,6 +699,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                           value={player.idcard}
                           onChange={(e) => updatePlayer(index, 'idcard', e.target.value)}
                           placeholder="输入身份证号"
+                          className="mt-2 h-11"
                         />
                       </div>
                     </div>
@@ -697,7 +709,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
             <Button
               variant="outline"
               onClick={() => {
@@ -710,12 +722,13 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
                   players: [{ name: '', gender: '男', age: '', idcard: '' }]
                 })
               }}
+              className="w-full sm:w-auto"
             >
               取消
             </Button>
             <Button
               onClick={handleAddRegistration}
-              className="bg-primary text-primary-foreground hover:bg-primary/90"
+              className="w-full bg-primary text-primary-foreground hover:bg-primary/90 sm:w-auto"
             >
               确认添加
             </Button>

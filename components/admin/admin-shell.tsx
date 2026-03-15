@@ -48,7 +48,7 @@ import { cn } from '@/lib/utils'
 
 interface AdminShellProps {
   children: ReactNode
-  title: string
+  title?: string
   actions?: ReactNode
   forceSuperNavigation?: boolean
 }
@@ -72,6 +72,9 @@ const DEFAULT_ADMIN_PROFILE: AdminShellProfile = {
 export default function AdminShell({ children, title, actions, forceSuperNavigation = false }: AdminShellProps) {
   const router = useRouter()
   const pathname = usePathname()
+  const derivedForceSuperNavigation = forceSuperNavigation
+    || pathname.startsWith('/admin/security-audit-logs')
+    || pathname.startsWith('/admin/project-management')
   const [desktopCollapsed, setDesktopCollapsed] = useState(false)
   const [tabletPinnedExpanded, setTabletPinnedExpanded] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -81,7 +84,7 @@ export default function AdminShell({ children, title, actions, forceSuperNavigat
   const [showLogoutDialog, setShowLogoutDialog] = useState(false)
   const [profile, setProfile] = useState<AdminShellProfile>(() => {
     const storedProfile = readStoredAdminProfile() || DEFAULT_ADMIN_PROFILE
-    if (forceSuperNavigation && !storedProfile.isSuper) {
+    if (derivedForceSuperNavigation && !storedProfile.isSuper) {
       return {
         ...storedProfile,
         isSuper: true,
@@ -229,6 +232,14 @@ export default function AdminShell({ children, title, actions, forceSuperNavigat
 
   const adminDisplayName = profile.name || '管理员'
   const userInitial = adminDisplayName.slice(0, 1).toUpperCase()
+  const pageTitle = useMemo(() => {
+    if (title) return title
+    if (pathname === '/' || pathname === '/events' || pathname.startsWith('/events/')) return '赛事管理'
+    if (pathname.startsWith('/admin/account-management')) return '账号管理'
+    if (pathname.startsWith('/admin/security-audit-logs')) return '日志查询'
+    if (pathname.startsWith('/admin/project-management')) return '项目管理'
+    return '管理后台'
+  }, [pathname, title])
 
   const toggleSidebar = () => {
     setIsSidebarAnimating(true)
@@ -328,7 +339,7 @@ export default function AdminShell({ children, title, actions, forceSuperNavigat
                       href={item.href}
                       onClick={() => setMobileMenuOpen(false)}
                       className={cn(
-                        'relative flex items-center justify-center rounded-lg px-3 py-2 transition-colors hover:bg-muted',
+                        'relative flex min-h-10 items-center justify-center rounded-lg px-3 py-2 transition-colors hover:bg-muted',
                         item.active && 'bg-primary/10 text-primary',
                       )}
                     >
@@ -344,7 +355,7 @@ export default function AdminShell({ children, title, actions, forceSuperNavigat
                   href={item.href}
                   onClick={() => setMobileMenuOpen(false)}
                   className={cn(
-                    'flex items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-muted',
+                    'flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-muted',
                     item.active && 'bg-primary/10 text-primary',
                   )}
                 >
@@ -375,7 +386,7 @@ export default function AdminShell({ children, title, actions, forceSuperNavigat
           'flex shrink-0 flex-col border-r border-border bg-card shadow-sm transition-[width,transform] duration-300 ease-in-out',
           isMobile
             ? cn(
-                'fixed inset-y-0 left-0 z-50 w-[240px] transform',
+                'fixed inset-y-0 left-0 z-50 w-[min(18rem,calc(100vw-1.5rem))] transform',
                 mobileMenuOpen ? 'translate-x-0' : '-translate-x-full',
               )
             : cn('relative', sidebarWidthClass),
@@ -386,60 +397,68 @@ export default function AdminShell({ children, title, actions, forceSuperNavigat
 
       <main className="min-w-0 flex-1 flex flex-col">
         <header className="bg-background/95 backdrop-blur">
-          <div className="flex min-h-[67px] items-center justify-between gap-3 border-b border-border px-4 sm:px-6">
-            <div className="flex min-w-0 items-center gap-3">
-              {isMobile ? (
-                <button
-                  aria-label="打开侧边栏"
-                  onClick={() => setMobileMenuOpen(true)}
-                  className="rounded-md p-2 transition-colors hover:bg-muted"
-                  type="button"
-                >
-                  <Menu className="h-5 w-5" />
-                </button>
-              ) : null}
-              <div className="min-w-0">
-                <h1 className="truncate text-base font-semibold text-foreground sm:text-lg">{title}</h1>
-                <p className="mt-0.5 truncate text-sm text-muted-foreground">
-                  {profile.phone ? `${adminDisplayName} · ${profile.phone}` : `${adminDisplayName}，您好`}
-                </p>
+          <div className="border-b border-border px-3 py-3 sm:px-6">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-3">
+                {isMobile ? (
+                  <button
+                    aria-label="打开侧边栏"
+                    onClick={() => setMobileMenuOpen(true)}
+                    className="flex h-10 w-10 items-center justify-center rounded-md transition-colors hover:bg-muted"
+                    type="button"
+                  >
+                    <Menu className="h-5 w-5" />
+                  </button>
+                ) : null}
+                <div className="min-w-0">
+                  <h1 className="truncate text-base font-semibold text-foreground sm:text-lg">{pageTitle}</h1>
+                  <p className="mt-0.5 truncate text-sm text-muted-foreground">
+                    {profile.phone ? `${adminDisplayName} · ${profile.phone}` : `${adminDisplayName}，您好`}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+                {!isMobile ? actions : null}
+                <ThemeSwitcher />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-10 items-center gap-2 rounded-full p-1 transition-colors hover:bg-muted"
+                    >
+                      <Avatar className="h-8 w-8">
+                        <AvatarFallback className="bg-primary/10 text-xs text-primary">
+                          {userInitial}
+                        </AvatarFallback>
+                      </Avatar>
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel className="space-y-1">
+                      <div className="truncate">{adminDisplayName}</div>
+                      {profile.phone ? (
+                        <div className="truncate text-xs font-normal text-muted-foreground">{profile.phone}</div>
+                      ) : null}
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-red-600 focus:bg-red-50 focus:text-red-700 dark:text-red-400 dark:focus:bg-red-500/15 dark:focus:text-red-300"
+                      onClick={() => setShowLogoutDialog(true)}
+                    >
+                      <LogOut className="mr-2 h-4 w-4" />
+                      退出登录
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-              {actions}
-              <ThemeSwitcher />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex items-center gap-2 rounded-full p-1 transition-colors hover:bg-muted"
-                  >
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback className="bg-primary/10 text-xs text-primary">
-                        {userInitial}
-                      </AvatarFallback>
-                    </Avatar>
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel className="space-y-1">
-                    <div className="truncate">{adminDisplayName}</div>
-                    {profile.phone ? (
-                      <div className="truncate text-xs font-normal text-muted-foreground">{profile.phone}</div>
-                    ) : null}
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-red-600 focus:bg-red-50 focus:text-red-700 dark:text-red-400 dark:focus:bg-red-500/15 dark:focus:text-red-300"
-                    onClick={() => setShowLogoutDialog(true)}
-                  >
-                    <LogOut className="mr-2 h-4 w-4" />
-                    退出登录
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+            {isMobile && actions ? (
+              <div className="mt-3 flex w-full [&>*]:h-10 [&>*]:w-full">
+                {actions}
+              </div>
+            ) : null}
           </div>
         </header>
 

@@ -244,7 +244,7 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
                 setSearch(e.target.value)
                 setPage(1)
               }}
-              className="pl-10"
+              className="h-11 pl-10"
             />
           </div>
           <Select
@@ -254,7 +254,7 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
               setPage(1)
             }}
           >
-            <SelectTrigger className="w-full lg:w-[220px]">
+            <SelectTrigger className="h-11 w-full lg:w-[220px]">
               <SelectValue placeholder="筛选参赛单位" />
             </SelectTrigger>
             <SelectContent>
@@ -268,10 +268,10 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
           </Select>
         </div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:flex">
-          <Button variant="outline" onClick={() => setShowImportDialog(true)} className="w-full xl:w-auto">
+          <Button variant="outline" onClick={() => setShowImportDialog(true)} className="h-10 w-full xl:w-auto">
             批量导入
           </Button>
-          <Button onClick={() => setShowCreateDialog(true)} className="w-full xl:w-auto">
+          <Button onClick={() => setShowCreateDialog(true)} className="h-10 w-full xl:w-auto">
             <Plus className="mr-2 h-4 w-4" />
             创建教练账号
           </Button>
@@ -279,7 +279,7 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
       </div>
 
       {/* 表格 */}
-      <div className="hidden rounded-lg border md:block">
+      <div className="hidden rounded-lg border xl:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -388,7 +388,7 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
         </Table>
       </div>
 
-      <div className="grid gap-3 md:hidden">
+      <div className="grid gap-3 xl:hidden">
         {loading ? (
           <div className="rounded-lg border border-dashed border-border py-10 text-center">
             <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
@@ -423,33 +423,39 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
                 />
               </div>
 
-              <div className="mt-3 grid grid-cols-3 gap-2">
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <Button
                   variant="outline"
+                  className="h-10"
                   onClick={() => {
                     setSelectedCoach(coach)
                     setShowEditDialog(true)
                   }}
                 >
-                  <Edit className="h-4 w-4" />
+                  <Edit className="mr-2 h-4 w-4" />
+                  编辑
                 </Button>
                 <Button
                   variant="outline"
+                  className="h-10"
                   onClick={() => {
                     setSelectedCoach(coach)
                     setShowResetPasswordDialog(true)
                   }}
                 >
-                  <Key className="h-4 w-4" />
+                  <Key className="mr-2 h-4 w-4" />
+                  重置密码
                 </Button>
                 <Button
                   variant="destructive"
+                  className="h-10"
                   onClick={() => {
                     setSelectedCoach(coach)
                     setShowDeleteDialog(true)
                   }}
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  删除
                 </Button>
               </div>
             </div>
@@ -458,14 +464,31 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
       </div>
 
       {/* 分页 */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="text-sm text-muted-foreground">
           共 {total} 条记录，第 {page} / {totalPages} 页
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:flex md:flex-wrap md:items-center">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <Select
+            value={pageSize.toString()}
+            onValueChange={(value) => {
+              setPageSize(parseInt(value, 10))
+              setPage(1)
+            }}
+          >
+            <SelectTrigger className="h-10 w-full sm:w-[120px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="10">10 条/页</SelectItem>
+              <SelectItem value="20">20 条/页</SelectItem>
+              <SelectItem value="50">50 条/页</SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Button
             variant="outline"
-            size="sm"
+            className="h-10"
             onClick={() => setPage(1)}
             disabled={page === 1}
           >
@@ -473,7 +496,7 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
           </Button>
           <Button
             variant="outline"
-            size="sm"
+            className="h-10"
             onClick={() => setPage(page - 1)}
             disabled={page === 1}
           >
@@ -481,7 +504,7 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
           </Button>
           <Button
             variant="outline"
-            size="sm"
+            className="h-10"
             onClick={() => setPage(page + 1)}
             disabled={page >= totalPages}
           >
@@ -489,12 +512,13 @@ export default function CoachesTab({ enabled = true }: CoachesTabProps) {
           </Button>
           <Button
             variant="outline"
-            size="sm"
+            className="h-10"
             onClick={() => setPage(totalPages)}
             disabled={page >= totalPages}
           >
             末页
           </Button>
+          </div>
         </div>
       </div>
 

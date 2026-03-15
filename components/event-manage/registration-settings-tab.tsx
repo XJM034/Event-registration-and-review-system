@@ -9,7 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Plus, Trash2, Save, Users, User, Settings, X, UserPlus, GripVertical } from 'lucide-react'
+import { ChevronDown, ChevronUp, GripVertical, Plus, Save, Settings, Trash2, User, UserPlus, Users, X } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -54,11 +54,15 @@ interface FieldConfig {
 }
 
 // 可排序的字段项组件
-function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, canRemove = true }: {
+function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, onMoveUp, onMoveDown, canMoveUp = true, canMoveDown = true, canRemove = true }: {
   field: FieldConfig
   onToggleRequired: () => void
   onRemove?: () => void
   onEditField?: () => void
+  onMoveUp?: () => void
+  onMoveDown?: () => void
+  canMoveUp?: boolean
+  canMoveDown?: boolean
   canRemove?: boolean
 }) {
   const {
@@ -101,38 +105,33 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, can
     <div
       ref={setNodeRef}
       style={style}
-      className="flex flex-col gap-3 rounded-lg border border-border/60 bg-card p-3 sm:flex-row sm:items-center sm:justify-between"
+      className="rounded-xl border border-border/60 bg-card p-3"
     >
-      <div className="flex items-center space-x-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-start gap-3">
         <button
-          className="cursor-grab active:cursor-grabbing"
+          className="flex h-9 w-9 shrink-0 cursor-grab items-center justify-center rounded-md border border-border/60 bg-muted/20 text-muted-foreground active:cursor-grabbing sm:h-8 sm:w-8 sm:border-0 sm:bg-transparent"
           {...attributes}
           {...listeners}
+          aria-label={`拖动排序 ${field.label}`}
         >
           <GripVertical className="h-4 w-4 text-muted-foreground" />
         </button>
-        <span className="text-sm font-medium">{field.label}</span>
-        {!canRemove && (
-          <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">不可删除</span>
-        )}
-        <span className="text-xs text-muted-foreground">
-          ({typeLabels[field.type] || field.type})
-          {field.options && ` - ${field.options.length}个选项`}
-        </span>
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium break-words">{field.label}</span>
+            {!canRemove && (
+              <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">不可删除</span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {typeLabels[field.type] || field.type}
+            {field.options && ` · ${field.options.length} 个选项`}
+          </p>
+        </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {/* 所有字段都显示设置按钮 */}
-        {onEditField && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onEditField}
-            title="编辑字段"
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
-        )}
-        <label className="flex items-center space-x-2">
+      <div className="flex flex-col gap-3 sm:items-end">
+        <label className="flex items-center space-x-2 rounded-md border border-border/60 bg-muted/20 px-3 py-2">
           <Checkbox
             checked={field.required}
             disabled={field.requiredLocked}
@@ -140,15 +139,55 @@ function SortableFieldItem({ field, onToggleRequired, onRemove, onEditField, can
           />
           <span className="text-sm">必填</span>
         </label>
-        {/* 所有字段都显示删除按钮，保持UI一致 */}
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={handleRemoveClick}
-          title={canRemove ? "删除字段" : "该字段不能删除"}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+          {onMoveUp && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onMoveUp}
+              disabled={!canMoveUp}
+              className="h-9 justify-start px-3 sm:h-8"
+            >
+              <ChevronUp className="mr-1 h-4 w-4" />
+              上移
+            </Button>
+          )}
+          {onMoveDown && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onMoveDown}
+              disabled={!canMoveDown}
+              className="h-9 justify-start px-3 sm:h-8"
+            >
+              <ChevronDown className="mr-1 h-4 w-4" />
+              下移
+            </Button>
+          )}
+          {onEditField && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onEditField}
+              className="h-9 justify-start px-3 sm:h-8"
+            >
+              <Settings className="mr-1 h-4 w-4" />
+              编辑
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleRemoveClick}
+            disabled={!canRemove}
+            title={canRemove ? "删除字段" : "该字段不能删除"}
+            className="h-9 justify-start px-3 text-destructive hover:text-destructive sm:h-8"
+          >
+            <Trash2 className="mr-1 h-4 w-4" />
+            删除
+          </Button>
+        </div>
+      </div>
       </div>
     </div>
   )
@@ -207,6 +246,12 @@ interface EventDivision {
     minPlayers?: number
     maxPlayers?: number
   }
+}
+
+function stripIsCommonFlag(field: FieldConfig): FieldConfig {
+  const nextField = { ...field }
+  delete nextField.isCommon
+  return nextField
 }
 
 function normalizeRoleConfig(role: RoleConfig): RoleConfig {
@@ -954,10 +999,10 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           // 保存重新排序后的allFields，但也要更新commonFields和customFields以保持兼容性
           const newCommonFields = reorderedFields
             .filter(f => f.isCommon)
-            .map(({ isCommon, ...field }) => field)
+            .map(stripIsCommonFlag)
           const newCustomFields = reorderedFields
             .filter(f => !f.isCommon)
-            .map(({ isCommon, ...field }) => field)
+            .map(stripIsCommonFlag)
           
           return {
             ...prev,
@@ -995,10 +1040,10 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
               // 重新分离常用项和自定义项以保持兼容性
               const newCommonFields = reorderedFields
                 .filter(f => f.isCommon)
-                .map(({ isCommon, ...field }) => field)
+                .map(stripIsCommonFlag)
               const newCustomFields = reorderedFields
                 .filter(f => !f.isCommon)
-                .map(({ isCommon, ...field }) => field)
+                .map(stripIsCommonFlag)
               
               return {
                 ...role,
@@ -1012,6 +1057,75 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         })
       }))
     }
+  }
+
+  const moveTeamField = (fieldId: string, direction: 'up' | 'down') => {
+    setTeamRequirements(prev => {
+      const currentAllFields = prev.allFields || [
+        ...prev.commonFields.map(f => ({ ...f, isCommon: true })),
+        ...prev.customFields.map(f => ({ ...f, isCommon: false }))
+      ]
+
+      const currentIndex = currentAllFields.findIndex(field => field.id === fieldId)
+      const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+
+      if (currentIndex === -1 || targetIndex < 0 || targetIndex >= currentAllFields.length) {
+        return prev
+      }
+
+      const reorderedFields = arrayMove(currentAllFields, currentIndex, targetIndex)
+      const newCommonFields = reorderedFields
+        .filter(f => f.isCommon)
+        .map(stripIsCommonFlag)
+      const newCustomFields = reorderedFields
+        .filter(f => !f.isCommon)
+        .map(stripIsCommonFlag)
+
+      return {
+        ...prev,
+        allFields: reorderedFields,
+        commonFields: newCommonFields,
+        customFields: newCustomFields
+      }
+    })
+  }
+
+  const movePlayerField = (roleId: string, fieldId: string, direction: 'up' | 'down') => {
+    setPlayerRequirements(prev => ({
+      ...prev,
+      roles: prev.roles.map(role => {
+        if (role.id !== roleId) {
+          return role
+        }
+
+        const currentAllFields = role.allFields || [
+          ...(role.commonFields || []).map(f => ({ ...f, isCommon: true })),
+          ...role.customFields.map(f => ({ ...f, isCommon: false }))
+        ]
+
+        const currentIndex = currentAllFields.findIndex(field => field.id === fieldId)
+        const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+
+        if (currentIndex === -1 || targetIndex < 0 || targetIndex >= currentAllFields.length) {
+          return role
+        }
+
+        const reorderedFields = arrayMove(currentAllFields, currentIndex, targetIndex)
+        const newCommonFields = reorderedFields
+          .filter(f => f.isCommon)
+          .map(stripIsCommonFlag)
+        const newCustomFields = reorderedFields
+          .filter(f => !f.isCommon)
+          .map(stripIsCommonFlag)
+
+        return {
+          ...role,
+          allFields: reorderedFields,
+          commonFields: newCommonFields,
+          customFields: newCustomFields
+        }
+      })
+    }))
   }
 
   const fetchSettings = async (divisionId?: string | null) => {
@@ -1858,7 +1972,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           <div className="mb-6 rounded-lg border border-border/60 bg-muted/20 p-4">
             <Label className="text-sm font-semibold mb-2 block">选择组别</Label>
             <p className="mb-3 text-xs text-muted-foreground">每个组别可独立配置报名设置</p>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
               {eventDivisions.map((div) => (
                 <Button
                   key={div.id}
@@ -1866,6 +1980,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                   variant={selectedDivisionId === div.id ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setSelectedDivisionId(div.id)}
+                  className="h-10 justify-start sm:h-9 sm:justify-center"
                 >
                   {div.name}
                 </Button>
@@ -1921,12 +2036,12 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         )}
 
         <Tabs defaultValue="team" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="team">
+          <TabsList className="grid h-auto w-full grid-cols-1 gap-2 sm:grid-cols-2">
+            <TabsTrigger value="team" className="h-10">
               <Users className="h-4 w-4 mr-2" />
               队伍报名要求
             </TabsTrigger>
-            <TabsTrigger value="player">
+            <TabsTrigger value="player" className="h-10">
               <User className="h-4 w-4 mr-2" />
               人员报名要求
             </TabsTrigger>
@@ -2072,11 +2187,12 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                         <p>3. 请保持 A4 尺寸和原始页数，不要通过 Word/WPS 重排版后再导出。</p>
                       </div>
 
-                      <div className="mt-3 flex flex-wrap gap-2">
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         <Button
                           type="button"
                           variant="outline"
                           onClick={() => window.open(`/api/document-templates/base?documentType=${TEMPLATE_FIELD_CONFIG[key].templateType}`, '_blank', 'noopener,noreferrer')}
+                          className="h-10 justify-start"
                         >
                           下载标准模板
                         </Button>
@@ -2085,6 +2201,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                           variant="outline"
                           onClick={() => document.getElementById(inputId)?.click()}
                           disabled={uploadingTemplateKey !== null}
+                          className="h-10 justify-start"
                         >
                           {uploadingTemplateKey === key ? '上传中...' : draftSnapshot?.template ? '替换草稿 PDF' : '上传草稿 PDF'}
                         </Button>
@@ -2093,6 +2210,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                           variant="ghost"
                           onClick={() => previewTemplate(key, previewSnapshot)}
                           disabled={!previewSnapshot?.template || previewingTemplateKey !== null}
+                          className="h-10 justify-start"
                         >
                           {previewingTemplateKey === key ? '预览生成中...' : '预览当前版本'}
                         </Button>
@@ -2101,6 +2219,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                           variant="ghost"
                           onClick={() => removeDraftTemplate(key)}
                           disabled={!draftSnapshot}
+                          className="h-10 justify-start"
                         >
                           清空草稿
                         </Button>
@@ -2109,6 +2228,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                           variant="default"
                           onClick={() => publishDraftTemplate(key)}
                           disabled={!draftSnapshot || (!draftSnapshot.template && !publishedSnapshot?.template)}
+                          className="h-10 justify-start"
                         >
                           发布草稿
                         </Button>
@@ -2117,6 +2237,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                           variant="outline"
                           onClick={() => rollbackPublishedTemplate(key)}
                           disabled={!backupSnapshot}
+                          className="h-10 justify-start"
                         >
                           回退上一版
                         </Button>
@@ -2158,13 +2279,17 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                       ...teamRequirements.customFields.map(field => ({ ...field, isCommon: false }))
                     ]).filter((field, index, array) =>
                       array.findIndex(f => f.id === field.id) === index
-                    ).map(field => (
+                    ).map((field, index, fields) => (
                       <SortableFieldItem
                         key={field.id}
                         field={field}
                         onToggleRequired={() => toggleRequired('team', field.id, field.isCommon || false)}
                         onRemove={() => removeField('team', field.id, field.isCommon || false)}
                         onEditField={() => openFieldEditor('team', field, field.isCommon || false)}
+                        onMoveUp={() => moveTeamField(field.id, 'up')}
+                        onMoveDown={() => moveTeamField(field.id, 'down')}
+                        canMoveUp={index > 0}
+                        canMoveDown={index < fields.length - 1}
                         canRemove={field.canRemove !== false}
                       />
                     ))}
@@ -2172,19 +2297,20 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                 </SortableContext>
               </DndContext>
 
-              <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end">
-                <div className="flex-1">
+              <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_9rem_auto] md:items-end">
+                <div>
                   <Label>字段名称</Label>
                   <Input
                     value={newFieldLabel}
                     onChange={(e) => setNewFieldLabel(e.target.value)}
                     placeholder="输入字段名称"
+                    className="mt-2 h-11"
                   />
                 </div>
                 <div>
                   <Label>字段类型</Label>
                   <Select value={newFieldType} onValueChange={(value: any) => setNewFieldType(value)}>
-                    <SelectTrigger className="w-32">
+                    <SelectTrigger className="mt-2 h-11 w-full md:w-36">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -2198,7 +2324,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                     </SelectContent>
                   </Select>
                 </div>
-                <Button onClick={() => addCustomField('team')}>
+                <Button onClick={() => addCustomField('team')} className="h-10 w-full md:w-auto">
                   <Plus className="h-4 w-4 mr-2" />
                   添加
                 </Button>
@@ -2215,20 +2341,21 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                   size="sm"
                   variant="outline"
                   onClick={() => setShowRoleDialog(true)}
+                  className="h-10 w-full sm:w-auto"
                 >
                   <Plus className="h-4 w-4 mr-2" />
                   添加角色
                 </Button>
               </div>
               
-              <div className="flex flex-wrap gap-2 mb-4">
+              <div className="mb-4 grid gap-2 sm:flex sm:flex-wrap">
                 {playerRequirements.roles.map(role => (
-                  <div key={role.id} className="relative">
+                  <div key={role.id} className="flex items-center gap-2 rounded-lg border border-border/60 bg-card p-1">
                     <Button
                       variant={selectedRole === role.id ? "default" : "outline"}
                       size="sm"
                       onClick={() => setSelectedRole(role.id)}
-                      className="pr-8"
+                      className="h-10 flex-1 justify-start px-3 sm:h-9 sm:flex-none sm:justify-center"
                     >
                       {role.name}
                     </Button>
@@ -2237,10 +2364,11 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="absolute -top-1 -right-1 h-5 w-5 p-0 rounded-full bg-red-500 hover:bg-red-600 text-white"
+                        className="h-10 w-10 shrink-0 rounded-md text-destructive hover:text-destructive sm:h-9 sm:w-9"
                         onClick={() => removeRole(role.id)}
+                        aria-label={`删除角色 ${role.name}`}
                       >
-                        <X className="h-3 w-3" />
+                        <X className="h-4 w-4" />
                       </Button>
                     )}
                   </div>
@@ -2282,7 +2410,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                             {(role.allFields || [
                               ...(role.commonFields || []).map(field => ({ ...field, isCommon: true })),
                               ...role.customFields.map(field => ({ ...field, isCommon: false }))
-                            ]).map(field => (
+                            ]).map((field, index, fields) => (
                               <SortableFieldItem
                                 key={field.id}
                                 field={field}
@@ -2328,6 +2456,10 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                                 }}
                                 onRemove={() => removeField('player', field.id, field.isCommon || false, role.id)}
                                 onEditField={() => openFieldEditor('player', field, field.isCommon || false, role.id)}
+                                onMoveUp={() => movePlayerField(role.id, field.id, 'up')}
+                                onMoveDown={() => movePlayerField(role.id, field.id, 'down')}
+                                canMoveUp={index > 0}
+                                canMoveDown={index < fields.length - 1}
                                 canRemove={field.canRemove !== false}
                               />
                             ))}
@@ -2335,19 +2467,20 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                         </SortableContext>
                       </DndContext>
 
-                      <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end">
-                        <div className="flex-1">
+                      <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_9rem_auto] md:items-end">
+                        <div>
                           <Label>字段名称</Label>
                           <Input
                             value={newFieldLabel}
                             onChange={(e) => setNewFieldLabel(e.target.value)}
                             placeholder="输入字段名称"
+                            className="mt-2 h-11"
                           />
                         </div>
                         <div>
                           <Label>字段类型</Label>
                           <Select value={newFieldType} onValueChange={(value: any) => setNewFieldType(value)}>
-                            <SelectTrigger className="w-32">
+                            <SelectTrigger className="mt-2 h-11 w-full md:w-36">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -2361,7 +2494,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                             </SelectContent>
                           </Select>
                         </div>
-                        <Button onClick={() => addCustomField('player')}>
+                        <Button onClick={() => addCustomField('player')} className="h-10 w-full md:w-auto">
                           <Plus className="h-4 w-4 mr-2" />
                           添加
                         </Button>
@@ -2374,10 +2507,11 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           </TabsContent>
         </Tabs>
 
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button
             onClick={saveSettings}
             disabled={isLoading}
+            className="h-10 w-full sm:w-auto"
           >
             <Save className="h-4 w-4 mr-2" />
             {isLoading ? '保存中...' : '保存设置'}
@@ -2413,14 +2547,16 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                     setTempOptions(newOptions)
                   }}
                   placeholder={`选项 ${index + 1}`}
+                  className="h-11"
                 />
                 {tempOptions.length > 2 && (
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() => {
-                      setTempOptions(tempOptions.filter((_, i) => i !== index))
-                    }}
+                        setTempOptions(tempOptions.filter((_, i) => i !== index))
+                      }}
+                    className="h-10 w-10 shrink-0"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -2441,7 +2577,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
           <Button
             variant="outline"
             onClick={() => {
@@ -2449,10 +2585,11 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
               setEditingField(null)
               setTempOptions(['选项1', '选项2'])
             }}
+            className="w-full sm:w-auto"
           >
             取消
           </Button>
-          <Button onClick={saveFieldWithOptions}>
+          <Button onClick={saveFieldWithOptions} className="w-full sm:w-auto">
             确定
           </Button>
         </DialogFooter>
@@ -2472,12 +2609,13 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
         <div className="space-y-4">
           <div>
             <Label>快速选择</Label>
-            <div className="flex gap-2 mt-2">
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => setNewRoleName('教练员')}
+                className="h-10"
               >
                 教练员
               </Button>
@@ -2486,6 +2624,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                 variant="outline"
                 size="sm"
                 onClick={() => setNewRoleName('领队')}
+                className="h-10"
               >
                 领队
               </Button>
@@ -2498,22 +2637,23 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
               value={newRoleName}
               onChange={(e) => setNewRoleName(e.target.value)}
               placeholder="例如：教练、替补、领队等"
-              className="mt-2"
+              className="mt-2 h-11"
             />
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
           <Button
             variant="outline"
             onClick={() => {
               setShowRoleDialog(false)
               setNewRoleName('')
             }}
+            className="w-full sm:w-auto"
           >
             取消
           </Button>
-          <Button onClick={addRole}>
+          <Button onClick={addRole} className="w-full sm:w-auto">
             <UserPlus className="h-4 w-4 mr-2" />
             添加
           </Button>
@@ -2537,19 +2677,21 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           </p>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
           <Button
             variant="outline"
             onClick={() => {
               setShowDeleteRoleDialog(false)
               setRoleToDelete(null)
             }}
+            className="w-full sm:w-auto"
           >
             取消
           </Button>
           <Button
             variant="destructive"
             onClick={() => roleToDelete && confirmRemoveRole(roleToDelete.id)}
+            className="w-full sm:w-auto"
           >
             确认删除
           </Button>
@@ -2573,19 +2715,21 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           </p>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
           <Button
             variant="outline"
             onClick={() => {
               setShowDeleteFieldDialog(false)
               setFieldToDelete(null)
             }}
+            className="w-full sm:w-auto"
           >
             取消
           </Button>
           <Button
             variant="destructive"
             onClick={confirmRemoveField}
+            className="w-full sm:w-auto"
           >
             确认删除
           </Button>
@@ -2611,14 +2755,14 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
               value={tempFieldLabel}
               onChange={(e) => setTempFieldLabel(e.target.value)}
               placeholder="输入字段名称"
-              className="mt-2"
+              className="mt-2 h-11"
             />
           </div>
 
           <div>
             <Label htmlFor="fieldType">字段类型</Label>
             <Select value={tempFieldType} onValueChange={(value: any) => setTempFieldType(value)}>
-              <SelectTrigger className="mt-2">
+              <SelectTrigger className="mt-2 h-11">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2646,6 +2790,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                       setTempFieldOptions(newOptions)
                     }}
                     placeholder={`选项 ${index + 1}`}
+                    className="h-11"
                   />
                   {tempFieldOptions.length > 2 && (
                     <Button
@@ -2654,6 +2799,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                       onClick={() => {
                         setTempFieldOptions(tempFieldOptions.filter((_, i) => i !== index))
                       }}
+                      className="h-10 w-10 shrink-0"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -2675,17 +2821,18 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
           <Button
             variant="outline"
             onClick={() => {
               setShowFieldEditDialog(false)
               setEditingFieldData(null)
             }}
+            className="w-full sm:w-auto"
           >
             取消
           </Button>
-          <Button onClick={saveFieldEdit}>
+          <Button onClick={saveFieldEdit} className="w-full sm:w-auto">
             保存
           </Button>
         </DialogFooter>

@@ -145,12 +145,14 @@ export default function EventManagePage() {
         {/* 左侧边栏 */}
         <div className="w-full shrink-0 border-b border-border bg-card/95 shadow-sm backdrop-blur lg:min-h-screen lg:w-72 lg:border-b-0 lg:border-r">
           <div className="flex h-full flex-col gap-6 p-4 sm:p-6">
-            <div className="flex items-start justify-between gap-3">
-              <Link href="/events" className="inline-flex items-center text-primary transition-colors hover:text-primary/80">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                返回赛事列表
-              </Link>
-              <div className="-mt-1 self-start">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <Button variant="ghost" asChild className="h-10 w-full justify-start px-3 sm:w-auto">
+                <Link href="/events">
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  返回赛事列表
+                </Link>
+              </Button>
+              <div className="self-end sm:-mt-1 sm:self-start">
                 <ThemeSwitcher />
               </div>
             </div>
@@ -177,7 +179,7 @@ export default function EventManagePage() {
             <div className="space-y-4">
               <Button
                 variant={activeTab === 'basic-info' ? 'default' : 'ghost'}
-                className="w-full justify-start text-sm"
+                className="h-10 w-full justify-start text-sm"
                 onClick={() => setActiveTab('basic-info')}
               >
                 <Settings className="h-4 w-4 mr-2" />
@@ -189,7 +191,7 @@ export default function EventManagePage() {
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
                   <Button
                     variant={activeTab === 'registration-list' ? 'default' : 'ghost'}
-                    className="w-full justify-start text-sm"
+                    className="h-10 w-full justify-start text-sm"
                     onClick={() => setActiveTab('registration-list')}
                   >
                     <Users className="h-4 w-4 mr-2" />
@@ -197,20 +199,20 @@ export default function EventManagePage() {
                   </Button>
                   <Button
                     variant={activeTab === 'review-list' ? 'default' : 'ghost'}
-                    className="w-full justify-start text-sm relative"
+                    className="relative h-10 w-full justify-start text-sm"
                     onClick={() => setActiveTab('review-list')}
                   >
                     <ClipboardList className="h-4 w-4 mr-2" />
                     审核列表
                     {pendingReviewCount > 0 && (
-                      <Badge variant="destructive" className="absolute right-2">
+                      <Badge variant="destructive" className="absolute right-3">
                         {pendingReviewCount}
                       </Badge>
                     )}
                   </Button>
                   <Button
                     variant={activeTab === 'registration-settings' ? 'default' : 'ghost'}
-                    className="w-full justify-start text-sm"
+                    className="h-10 w-full justify-start text-sm"
                     onClick={() => setActiveTab('registration-settings')}
                   >
                     <Settings className="h-4 w-4 mr-2" />

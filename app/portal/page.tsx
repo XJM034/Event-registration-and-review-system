@@ -486,9 +486,9 @@ export default function PortalHomePage() {
     <div className="min-w-0 space-y-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="grid h-auto w-full grid-cols-2 md:w-[460px] md:grid-cols-4">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-xl bg-muted p-1 md:w-[460px] md:grid-cols-4">
             {HOME_TABS.map((tab) => (
-              <TabsTrigger key={tab.value} value={tab.value}>
+              <TabsTrigger key={tab.value} value={tab.value} className="min-h-10 text-sm">
                 {tab.label}
                 <span className="ml-1 text-xs text-muted-foreground">{tabCounts[tab.value]}</span>
               </TabsTrigger>
@@ -498,7 +498,7 @@ export default function PortalHomePage() {
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="w-full md:w-auto">
+            <Button variant="outline" className="h-10 w-full md:w-auto">
               <Filter className="mr-2 h-4 w-4" />
               赛事类型
               {selectedEventTypes.length > 0 && (
@@ -580,7 +580,7 @@ export default function PortalHomePage() {
                         variant={action.variant}
                         size="sm"
                         disabled={action.disabled}
-                        className={cn('h-8 px-3 transition-all active:scale-95', action.className)}
+                        className={cn('h-10 w-full px-3 transition-all active:scale-95 sm:w-auto sm:min-w-[8rem] sm:h-9', action.className)}
                         onClick={action.onClick}
                       >
                         {action.label}
@@ -650,7 +650,7 @@ export default function PortalHomePage() {
                               variant={action.variant}
                               size="sm"
                               disabled={action.disabled}
-                              className={cn('h-8 px-3 transition-all active:scale-95', action.className)}
+                              className={cn('h-9 px-3 transition-all active:scale-95', action.className)}
                               onClick={(eventObject) => {
                                 eventObject.stopPropagation()
                                 action.onClick()

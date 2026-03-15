@@ -81,6 +81,9 @@ const DESKTOP_TEMPLATE_ACCEPT = [
   '.webp',
 ].join(',')
 
+const MOBILE_ACTION_BUTTON_CLASS = 'h-10 w-full sm:w-auto'
+const MOBILE_INLINE_ACTION_BUTTON_CLASS = 'h-10 w-full justify-center sm:h-9 sm:w-auto'
+
 function resolveTemplateStoragePath(template: EventReferenceTemplate): string | null {
   if (typeof template.path === 'string' && template.path.trim()) {
     return template.path.trim()
@@ -562,13 +565,13 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
             <Label>赛事海报</Label>
             <div>
               {posterPreview ? (
-                <div className="relative w-40 h-40 border rounded-lg overflow-hidden">
+                <div className="relative h-40 w-full max-w-[220px] overflow-hidden rounded-lg border">
                   <Image src={posterPreview} alt="海报预览" fill className="object-cover" />
-                  <Button type="button" size="sm" variant="destructive" className="absolute top-2 right-2"
+                  <Button type="button" size="sm" variant="destructive" className="absolute right-2 top-2 h-9 px-3"
                     onClick={() => { setPosterFile(null); setPosterPreview(null) }}>移除</Button>
                 </div>
               ) : (
-                <div className="relative rounded-lg border-2 border-dashed border-border p-8 text-center transition-colors hover:border-primary/40 hover:bg-muted/20">
+                <div className="relative rounded-lg border-2 border-dashed border-border p-6 text-center transition-colors hover:border-primary/40 hover:bg-muted/20 sm:p-8">
                   <Upload className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
                   <p className="mb-2 text-sm text-foreground">点击或拖拽上传海报图片</p>
                   <p className="text-xs text-muted-foreground">支持 JPG、PNG 格式，文件大小不超过 5MB</p>
@@ -611,6 +614,9 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium truncate">{file.name}</p>
                         <p className="text-xs text-muted-foreground">{formatFileSize(file.size)}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          当前用途：{getReferenceTemplateTypeLabel(file.templateType || inferReferenceTemplateType(file.name))}
+                        </p>
                       </div>
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                         <div className="min-w-[170px]">
@@ -618,7 +624,7 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
                             value={file.templateType || inferReferenceTemplateType(file.name)}
                             onValueChange={(value: ReferenceTemplateType) => updateReferenceTemplateType(index, value)}
                           >
-                            <SelectTrigger className="h-9 w-full">
+                            <SelectTrigger className="h-10 w-full">
                               <SelectValue placeholder="选择模板用途" />
                             </SelectTrigger>
                             <SelectContent>
@@ -630,25 +636,27 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
                             </SelectContent>
                           </Select>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                           {safePreviewUrl && (
-                            <a
-                              href={safePreviewUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center text-xs text-primary hover:text-primary/80"
-                            >
-                              <Download className="h-3 w-3 mr-1" />
-                              预览
-                            </a>
+                            <Button asChild type="button" variant="outline" className={MOBILE_INLINE_ACTION_BUTTON_CLASS}>
+                              <a
+                                href={safePreviewUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <Download className="mr-2 h-4 w-4" />
+                                预览
+                              </a>
+                            </Button>
                           )}
                           <Button
                             type="button"
-                            variant="ghost"
-                            size="sm"
+                            variant="outline"
+                            className={`${MOBILE_INLINE_ACTION_BUTTON_CLASS} text-destructive hover:text-destructive`}
                             onClick={() => removeReferenceTemplate(file, index)}
                           >
-                            <X className="h-4 w-4" />
+                            <X className="mr-2 h-4 w-4" />
+                            删除
                           </Button>
                         </div>
                       </div>
@@ -714,9 +722,9 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
               <div className="space-y-2">
                 <Label>组别选择</Label>
                 <p className="text-sm text-muted-foreground">选择该赛事包含的组别</p>
-                <div className="max-h-60 space-y-2 overflow-y-auto rounded-md border border-border/60 p-4">
+                <div className="max-h-60 space-y-2 overflow-y-auto rounded-md border border-border/60 p-3 sm:p-4">
                   {filteredDivisions.map((division) => (
-                    <div key={division.id} className="flex items-center space-x-2">
+                    <div key={division.id} className="flex items-start gap-3 rounded-md border border-border/50 px-3 py-3 sm:items-center">
                       <Checkbox
                         id={`div-${division.id}`}
                         checked={selectedDivisionIds.includes(division.id)}
@@ -728,9 +736,9 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
                           }
                         }}
                       />
-                      <label htmlFor={`div-${division.id}`} className="text-sm cursor-pointer">
-                        {division.name}
-                        {division.description && <span className="ml-2 text-muted-foreground">({division.description})</span>}
+                      <label htmlFor={`div-${division.id}`} className="cursor-pointer text-sm leading-5">
+                        <span className="font-medium text-foreground">{division.name}</span>
+                        {division.description && <span className="mt-1 block text-muted-foreground">{division.description}</span>}
                       </label>
                     </div>
                   ))}
@@ -791,7 +799,7 @@ export default function BasicInfoTab({ event, onUpdate }: BasicInfoTabProps) {
           </div>
 
           <div className="flex justify-end">
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={isSubmitting} className={MOBILE_ACTION_BUTTON_CLASS}>
               {isSubmitting ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />保存中...</>) : '保存'}
             </Button>
           </div>

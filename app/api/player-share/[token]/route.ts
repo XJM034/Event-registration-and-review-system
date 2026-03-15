@@ -176,6 +176,46 @@ export async function GET(request: NextRequest, context: RouteParams) {
       registrationData?.team_data?.division_id
     )
 
+    if (isShareWriteClosed(selectedSettings?.team_requirements)) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'view_public_share',
+        actorType: 'public_share',
+        actorRole: 'public_share',
+        resourceType: 'share_token',
+        resourceId,
+        registrationId: shareTokenData.registration_id,
+        eventId: shareTokenData.event_id,
+        result: 'failed',
+        reason: 'share_window_closed',
+      })
+      return jsonNoStore(
+        { error: '报名已截止，不可查看分享信息', success: false },
+        { status: 403 },
+        rateLimit,
+      )
+    }
+
+    if (!canMutateSharedRegistration(registrationData.status)) {
+      await writeSecurityAuditLog({
+        request,
+        action: 'view_public_share',
+        actorType: 'public_share',
+        actorRole: 'public_share',
+        resourceType: 'share_token',
+        resourceId,
+        registrationId: shareTokenData.registration_id,
+        eventId: shareTokenData.event_id,
+        result: 'failed',
+        reason: 'registration_not_mutable',
+      })
+      return jsonNoStore(
+        { error: '当前报名状态不允许继续查看分享信息', success: false },
+        { status: 403 },
+        rateLimit,
+      )
+    }
+
     const sharedPlayerData = resolveSharedPlayerData(registrationData?.players_data, shareTokenData)
 
     if (!sharedPlayerData) {

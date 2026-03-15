@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
@@ -31,7 +30,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Plus, Edit, Trash2, Loader2 } from 'lucide-react'
+import { Plus, Loader2 } from 'lucide-react'
+import EntityCardActions from '@/components/project-management/entity-card-actions'
 
 interface ProjectType {
   id: string
@@ -334,7 +334,7 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:space-x-4">
           <p className="text-sm text-muted-foreground">共 {filteredDivisions.length} 个组别</p>
           <Select value={filterTypeId} onValueChange={setFilterTypeId}>
-            <SelectTrigger className="w-full lg:w-[180px]">
+            <SelectTrigger className="h-10 w-full lg:w-[180px]">
               <SelectValue placeholder="筛选类型" />
             </SelectTrigger>
             <SelectContent>
@@ -347,7 +347,7 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
             </SelectContent>
           </Select>
           <Select value={filterProjectId} onValueChange={setFilterProjectId}>
-            <SelectTrigger className="w-full lg:w-[180px]">
+            <SelectTrigger className="h-10 w-full lg:w-[180px]">
               <SelectValue placeholder="筛选项目" />
             </SelectTrigger>
             <SelectContent>
@@ -360,7 +360,7 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={handleAdd} className="w-full lg:w-auto">
+        <Button onClick={handleAdd} className="h-10 w-full lg:w-auto">
           <Plus className="mr-2 h-4 w-4" />
           添加组别
         </Button>
@@ -370,15 +370,16 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
         {filteredDivisions.map((division) => (
           <div
             key={division.id}
-            className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 transition-shadow hover:shadow-sm sm:flex-row sm:items-center sm:justify-between"
+            className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4 transition-shadow hover:shadow-sm sm:flex-row sm:items-start sm:justify-between"
           >
-            <div className="flex items-center space-x-4 flex-1">
-              <div className="flex-1">
+            <div className="flex flex-1 items-start space-x-4">
+              <div className="min-w-0 flex-1">
                 <h3 className="font-medium">{division.name}</h3>
-                <p className="text-sm text-muted-foreground">
-                  类型: {division.project?.project_type?.name} | 项目: {division.project?.name} |
-                  排序: {division.display_order}
-                </p>
+                <div className="mt-1 flex flex-col gap-1 text-sm text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-1">
+                  <span>类型: {division.project?.project_type?.name}</span>
+                  <span>项目: {division.project?.name}</span>
+                  <span>排序: {division.display_order}</span>
+                </div>
                 {division.description && (
                   <p className="mt-1 text-sm text-muted-foreground">{division.description}</p>
                 )}
@@ -412,41 +413,24 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:space-x-4">
-              <div className="flex items-center justify-between sm:justify-start sm:space-x-2">
-                <Label htmlFor={`enabled-${division.id}`} className="text-sm">
-                  {division.is_enabled ? '已启用' : '已禁用'}
-                </Label>
-                <Switch
-                  id={`enabled-${division.id}`}
-                  checked={division.is_enabled}
-                  onCheckedChange={() => handleToggleEnabled(division)}
-                />
-              </div>
-
-              <Button variant="ghost" size="sm" onClick={() => handleEdit(division)} className="justify-start sm:justify-center">
-                <Edit className="h-4 w-4" />
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                className="justify-start sm:justify-center"
-                onClick={() => {
-                  setDeletingDivision(division)
-                  setShowDeleteDialog(true)
-                }}
-              >
-                <Trash2 className="h-4 w-4 text-red-600" />
-              </Button>
-            </div>
+            <EntityCardActions
+              enabled={division.is_enabled}
+              itemName={division.name}
+              switchId={`enabled-${division.id}`}
+              onToggle={() => handleToggleEnabled(division)}
+              onEdit={() => handleEdit(division)}
+              onDelete={() => {
+                setDeletingDivision(division)
+                setShowDeleteDialog(true)
+              }}
+            />
           </div>
         ))}
       </div>
 
       {/* Add/Edit Dialog */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[640px]">
+        <DialogContent className="sm:max-w-[640px]">
           <DialogHeader>
             <DialogTitle>{editingDivision ? '编辑组别' : '添加组别'}</DialogTitle>
             <DialogDescription>
@@ -546,7 +530,7 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
                   </Select>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <Label htmlFor="minBirthDate">最早出生日期（含）</Label>
                     <Input
@@ -583,7 +567,7 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <Label htmlFor="minPlayers">最少队员人数</Label>
                     <Input
@@ -641,15 +625,16 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
                 onChange={(e) =>
                   setFormData({ ...formData, display_order: parseInt(e.target.value) || 0 })
                 }
+                className="h-11"
               />
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDialog(false)}>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowDialog(false)} className="h-10">
               取消
             </Button>
-            <Button onClick={handleSubmit} disabled={submitting}>
+            <Button onClick={handleSubmit} disabled={submitting} className="h-10">
               {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               {editingDivision ? '保存' : '创建'}
             </Button>
@@ -673,12 +658,12 @@ export default function DivisionsTab({ refreshKey }: DivisionsTabProps) {
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel className="h-10">取消</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={submitting || (deletingDivision?.event_divisions?.[0]?.count || 0) > 0}
-              className="bg-red-600 hover:bg-red-700"
+              className="h-10 bg-red-600 hover:bg-red-700"
             >
               {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               确认删除

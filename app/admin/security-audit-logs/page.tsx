@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation'
-import AdminShell from '@/components/admin/admin-shell'
 import { Card, CardContent } from '@/components/ui/card'
 import SecurityAuditLogsViewer from '@/components/security/security-audit-logs-viewer'
 import { getCurrentAdminSession } from '@/lib/auth'
@@ -19,14 +18,12 @@ export default async function SecurityAuditLogsPage() {
   }
 
   return (
-    <AdminShell title="日志查询" forceSuperNavigation>
-      <div className="mx-auto max-w-7xl">
-        <Card>
-          <CardContent>
-            <SecurityAuditLogsViewer />
-          </CardContent>
-        </Card>
-      </div>
-    </AdminShell>
+    <div className="mx-auto max-w-7xl">
+      <Card>
+        <CardContent className="p-4 sm:p-6">
+          <SecurityAuditLogsViewer />
+        </CardContent>
+      </Card>
+    </div>
   )
 }

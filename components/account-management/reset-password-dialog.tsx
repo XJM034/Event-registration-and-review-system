@@ -105,6 +105,7 @@ export default function ResetPasswordDialog({
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 minLength={PASSWORD_POLICY_MIN_LENGTH}
+                className="h-11"
               />
               <p className="text-xs text-muted-foreground">{PASSWORD_POLICY_HINT}</p>
             </div>
@@ -121,6 +122,7 @@ export default function ResetPasswordDialog({
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
                 minLength={PASSWORD_POLICY_MIN_LENGTH}
+                className="h-11"
               />
             </div>
 

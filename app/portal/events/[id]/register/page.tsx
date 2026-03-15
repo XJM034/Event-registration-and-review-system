@@ -435,6 +435,22 @@ function getFieldDisplayLabel(field: FieldConfig): string {
   return field.label || field.id
 }
 
+function hasConfiguredFieldValue(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0
+  if (value === null || value === undefined) return false
+
+  if (typeof value === 'object') {
+    const attachmentValue = value as { url?: unknown }
+    if ('url' in attachmentValue) {
+      return typeof attachmentValue.url === 'string' && attachmentValue.url.trim().length > 0
+    }
+
+    return Object.keys(value as Record<string, unknown>).length > 0
+  }
+
+  return String(value).trim().length > 0
+}
+
 const VALIDATION_INPUT_ERROR_CLASS = 'border-destructive/40 bg-destructive/10 text-foreground dark:border-destructive/50 dark:bg-destructive/15'
 const VALIDATION_INPUT_SUCCESS_CLASS = 'border-emerald-500/40 bg-emerald-500/10 text-foreground dark:border-emerald-400/40 dark:bg-emerald-500/15'
 const VALIDATION_MESSAGE_ERROR_CLASS = 'rounded border border-destructive/20 bg-destructive/10 p-2 text-destructive'
@@ -443,6 +459,10 @@ const MUTED_BADGE_CLASS = 'rounded bg-muted px-2 py-1 text-xs text-muted-foregro
 const INFO_BADGE_CLASS = 'rounded bg-sky-500/10 px-2 py-1 text-xs text-sky-700 dark:text-sky-300'
 const PLAYER_FIELD_WRAPPER_CLASS = 'space-y-2'
 const PLAYER_FIELD_LABEL_CLASS = 'flex min-h-6 flex-wrap items-center gap-2 text-sm font-medium leading-none'
+const MOBILE_ACTION_BUTTON_CLASS = 'h-10 w-full justify-center sm:w-auto'
+const MOBILE_INLINE_ACTIONS_CLASS = 'grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap'
+const MOBILE_FILE_ROW_CLASS = 'flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between'
+const MOBILE_FILE_ACTIONS_CLASS = 'grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto'
 
 // 动态生成表单 schema
 const createTeamSchema = (fields: any[]) => {
@@ -1585,7 +1605,7 @@ export default function RegisterPage() {
         // 检查所有必填字段
         for (const field of roleFields) {
           const fieldLabel = getFieldDisplayLabel(field)
-          if (isFieldRequiredForValues(field, player) && !player[field.id]) {
+          if (isFieldRequiredForValues(field, player) && !hasConfiguredFieldValue(player[field.id])) {
             alert(`队员 ${i + 1} 的 ${fieldLabel} 为必填项`)
             return false
           }
@@ -2114,11 +2134,11 @@ export default function RegisterPage() {
       
       {/* 头部 */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-4">
           <Button
             variant="ghost"
             onClick={() => router.push(`/portal/events/${eventId}`)}
-            className="gap-2"
+            className="h-10 w-full justify-center gap-2 sm:w-auto sm:justify-start"
           >
             <ArrowLeft className="h-4 w-4" />
             返回
@@ -2133,7 +2153,7 @@ export default function RegisterPage() {
               variant="outline"
               onClick={handleSubmit(handleSaveDraft, handleInvalidTeamForm)}
               disabled={isSaving}
-              className="w-full sm:w-auto"
+              className="h-10 w-full sm:w-auto"
             >
               {isSaving ? (
                 <>
@@ -2150,7 +2170,7 @@ export default function RegisterPage() {
             <Button
               onClick={handleSubmit(handleSubmitRegistration, handleInvalidTeamForm)}
               disabled={isSubmitting}
-              className="w-full sm:w-auto"
+              className="h-10 w-full sm:w-auto"
             >
               {isSubmitting ? (
                 <>
@@ -2246,12 +2266,12 @@ export default function RegisterPage() {
       <Card>
         <CardContent className="p-4 sm:p-6">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="team">
+            <TabsList className="grid w-full grid-cols-2 gap-2">
+              <TabsTrigger value="team" className="min-h-11 gap-2 px-3 py-2 text-sm">
                 <FileText className="h-4 w-4 mr-2" />
                 团队信息
               </TabsTrigger>
-              <TabsTrigger value="players">
+              <TabsTrigger value="players" className="min-h-11 gap-2 px-3 py-2 text-sm">
                 <Users className="h-4 w-4 mr-2" />
                 人员信息
                 {players.length > 0 && (
@@ -2515,19 +2535,20 @@ export default function RegisterPage() {
                         </Label>
                         <div className="mt-2 space-y-2">
                           {attachmentValue?.url ? (
-                            <div className="border rounded-lg p-3 flex items-center justify-between">
+                            <div className={MOBILE_FILE_ROW_CLASS}>
                               <div className="text-sm">
                                 <p className="font-medium">{attachmentValue.name}</p>
                                 <p className="text-gray-500">{formatFileSize(attachmentValue.size)}</p>
                               </div>
-                              <div className="flex gap-2">
-                                <Button type="button" size="sm" variant="outline" asChild>
+                              <div className={MOBILE_FILE_ACTIONS_CLASS}>
+                                <Button type="button" size="sm" variant="outline" className={MOBILE_ACTION_BUTTON_CLASS} asChild>
                                   <a href={getPreviewUrl(attachmentValue.url, attachmentValue.name)} target="_blank" rel="noopener noreferrer">预览</a>
                                 </Button>
                                 <Button
                                   type="button"
                                   size="sm"
                                   variant="destructive"
+                                  className={MOBILE_ACTION_BUTTON_CLASS}
                                   onClick={() => setValue(field.id, null)}
                                   disabled={isEventEndedView}
                                 >
@@ -2582,19 +2603,20 @@ export default function RegisterPage() {
                         </Label>
                         <div className="mt-2 space-y-2">
                           {attachmentValues.map((item, fileIndex) => (
-                            <div key={`${item.path}-${fileIndex}`} className="border rounded-lg p-3 flex items-center justify-between">
+                            <div key={`${item.path}-${fileIndex}`} className={MOBILE_FILE_ROW_CLASS}>
                               <div className="text-sm">
                                 <p className="font-medium">{item.name}</p>
                                 <p className="text-gray-500">{formatFileSize(item.size)}</p>
                               </div>
-                              <div className="flex gap-2">
-                                <Button type="button" size="sm" variant="outline" asChild>
+                              <div className={MOBILE_FILE_ACTIONS_CLASS}>
+                                <Button type="button" size="sm" variant="outline" className={MOBILE_ACTION_BUTTON_CLASS} asChild>
                                   <a href={getPreviewUrl(item.url, item.name)} target="_blank" rel="noopener noreferrer">预览</a>
                                 </Button>
                                 <Button
                                   type="button"
                                   size="sm"
                                   variant="destructive"
+                                  className={MOBILE_ACTION_BUTTON_CLASS}
                                   onClick={() => setValue(field.id, attachmentValues.filter((_, i) => i !== fileIndex))}
                                   disabled={isEventEndedView}
                                 >
@@ -2762,7 +2784,7 @@ export default function RegisterPage() {
                           size="sm"
                           disabled={isEventEndedView}
                           variant="default"
-                          className="relative w-full justify-center sm:w-auto"
+                          className="relative h-10 w-full justify-center sm:w-auto"
                         >
                           <Plus className="h-4 w-4 mr-1" />
                           <span>添加{role.name}</span>
@@ -2810,16 +2832,16 @@ export default function RegisterPage() {
                             return (
                               <Card key={player.id}>
                                 <CardContent className="p-4">
-                                  <div className="flex items-start justify-between mb-4">
+                                  <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                     <h5 className="font-medium">{role.name} {index + 1}</h5>
-                                    <div className="flex gap-2">
+                                    <div className={MOBILE_INLINE_ACTIONS_CLASS}>
                                       <Button
                                         type="button"
                                         variant={copiedPlayerId === player.id ? "default" : "outline"}
                                         size="sm"
                                         onClick={() => openShareLinkDialog(player, globalIndex + 1, role.name)}
                                         disabled={isEventEndedView}
-                                        className={`text-xs px-2 py-1 ${
+                                        className={`h-10 w-full justify-center text-xs sm:w-auto ${
                                           copiedPlayerId === player.id
                                             ? "bg-green-600 hover:bg-green-700 text-white"
                                             : "text-blue-600 hover:text-blue-700"
@@ -2839,12 +2861,14 @@ export default function RegisterPage() {
                                       </Button>
                                       <Button
                                         type="button"
-                                        variant="ghost"
+                                        variant="outline"
                                         size="sm"
                                         onClick={() => removePlayer(player.id)}
                                         disabled={isEventEndedView}
+                                        className="h-10 w-full justify-center border-destructive/20 text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto"
                                       >
-                                        <Trash2 className="h-4 w-4 text-red-500" />
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        删除
                                       </Button>
                                     </div>
                                   </div>
@@ -3183,8 +3207,45 @@ export default function RegisterPage() {
                                       </div>
                                     )
                                   case 'multiselect':
-                                    // TODO: 实现多选逻辑
-                                    return null
+                                    return (
+                                      <div key={`${field.id}-${index}`} className={PLAYER_FIELD_WRAPPER_CLASS}>
+                                        <Label className={PLAYER_FIELD_LABEL_CLASS}>
+                                          {fieldLabel}
+                                          <span className="text-xs font-normal text-gray-500">(可多选)</span>
+                                          {isFieldRequired && ' *'}
+                                        </Label>
+                                        <div className="space-y-2">
+                                          {field.options?.map((option, optionIndex) => {
+                                            const optionValue = typeof option === 'string' ? option : option?.value || option?.text || option?.name || option?.label
+                                            const optionLabel = typeof option === 'string' ? option : option?.label || option?.text || option?.name || option?.value
+                                            if (!optionValue || !optionLabel) return null
+
+                                            const inputId = `${field.id}-${player.id}-${optionValue}-${optionIndex}`
+                                            const currentValues = Array.isArray(player[field.id]) ? player[field.id] as string[] : []
+
+                                            return (
+                                              <label key={inputId} htmlFor={inputId} className="flex items-center space-x-2 rounded-md border border-border/60 px-3 py-2">
+                                                <input
+                                                  id={inputId}
+                                                  type="checkbox"
+                                                  checked={currentValues.includes(optionValue)}
+                                                  onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                      updatePlayer(player.id, field.id, [...currentValues, optionValue])
+                                                    } else {
+                                                      updatePlayer(player.id, field.id, currentValues.filter((value) => value !== optionValue))
+                                                    }
+                                                  }}
+                                                  className="rounded border-gray-300"
+                                                  disabled={isEventEndedView}
+                                                />
+                                                <span className="text-sm">{optionLabel}</span>
+                                              </label>
+                                            )
+                                          })}
+                                        </div>
+                                      </div>
+                                    )
                                   case 'image':
                                     const playerImagePreviewUrl = resolvePreviewImageUrl(player[field.id], 'player-photos')
                                     return (
@@ -3271,19 +3332,20 @@ export default function RegisterPage() {
                                         <Label className={PLAYER_FIELD_LABEL_CLASS}>{fieldLabel}{isFieldRequired && ' *'}</Label>
                                         <div className="space-y-2">
                                           {playerAttachment?.url ? (
-                                            <div className="border rounded-lg p-3 flex items-center justify-between">
+                                            <div className={MOBILE_FILE_ROW_CLASS}>
                                               <div className="text-sm">
                                                 <p className="font-medium">{playerAttachment.name}</p>
                                                 <p className="text-gray-500">{formatFileSize(playerAttachment.size)}</p>
                                               </div>
-                                              <div className="flex gap-2">
-                                                <Button type="button" size="sm" variant="outline" asChild>
+                                              <div className={MOBILE_FILE_ACTIONS_CLASS}>
+                                                <Button type="button" size="sm" variant="outline" className={MOBILE_ACTION_BUTTON_CLASS} asChild>
                                                   <a href={getPreviewUrl(playerAttachment.url, playerAttachment.name)} target="_blank" rel="noopener noreferrer">预览</a>
                                                 </Button>
                                                 <Button
                                                   type="button"
                                                   size="sm"
                                                   variant="destructive"
+                                                  className={MOBILE_ACTION_BUTTON_CLASS}
                                                   onClick={() => updatePlayer(player.id, field.id, null)}
                                                   disabled={isEventEndedView}
                                                 >
@@ -3334,19 +3396,20 @@ export default function RegisterPage() {
                                         <Label className={PLAYER_FIELD_LABEL_CLASS}>{fieldLabel}{isFieldRequired && ' *'}</Label>
                                         <div className="space-y-2">
                                           {playerAttachments.map((item, itemIndex) => (
-                                            <div key={`${item.path}-${itemIndex}`} className="border rounded-lg p-3 flex items-center justify-between">
+                                            <div key={`${item.path}-${itemIndex}`} className={MOBILE_FILE_ROW_CLASS}>
                                               <div className="text-sm">
                                                 <p className="font-medium">{item.name}</p>
                                                 <p className="text-gray-500">{formatFileSize(item.size)}</p>
                                               </div>
-                                              <div className="flex gap-2">
-                                                <Button type="button" size="sm" variant="outline" asChild>
+                                              <div className={MOBILE_FILE_ACTIONS_CLASS}>
+                                                <Button type="button" size="sm" variant="outline" className={MOBILE_ACTION_BUTTON_CLASS} asChild>
                                                   <a href={getPreviewUrl(item.url, item.name)} target="_blank" rel="noopener noreferrer">预览</a>
                                                 </Button>
                                                 <Button
                                                   type="button"
                                                   size="sm"
                                                   variant="destructive"
+                                                  className={MOBILE_ACTION_BUTTON_CLASS}
                                                   onClick={() => updatePlayer(player.id, field.id, playerAttachments.filter((_, i) => i !== itemIndex))}
                                                   disabled={isEventEndedView}
                                                 >

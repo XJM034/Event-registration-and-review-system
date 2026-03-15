@@ -557,9 +557,9 @@ function MyRegistrationsContent() {
         <CardContent className="p-4">
           <div className="space-y-4">
             <Tabs value={activeTab} onValueChange={handleTabChange}>
-              <TabsList className="grid h-auto w-full grid-cols-2 md:w-[420px] md:grid-cols-4">
+              <TabsList className="grid h-auto w-full grid-cols-2 gap-2 md:w-[420px] md:grid-cols-4">
                 {REGISTRATION_TABS.map((tab) => (
-                  <TabsTrigger key={tab.value} value={tab.value}>
+                  <TabsTrigger key={tab.value} value={tab.value} className="min-h-11 flex-wrap gap-1 px-3 py-2 text-sm">
                     {tab.label}
                     <Badge variant="secondary" className="ml-1.5">
                       {tabCounts[tab.value]}
@@ -575,7 +575,7 @@ function MyRegistrationsContent() {
                 placeholder="搜索赛事名称或队伍名称..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
+                className="h-11 pl-10"
               />
             </div>
           </div>
@@ -636,7 +636,7 @@ function MyRegistrationsContent() {
                   </div>
 
                   {/* 操作按钮 */}
-                  <div className="flex w-full flex-wrap gap-2 lg:ml-4 lg:w-auto lg:justify-end">
+                  <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:flex-wrap lg:ml-4 lg:w-auto lg:justify-end">
                     {/* 赛事已结束时的操作逻辑 */}
                     {reg.events && isEventEnded(reg.events) ? (
                       <>
@@ -644,6 +644,7 @@ function MyRegistrationsContent() {
                         <Button
                           size="sm"
                           variant="outline"
+                          className="h-10 w-full sm:w-auto"
                           onClick={(e) => handleEditRegistration(reg.event_id, reg.id, reg.events, e)}
                         >
                           查看报名
@@ -652,6 +653,7 @@ function MyRegistrationsContent() {
                           <Button
                             size="sm"
                             variant="destructive"
+                            className="h-10 w-full sm:w-auto"
                             onClick={(e) => handleDeleteRegistration(reg.id, e)}
                           >
                             删除报名
@@ -668,6 +670,7 @@ function MyRegistrationsContent() {
                             <Button
                               size="sm"
                               variant="outline"
+                              className="h-10 w-full sm:w-auto"
                               onClick={(e) => handleEditRegistration(reg.event_id, reg.id, reg.events, e)}
                             >
                               继续编辑
@@ -675,6 +678,7 @@ function MyRegistrationsContent() {
                             <Button
                               size="sm"
                               variant="destructive"
+                              className="h-10 w-full sm:w-auto"
                               onClick={(e) => handleDeleteRegistration(reg.id, e)}
                             >
                               删除报名
@@ -688,6 +692,7 @@ function MyRegistrationsContent() {
                             <Button
                               size="sm"
                               variant="outline"
+                              className="h-10 w-full sm:w-auto"
                               onClick={(e) => handleEditRegistration(reg.event_id, reg.id, reg.events, e)}
                             >
                               重新报名
@@ -695,6 +700,7 @@ function MyRegistrationsContent() {
                             <Button
                               size="sm"
                               variant="destructive"
+                              className="h-10 w-full sm:w-auto"
                               onClick={(e) => handleDeleteRegistration(reg.id, e)}
                             >
                               删除报名
@@ -708,6 +714,7 @@ function MyRegistrationsContent() {
                             <Button
                               size="sm"
                               variant="outline"
+                              className="h-10 w-full sm:w-auto"
                               onClick={(e) => handleEditRegistration(reg.event_id, reg.id, reg.events, e)}
                             >
                               查看报名
@@ -715,6 +722,7 @@ function MyRegistrationsContent() {
                             <Button
                               size="sm"
                               variant="destructive"
+                              className="h-10 w-full sm:w-auto"
                               onClick={(e) => handleCancelRegistration(reg.id, reg.status, reg.events, e)}
                             >
                               取消报名
@@ -728,6 +736,7 @@ function MyRegistrationsContent() {
                             <Button
                               size="sm"
                               variant="outline"
+                              className="h-10 w-full sm:w-auto"
                               onClick={(e) => handleEditRegistration(reg.event_id, reg.id, reg.events, e)}
                             >
                               重新报名
@@ -735,6 +744,7 @@ function MyRegistrationsContent() {
                             <Button
                               size="sm"
                               variant="destructive"
+                              className="h-10 w-full sm:w-auto"
                               onClick={(e) => handleDeleteRegistration(reg.id, e)}
                             >
                               删除报名
@@ -748,6 +758,7 @@ function MyRegistrationsContent() {
                             <Button
                               size="sm"
                               variant="outline"
+                              className="h-10 w-full sm:w-auto"
                               onClick={(e) => handleEditRegistration(reg.event_id, reg.id, reg.events, e)}
                             >
                               查看报名
@@ -755,6 +766,7 @@ function MyRegistrationsContent() {
                             <Button
                               size="sm"
                               variant="destructive"
+                              className="h-10 w-full sm:w-auto"
                               onClick={(e) => handleCancelRegistration(reg.id, reg.status, reg.events, e)}
                             >
                               取消报名

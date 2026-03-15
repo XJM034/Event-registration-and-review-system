@@ -111,6 +111,7 @@ export default function CreateCoachDialog({
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                 required
                 maxLength={11}
+                className="h-11"
               />
             </div>
 
@@ -126,6 +127,7 @@ export default function CreateCoachDialog({
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 required
                 minLength={PASSWORD_POLICY_MIN_LENGTH}
+                className="h-11"
               />
               <p className="text-xs text-gray-500">
                 {PASSWORD_POLICY_HINT}
@@ -139,6 +141,7 @@ export default function CreateCoachDialog({
                 placeholder="教练姓名"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="h-11"
               />
             </div>
 
@@ -149,6 +152,7 @@ export default function CreateCoachDialog({
                 placeholder="参赛单位"
                 value={formData.school}
                 onChange={(e) => setFormData({ ...formData, school: e.target.value })}
+                className="h-11"
               />
             </div>
 
@@ -160,6 +164,7 @@ export default function CreateCoachDialog({
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                 rows={3}
+                className="min-h-24"
               />
             </div>
           </div>

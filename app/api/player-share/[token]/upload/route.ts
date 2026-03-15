@@ -20,8 +20,9 @@ import {
   buildStorageObjectUrl,
 } from '@/lib/storage-object'
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024
-const BUCKET = 'player-photos'
+const MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024
+const MAX_DOCUMENT_FILE_SIZE = 20 * 1024 * 1024
+const DEFAULT_BUCKET = 'player-photos'
 
 interface RouteParams {
   params: Promise<{ token: string }>
@@ -178,6 +179,11 @@ export async function POST(request: NextRequest, context: RouteParams) {
 
     const formData = await request.formData()
     const file = formData.get('file') as File | null
+    const bucketValue = formData.get('bucket')
+    const bucketRaw =
+      typeof bucketValue === 'string' && bucketValue.trim()
+        ? bucketValue.trim()
+        : DEFAULT_BUCKET
     if (!file) {
       return createPublicShareResponse(
         { error: '请选择文件', success: false },
@@ -186,21 +192,23 @@ export async function POST(request: NextRequest, context: RouteParams) {
       )
     }
 
-    if (!PUBLIC_SHARE_ALLOWED_UPLOAD_BUCKETS.has(BUCKET)) {
+    if (!PUBLIC_SHARE_ALLOWED_UPLOAD_BUCKETS.has(bucketRaw as typeof DEFAULT_BUCKET | 'team-documents')) {
       return createPublicShareResponse(
         { error: '不支持的上传目录', success: false },
         rateLimit,
         { status: 400 }
       )
     }
+    const bucket = bucketRaw as 'player-photos' | 'team-documents'
 
     const mimeType = (file.type || '').toLowerCase()
     const precheck = validateUploadFile({
       fileName: file.name,
       mimeType,
-      bucket: BUCKET,
+      bucket,
     })
 
+    const maxFileSize = bucket === 'team-documents' ? MAX_DOCUMENT_FILE_SIZE : MAX_IMAGE_FILE_SIZE
     if (!precheck.valid) {
       return createPublicShareResponse(
         { error: precheck.error || '文件格式不支持', success: false },
@@ -209,9 +217,9 @@ export async function POST(request: NextRequest, context: RouteParams) {
       )
     }
 
-    if (file.size > MAX_FILE_SIZE) {
+    if (file.size > maxFileSize) {
       return createPublicShareResponse(
-        { error: '文件大小不能超过 5MB', success: false },
+        { error: `文件大小不能超过 ${bucket === 'team-documents' ? '20MB' : '5MB'}`, success: false },
         rateLimit,
         { status: 400 }
       )
@@ -222,7 +230,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
     const signatureCheck = validateUploadFile({
       fileName: file.name,
       mimeType,
-      bucket: BUCKET,
+      bucket,
       fileBytes: uint8Array,
     })
 
@@ -244,7 +252,7 @@ export async function POST(request: NextRequest, context: RouteParams) {
     )
     const contentType = mimeType || 'application/octet-stream'
     const { data: uploadData, error: uploadError } = await supabase.storage
-      .from(BUCKET)
+      .from(bucket)
       .upload(fileName, uint8Array, {
         contentType,
         upsert: false,
@@ -265,12 +273,12 @@ export async function POST(request: NextRequest, context: RouteParams) {
       actorType: 'public_share',
       actorRole: 'public_share',
       resourceType: 'share_token',
-      resourceId,
-      registrationId: shareTokenData.registration_id,
-      eventId: shareTokenData.event_id,
-      result: 'success',
-      metadata: {
-        bucket: BUCKET,
+        resourceId,
+        registrationId: shareTokenData.registration_id,
+        eventId: shareTokenData.event_id,
+        result: 'success',
+        metadata: {
+        bucket,
         file_extension: signatureCheck.extension,
         file_size: file.size,
       },
@@ -280,9 +288,9 @@ export async function POST(request: NextRequest, context: RouteParams) {
       {
         success: true,
         data: {
-          bucket: BUCKET,
+          bucket,
           path: uploadData.path,
-          url: buildStorageObjectUrl(BUCKET, uploadData.path, {
+          url: buildStorageObjectUrl(bucket, uploadData.path, {
             shareToken: token,
           }),
           fileName,

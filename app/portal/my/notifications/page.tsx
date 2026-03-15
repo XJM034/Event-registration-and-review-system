@@ -455,13 +455,13 @@ export default function MyNotificationsPage() {
               refreshUnreadCount()
             }}
             disabled={isLoading}
-            className="w-full sm:w-auto"
+            className="h-10 w-full sm:w-auto"
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             刷新
           </Button>
           {unreadCount > 0 && (
-            <Button variant="outline" onClick={markAllAsRead} className="w-full sm:w-auto">
+            <Button variant="outline" onClick={markAllAsRead} className="h-10 w-full sm:w-auto">
               <CheckCheck className="h-4 w-4 mr-2" />
               全部标记已读
             </Button>
@@ -470,8 +470,8 @@ export default function MyNotificationsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="mb-2 grid h-auto w-full grid-cols-3 sm:inline-flex sm:w-auto">
-          <TabsTrigger value="all">
+        <TabsList className="mb-2 grid h-auto w-full grid-cols-3 gap-2 sm:inline-grid sm:w-auto sm:grid-cols-3">
+          <TabsTrigger value="all" className="min-h-11 flex-wrap gap-1 px-3 py-2 text-sm">
             全部
             {notifications.length > 0 && (
               <Badge variant="secondary" className="ml-2">
@@ -479,13 +479,13 @@ export default function MyNotificationsPage() {
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="unread">
+          <TabsTrigger value="unread" className="min-h-11 flex-wrap gap-1 px-3 py-2 text-sm">
             未读
             <Badge variant={unreadCount > 0 ? "destructive" : "secondary"} className="ml-2">
               {unreadCount}
             </Badge>
           </TabsTrigger>
-          <TabsTrigger value="read">
+          <TabsTrigger value="read" className="min-h-11 flex-wrap gap-1 px-3 py-2 text-sm">
             已读
             <Badge variant="secondary" className="ml-2">
               {notifications.length - unreadCount}
@@ -545,11 +545,12 @@ export default function MyNotificationsPage() {
                               ))}
                           </div>
                         )}
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="grid grid-cols-1 gap-2 pt-1 sm:flex sm:flex-wrap sm:items-center">
                           {!notification.is_read && (
                             <Button
                               size="sm"
                               variant="ghost"
+                              className="h-10 w-full justify-start sm:h-9 sm:w-auto sm:justify-center"
                               onClick={() => markAsRead(notification.id)}
                             >
                               <Eye className="h-3 w-3 mr-1" />
@@ -560,6 +561,7 @@ export default function MyNotificationsPage() {
                             <Button
                               size="sm"
                               variant="ghost"
+                              className="h-10 w-full justify-start sm:h-9 sm:w-auto sm:justify-center"
                               onClick={(e) => {
                                 e.preventDefault()
                                 // 在新标签页打开，避免当前页面状态丢失
@@ -573,6 +575,7 @@ export default function MyNotificationsPage() {
                             <Button
                               size="sm"
                               variant="ghost"
+                              className="h-10 w-full justify-start sm:h-9 sm:w-auto sm:justify-center"
                               onClick={(e) => {
                                 e.preventDefault()
                                 // 跳转到我的报名页面并传递要高亮的报名ID
@@ -585,10 +588,11 @@ export default function MyNotificationsPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="text-destructive hover:text-destructive"
+                            className="h-10 w-full justify-start text-destructive hover:text-destructive sm:h-9 sm:w-auto sm:justify-center"
                             onClick={() => deleteNotification(notification.id)}
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="h-3 w-3 mr-2" />
+                            删除
                           </Button>
                         </div>
                       </div>
