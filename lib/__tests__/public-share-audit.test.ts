@@ -85,6 +85,204 @@ describe('public share audit routes', () => {
     )
   })
 
+  it('closes GET access when the registration is no longer editable', async () => {
+    serviceRoleClientMock.from.mockImplementation((table: string) => {
+      if (table === 'player_share_tokens') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              maybeSingle: vi.fn(async () => ({
+                data: {
+                  registration_id: 'reg-1',
+                  event_id: 'event-1',
+                  player_index: 0,
+                  player_id: 'player-1',
+                  is_active: true,
+                  expires_at: '2099-01-01T00:00:00.000Z',
+                  used_at: null,
+                },
+                error: null,
+              })),
+            })),
+          })),
+        }
+      }
+
+      if (table === 'registrations') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              single: vi.fn(async () => ({
+                data: {
+                  id: 'reg-1',
+                  status: 'pending',
+                  team_data: {},
+                  players_data: [{ id: 'player-1', role: 'player', name: '旧名字' }],
+                },
+                error: null,
+              })),
+            })),
+          })),
+        }
+      }
+
+      if (table === 'events') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              single: vi.fn(async () => ({
+                data: {
+                  id: 'event-1',
+                  name: '测试赛事',
+                  short_name: '测试',
+                },
+                error: null,
+              })),
+            })),
+          })),
+        }
+      }
+
+      if (table === 'registration_settings') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              order: vi.fn(async () => ({
+                data: [],
+                error: null,
+              })),
+            })),
+          })),
+        }
+      }
+
+      throw new Error(`Unexpected table ${table}`)
+    })
+
+    const response = await GET(
+      new Request('http://localhost/api/player-share/share-token-123', {
+        method: 'GET',
+      }) as unknown as NextRequest,
+      { params: Promise.resolve({ token: 'share-token-123' }) },
+    )
+    const payload = await response.json()
+
+    expect(response.status).toBe(403)
+    expect(payload.success).toBe(false)
+    expect(payload.error).toBe('当前报名状态不允许继续查看分享信息')
+    expect(mockedWriteSecurityAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'view_public_share',
+        resourceId: 'share:share-to',
+        result: 'failed',
+        reason: 'registration_not_mutable',
+      }),
+    )
+  })
+
+  it('closes GET access when the share write window has ended', async () => {
+    serviceRoleClientMock.from.mockImplementation((table: string) => {
+      if (table === 'player_share_tokens') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              maybeSingle: vi.fn(async () => ({
+                data: {
+                  registration_id: 'reg-1',
+                  event_id: 'event-1',
+                  player_index: 0,
+                  player_id: 'player-1',
+                  is_active: true,
+                  expires_at: '2099-01-01T00:00:00.000Z',
+                  used_at: null,
+                },
+                error: null,
+              })),
+            })),
+          })),
+        }
+      }
+
+      if (table === 'registrations') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              single: vi.fn(async () => ({
+                data: {
+                  id: 'reg-1',
+                  status: 'draft',
+                  team_data: {},
+                  players_data: [{ id: 'player-1', role: 'player', name: '旧名字' }],
+                },
+                error: null,
+              })),
+            })),
+          })),
+        }
+      }
+
+      if (table === 'events') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              single: vi.fn(async () => ({
+                data: {
+                  id: 'event-1',
+                  name: '测试赛事',
+                  short_name: '测试',
+                },
+                error: null,
+              })),
+            })),
+          })),
+        }
+      }
+
+      if (table === 'registration_settings') {
+        return {
+          select: vi.fn(() => ({
+            eq: vi.fn(() => ({
+              order: vi.fn(async () => ({
+                data: [
+                  {
+                    division_id: null,
+                    team_requirements: {
+                      reviewEndDate: '2024-01-01T00:00:00.000Z',
+                    },
+                    player_requirements: {},
+                  },
+                ],
+                error: null,
+              })),
+            })),
+          })),
+        }
+      }
+
+      throw new Error(`Unexpected table ${table}`)
+    })
+
+    const response = await GET(
+      new Request('http://localhost/api/player-share/share-token-123', {
+        method: 'GET',
+      }) as unknown as NextRequest,
+      { params: Promise.resolve({ token: 'share-token-123' }) },
+    )
+    const payload = await response.json()
+
+    expect(response.status).toBe(403)
+    expect(payload.success).toBe(false)
+    expect(payload.error).toBe('报名已截止，不可查看分享信息')
+    expect(mockedWriteSecurityAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'view_public_share',
+        resourceId: 'share:share-to',
+        result: 'failed',
+        reason: 'share_window_closed',
+      }),
+    )
+  })
+
   it('records a success audit log when a shared player submission succeeds', async () => {
     serviceRoleClientMock.from.mockImplementation((table: string) => {
       if (table === 'player_share_tokens') {

@@ -136,9 +136,9 @@ export default function ImportCoachesDialog({
             {IMPORTED_COACH_PASSWORD_RULE}，教练可登录后在“账号设置”中修改密码。
           </div>
 
-          <div className="flex items-center justify-between rounded-md border p-3">
+          <div className="flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm text-gray-600">建议先下载模板填写，再上传导入</div>
-            <Button type="button" variant="outline" onClick={handleDownloadTemplate}>
+            <Button type="button" variant="outline" onClick={handleDownloadTemplate} className="h-10 w-full sm:w-auto">
               <Download className="h-4 w-4 mr-2" />
               下载模板
             </Button>
@@ -151,6 +151,7 @@ export default function ImportCoachesDialog({
               type="file"
               accept=".xlsx"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
+              className="h-11"
             />
             {fileName ? (
               <p className="text-xs text-gray-500">已选择: {fileName}</p>

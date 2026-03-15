@@ -132,11 +132,12 @@ export default function EditAdminDialog({
                 placeholder="管理员姓名"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="h-11"
               />
             </div>
 
             <div className="space-y-2">
-              <div className="flex items-center space-x-2">
+              <div className="flex items-start space-x-2">
                 <Checkbox
                   id="edit-is-super"
                   checked={formData.is_super}
@@ -147,7 +148,7 @@ export default function EditAdminDialog({
                 />
                 <Label
                   htmlFor="edit-is-super"
-                  className={isCurrentAdmin ? 'text-gray-400 cursor-not-allowed' : 'cursor-pointer'}
+                  className={isCurrentAdmin ? 'cursor-not-allowed leading-5 text-gray-400' : 'cursor-pointer leading-5'}
                 >
                   超级管理员
                 </Label>

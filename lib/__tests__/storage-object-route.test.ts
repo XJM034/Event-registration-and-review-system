@@ -200,4 +200,55 @@ describe('GET /api/storage/object', () => {
       'public-share/reg-1/player-player-1/photo.png',
     )
   })
+
+  it('allows a public share token to preview its own pending attachment upload before submit', async () => {
+    serviceRoleClientMock.from.mockImplementation((table: string) => {
+      if (table === 'player_share_tokens') {
+        return buildSingleRowQuery({
+          registration_id: 'reg-1',
+          event_id: 'event-1',
+          player_id: 'player-1',
+          player_index: 0,
+          is_active: true,
+          expires_at: '2099-01-01T00:00:00.000Z',
+          used_at: null,
+        })
+      }
+
+      if (table === 'registrations') {
+        return buildSingleRowQuery({
+          id: 'reg-1',
+          event_id: 'event-1',
+          status: 'draft',
+          team_data: {},
+          players_data: [{ id: 'player-1' }],
+        })
+      }
+
+      if (table === 'registration_settings') {
+        return buildListQuery([])
+      }
+
+      throw new Error(`Unexpected table ${table}`)
+    })
+
+    const downloadMock = vi.fn(async () => ({
+      data: new Blob(['share attachment preview'], { type: 'application/pdf' }),
+      error: null,
+    }))
+    serviceRoleClientMock.storage.from.mockReturnValue({
+      download: downloadMock,
+    })
+
+    const response = await GET(
+      createStorageRequest(
+        'http://localhost/api/storage/object?bucket=team-documents&path=public-share%2Freg-1%2Fplayer-player-1%2Ffile.pdf&share_token=share-token-1',
+      ),
+    )
+
+    expect(response.status).toBe(200)
+    expect(downloadMock).toHaveBeenCalledWith(
+      'public-share/reg-1/player-player-1/file.pdf',
+    )
+  })
 })

@@ -8,6 +8,8 @@ const CONTENT_SECURITY_POLICY = [
 ].join('; ')
 
 const nextConfig: NextConfig = {
+  // Separate Turbopack dev artifacts from production build output.
+  distDir: process.env.NODE_ENV === 'development' ? '.next-dev' : '.next',
   images: {
     remotePatterns: [
       {

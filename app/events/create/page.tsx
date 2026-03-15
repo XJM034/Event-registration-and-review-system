@@ -86,6 +86,9 @@ const DESKTOP_TEMPLATE_ACCEPT = [
   '.webp',
 ].join(',')
 
+const MOBILE_ACTION_BUTTON_CLASS = 'h-10 w-full sm:w-auto'
+const MOBILE_INLINE_ACTION_BUTTON_CLASS = 'h-10 w-full justify-center sm:h-9 sm:w-auto'
+
 // 表单验证 schema
 const createEventSchema = z.object({
   name: z.string().min(1, '赛事名称不能为空').max(100, '赛事名称不能超过100个字符'),
@@ -461,14 +464,16 @@ export default function CreateEventPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background py-6">
-      <div className="max-w-4xl mx-auto px-6">
+    <div className="min-h-screen bg-background py-4 sm:py-6">
+      <div className="mx-auto max-w-4xl px-4 sm:px-6">
         {/* 头部导航 */}
-        <div className="mb-6">
-          <Link href="/events" className="inline-flex items-center text-primary transition-colors hover:text-primary/80">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            返回赛事列表
-          </Link>
+        <div className="mb-4 sm:mb-6">
+          <Button variant="ghost" asChild className="h-10 w-full justify-start px-3 sm:w-auto">
+            <Link href="/events">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              返回赛事列表
+            </Link>
+          </Button>
         </div>
 
         <Card>
@@ -508,7 +513,7 @@ export default function CreateEventPage() {
                 <Label>赛事海报</Label>
                 <div>
                   {posterPreview ? (
-                    <div className="relative w-40 h-40 border rounded-lg overflow-hidden">
+                    <div className="relative h-40 w-full max-w-[220px] overflow-hidden rounded-lg border">
                       <Image
                         src={posterPreview}
                         alt="海报预览"
@@ -519,7 +524,7 @@ export default function CreateEventPage() {
                         type="button"
                         size="sm"
                         variant="destructive"
-                        className="absolute top-2 right-2"
+                        className="absolute right-2 top-2 h-9 px-3"
                         onClick={() => {
                           setPosterFile(null)
                           setPosterPreview(null)
@@ -529,7 +534,7 @@ export default function CreateEventPage() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="relative rounded-lg border-2 border-dashed border-border/60 p-8 text-center transition-colors hover:border-border">
+                    <div className="relative rounded-lg border-2 border-dashed border-border/60 p-6 text-center transition-colors hover:border-border sm:p-8">
                       <Upload className="mx-auto mb-2 h-8 w-8 text-muted-foreground/70" />
                       <p className="mb-2 text-sm text-foreground">点击或拖拽上传海报图片</p>
                       <p className="text-xs text-muted-foreground">支持 JPG、PNG 格式，文件大小不超过 5MB</p>
@@ -577,6 +582,9 @@ export default function CreateEventPage() {
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium truncate">{item.file.name}</p>
                           <p className="text-xs text-muted-foreground">{formatFileSize(item.file.size)}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            当前用途：{getReferenceTemplateTypeLabel(item.templateType)}
+                          </p>
                         </div>
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                           <div className="min-w-[170px]">
@@ -584,7 +592,7 @@ export default function CreateEventPage() {
                               value={item.templateType}
                               onValueChange={(value: ReferenceTemplateType) => updateReferenceTemplateType(index, value)}
                             >
-                              <SelectTrigger className="h-9 w-full">
+                              <SelectTrigger className="h-10 w-full">
                                 <SelectValue placeholder="选择模板用途" />
                               </SelectTrigger>
                               <SelectContent>
@@ -596,26 +604,26 @@ export default function CreateEventPage() {
                               </SelectContent>
                             </Select>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                             <Button
                               type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="text-primary hover:text-primary/80"
+                              variant="outline"
+                              className={MOBILE_INLINE_ACTION_BUTTON_CLASS}
                               onClick={() => previewReferenceTemplate(item.file)}
                               disabled={isSubmitting}
                             >
-                              <Download className="h-3 w-3 mr-1" />
+                              <Download className="mr-2 h-4 w-4" />
                               预览
                             </Button>
                             <Button
                               type="button"
-                              variant="ghost"
-                              size="sm"
+                              variant="outline"
+                              className={`${MOBILE_INLINE_ACTION_BUTTON_CLASS} text-destructive hover:text-destructive`}
                               onClick={() => removeReferenceTemplate(index)}
                               disabled={isSubmitting}
                             >
-                              <X className="h-4 w-4" />
+                              <X className="mr-2 h-4 w-4" />
+                              移除
                             </Button>
                           </div>
                         </div>
@@ -687,9 +695,9 @@ export default function CreateEventPage() {
                 <div className="space-y-2">
                   <Label>组别选择 *</Label>
                   <p className="text-sm text-muted-foreground">选择该赛事包含的组别，每个组别可独立配置报名设置</p>
-                  <div className="border rounded-md p-4 space-y-2 max-h-60 overflow-y-auto">
+                  <div className="max-h-60 space-y-2 overflow-y-auto rounded-md border p-3 sm:p-4">
                       {filteredDivisions.map((division) => (
-                        <div key={division.id} className="flex items-center space-x-2">
+                        <div key={division.id} className="flex items-start gap-3 rounded-md border border-border/50 px-3 py-3 sm:items-center">
                           <Checkbox
                             id={`division-${division.id}`}
                             checked={selectedDivisionIds.includes(division.id)}
@@ -701,10 +709,10 @@ export default function CreateEventPage() {
                               }
                             }}
                           />
-                          <label htmlFor={`division-${division.id}`} className="text-sm cursor-pointer">
-                            {division.name}
+                          <label htmlFor={`division-${division.id}`} className="cursor-pointer text-sm leading-5">
+                            <span className="font-medium text-foreground">{division.name}</span>
                             {division.description && (
-                              <span className="ml-2 text-muted-foreground">({division.description})</span>
+                              <span className="mt-1 block text-muted-foreground">{division.description}</span>
                             )}
                           </label>
                         </div>
@@ -820,19 +828,20 @@ export default function CreateEventPage() {
               </div>
 
               {/* 提交按钮 */}
-              <div className="flex justify-end space-x-4">
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => router.back()}
                   disabled={isSubmitting}
+                  className={MOBILE_ACTION_BUTTON_CLASS}
                 >
                   取消
                 </Button>
                 <Button
                   type="submit"
                   disabled={isSubmitting}
-                  className="bg-primary text-primary-foreground hover:bg-primary/90"
+                  className={`${MOBILE_ACTION_BUTTON_CLASS} bg-primary text-primary-foreground hover:bg-primary/90`}
                 >
                   {isSubmitting ? (
                     <>

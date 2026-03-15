@@ -346,7 +346,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                       href={item.href}
                       onClick={() => setMobileMenuOpen(false)}
                       className={cn(
-                        'relative flex items-center justify-center rounded-lg px-3 py-2 transition-colors hover:bg-muted',
+                        'relative flex min-h-10 items-center justify-center rounded-lg px-3 py-2 transition-colors hover:bg-muted',
                         item.active && 'bg-primary/10 text-primary'
                       )}
                     >
@@ -367,7 +367,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                   href={item.href}
                   onClick={() => setMobileMenuOpen(false)}
                   className={cn(
-                    'flex items-center justify-between gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-muted',
+                    'flex min-h-10 items-center justify-between gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-muted',
                     item.active && 'bg-primary/10 text-primary'
                   )}
                 >
@@ -403,7 +403,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
           'flex shrink-0 flex-col border-r border-border bg-card shadow-sm transition-[width,transform] duration-300 ease-in-out',
           isMobile
             ? cn(
-                'fixed inset-y-0 left-0 z-50 w-[240px] transform',
+                'fixed inset-y-0 left-0 z-50 w-[min(18rem,calc(100vw-1.5rem))] transform',
                 mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
               )
             : cn('relative', sidebarWidthClass)
@@ -414,13 +414,13 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
 
       <main className="min-w-0 flex-1 flex flex-col">
         <header className="bg-background/95 backdrop-blur">
-          <div className="flex min-h-[67px] items-center justify-between gap-3 border-b border-border px-4 sm:px-6">
+          <div className="flex min-h-[67px] items-center justify-between gap-2 border-b border-border px-3 sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
               {isMobile ? (
                 <button
                   aria-label="打开侧边栏"
                   onClick={() => setMobileMenuOpen(true)}
-                  className="rounded-md p-2 transition-colors hover:bg-muted"
+                  className="flex h-10 w-10 items-center justify-center rounded-md transition-colors hover:bg-muted"
                 >
                   <Menu className="h-5 w-5" />
                 </button>
@@ -433,7 +433,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
 
             <div className="flex shrink-0 items-center gap-1 sm:gap-2 md:gap-3">
               <ThemeSwitcher />
-              <Button variant="ghost" size="icon" asChild className="relative">
+              <Button variant="ghost" size="icon" asChild className="relative h-10 w-10">
                 <Link href="/portal/my/notifications" aria-label="通知">
                   <Bell className="h-5 w-5" />
                   {unreadCount > 0 ? (
@@ -448,7 +448,7 @@ function PortalLayoutContent({ children }: PortalLayoutProps) {
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    className="flex items-center gap-2 rounded-full p-1 transition-colors hover:bg-muted"
+                    className="flex h-10 items-center gap-2 rounded-full p-1 transition-colors hover:bg-muted"
                   >
                     <Avatar className="h-8 w-8">
                       <AvatarFallback className="bg-primary/10 text-xs text-primary">

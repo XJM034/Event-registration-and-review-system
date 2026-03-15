@@ -94,7 +94,11 @@ export default function MyAccountTab() {
   }
 
   if (loading) {
-    return <div className="text-gray-500">加载中...</div>
+    return (
+      <div className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+        加载中...
+      </div>
+    )
   }
 
   return (
@@ -107,11 +111,11 @@ export default function MyAccountTab() {
         <CardContent className="space-y-4">
           <div className="grid gap-2">
             <Label>手机号</Label>
-            <Input value={admin?.phone || ''} readOnly />
+            <Input value={admin?.phone || ''} readOnly className="h-11" />
           </div>
           <div className="grid gap-2">
             <Label>姓名</Label>
-            <Input value={admin?.name || ''} readOnly />
+            <Input value={admin?.name || ''} readOnly className="h-11" />
           </div>
           <div className="grid gap-2">
             <Label>权限</Label>
@@ -149,6 +153,7 @@ export default function MyAccountTab() {
                 placeholder={PASSWORD_POLICY_PLACEHOLDER}
                 minLength={PASSWORD_POLICY_MIN_LENGTH}
                 required
+                className="h-11"
               />
             </div>
             <div className="grid gap-2">
@@ -161,10 +166,11 @@ export default function MyAccountTab() {
                 placeholder="请再次输入新密码"
                 minLength={PASSWORD_POLICY_MIN_LENGTH}
                 required
+                className="h-11"
               />
             </div>
             <div className="flex justify-end">
-              <Button type="submit" disabled={submitting}>
+              <Button type="submit" disabled={submitting} className="h-10 w-full sm:w-auto">
                 {submitting ? '提交中...' : '确认修改'}
               </Button>
             </div>

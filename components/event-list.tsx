@@ -208,22 +208,19 @@ export default function EventList({
       <div className="overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
         {/* Tab Navigation */}
         <div className="border-b border-border px-4 pt-4 sm:px-6">
-          <div className="flex gap-5 overflow-x-auto pb-1">
+          <div className="flex gap-2 overflow-x-auto pb-3 sm:gap-3">
             {tabs.map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={cn(
-                  'pb-3 text-sm transition-colors relative',
+                  'inline-flex min-h-10 shrink-0 items-center rounded-full px-3 py-2 text-sm transition-colors',
                   activeTab === tab
-                    ? 'font-semibold text-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
+                    ? 'bg-primary/10 font-semibold text-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
                 )}
               >
                 {tab}
-                {activeTab === tab && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-primary" />
-                )}
               </button>
             ))}
           </div>
@@ -237,7 +234,7 @@ export default function EventList({
               placeholder="搜索赛事名称"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-9 w-full pl-10 text-sm"
+              className="h-10 w-full pl-10 text-sm"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -247,7 +244,7 @@ export default function EventList({
                 key={s}
                 onClick={() => setStatusFilter(s)}
                 className={cn(
-                  'px-3 py-1 text-xs rounded-full transition-colors',
+                  'min-h-10 rounded-full px-3 py-2 text-sm transition-colors sm:text-xs',
                   statusFilter === s
                     ? 'bg-primary/10 font-medium text-primary'
                     : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
@@ -259,7 +256,7 @@ export default function EventList({
           </div>
         </div>
 
-        <div className="grid gap-3 p-4 md:hidden">
+        <div className="grid gap-3 p-4 lg:hidden">
           {paginatedEvents.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-10 text-center text-sm text-muted-foreground">
               没有符合条件的赛事
@@ -310,12 +307,12 @@ export default function EventList({
                     </div>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <Button variant="outline" onClick={() => onManageEvent(event.id)}>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <Button variant="outline" className="h-10" onClick={() => onManageEvent(event.id)}>
                       <Settings className="mr-2 h-4 w-4" />
                       管理
                     </Button>
-                    <Button variant="destructive" onClick={() => handleDelete(event.id)}>
+                    <Button variant="destructive" className="h-10" onClick={() => handleDelete(event.id)}>
                       <Trash2 className="mr-2 h-4 w-4" />
                       删除
                     </Button>
@@ -326,7 +323,7 @@ export default function EventList({
           )}
         </div>
 
-        <div className="hidden md:block">
+        <div className="hidden lg:block">
           <Table>
             <TableHeader>
               <TableRow className="border-b border-border bg-muted/40 hover:bg-muted/40">
@@ -418,11 +415,11 @@ export default function EventList({
         </div>
 
         {/* Pagination */}
-        <div className="flex flex-col gap-3 border-t border-border px-4 py-4 text-sm text-muted-foreground sm:px-6 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3 border-t border-border px-4 py-4 text-sm text-muted-foreground sm:px-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-2">
             <span>每页行数:</span>
             <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); setCurrentPage(1) }}>
-              <SelectTrigger className="w-16 h-7 text-xs">
+              <SelectTrigger className="h-10 w-20 text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -432,18 +429,18 @@ export default function EventList({
               </SelectContent>
             </Select>
           </div>
-          <span>第 {totalItems === 0 ? 0 : startIdx + 1}-{endIdx} 条，共 {totalItems} 条</span>
-          <div className="flex items-center justify-end space-x-1">
-            <Button size="icon" variant="ghost" className="h-7 w-7" disabled={safePage <= 1} onClick={() => setCurrentPage(1)}>
+          <span className="text-sm">第 {totalItems === 0 ? 0 : startIdx + 1}-{endIdx} 条，共 {totalItems} 条</span>
+          <div className="flex items-center justify-between gap-1 sm:justify-end">
+            <Button size="icon" variant="ghost" className="h-10 w-10" disabled={safePage <= 1} onClick={() => setCurrentPage(1)}>
               <ChevronsLeft className="h-4 w-4" />
             </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7" disabled={safePage <= 1} onClick={() => setCurrentPage(p => p - 1)}>
+            <Button size="icon" variant="ghost" className="h-10 w-10" disabled={safePage <= 1} onClick={() => setCurrentPage(p => p - 1)}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7" disabled={safePage >= totalPages} onClick={() => setCurrentPage(p => p + 1)}>
+            <Button size="icon" variant="ghost" className="h-10 w-10" disabled={safePage >= totalPages} onClick={() => setCurrentPage(p => p + 1)}>
               <ChevronRight className="h-4 w-4" />
             </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7" disabled={safePage >= totalPages} onClick={() => setCurrentPage(totalPages)}>
+            <Button size="icon" variant="ghost" className="h-10 w-10" disabled={safePage >= totalPages} onClick={() => setCurrentPage(totalPages)}>
               <ChevronsRight className="h-4 w-4" />
             </Button>
           </div>

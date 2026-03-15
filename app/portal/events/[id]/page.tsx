@@ -760,7 +760,7 @@ export default function EventDetailPage() {
         <Button
           variant="ghost"
           onClick={() => router.push('/portal')}
-          className="gap-2"
+          className="h-10 w-full justify-center gap-2 sm:w-auto sm:justify-start"
         >
           <ArrowLeft className="h-4 w-4" />
           返回赛事列表
@@ -773,7 +773,7 @@ export default function EventDetailPage() {
           <div className="flex flex-col gap-6 lg:flex-row">
             {/* 海报 */}
             {event.poster_url && (
-              <div className="flex-shrink-0">
+              <div className="mx-auto flex-shrink-0 lg:mx-0">
                 <Image
                   src={event.poster_url}
                   alt={event.name}
@@ -791,7 +791,7 @@ export default function EventDetailPage() {
                   <h1 className="text-2xl font-bold">{event.name}</h1>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {eventStatus && (
                     <Badge variant={eventStatus.variant}>{eventStatus.text}</Badge>
                   )}
@@ -909,7 +909,10 @@ export default function EventDetailPage() {
                   </h3>
                   <div className="space-y-2">
                     {referenceTemplates.map((file, index) => (
-                      <div key={`${file.path || file.url || 'file'}-${index}`} className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
+                      <div
+                        key={`${file.path || file.url || 'file'}-${index}`}
+                        className="flex flex-col gap-3 rounded-md border border-border/60 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
                         <div className="min-w-0">
                           <p className="text-sm font-medium truncate">{file.name || `模板${index + 1}`}</p>
                         </div>
@@ -918,7 +921,7 @@ export default function EventDetailPage() {
                           download={file.name || `模板${index + 1}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center text-sm text-primary hover:text-primary/80"
+                          className="inline-flex h-10 w-full items-center justify-center text-sm text-primary hover:text-primary/80 sm:w-auto"
                         >
                           <Download className="h-4 w-4 mr-1" />
                           下载
@@ -943,12 +946,13 @@ export default function EventDetailPage() {
             </div>
             {/* 根据赛事是否结束显示不同的按钮 */}
             {!isEventEnded() && newRegStatus && (
-              <div className="flex flex-wrap gap-2 sm:pr-4">
+              <div className="w-full sm:w-auto sm:pr-4">
                 <Button
                   variant={newRegStatus.canRegister ? 'default' : 'outline'}
                   onClick={handleRegister}
                   disabled={!newRegStatus.canRegister}
                   size="sm"
+                  className="h-10 w-full sm:w-auto"
                 >
                   {newRegStatus.text}
                 </Button>
@@ -1020,7 +1024,7 @@ export default function EventDetailPage() {
                           </Badge>
                         </div>
 
-                        <div className="flex flex-wrap gap-2">
+                        <div className="grid w-full grid-cols-1 gap-2 sm:flex sm:flex-wrap">
                           {/* 赛事已结束时，所有状态都只能查看，不能编辑或操作 */}
                           {isEventEnded() ? (
                             <>
@@ -1028,6 +1032,7 @@ export default function EventDetailPage() {
                               <Button
                                 size="sm"
                                 variant="outline"
+                                className="h-10 w-full sm:w-auto"
                                 onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}&ended=true`)}
                               >
                                 查看报名
@@ -1036,6 +1041,7 @@ export default function EventDetailPage() {
                                 <Button
                                   size="sm"
                                   variant="destructive"
+                                  className="h-10 w-full sm:w-auto"
                                   onClick={() => handleDeleteRegistration(reg.id)}
                                 >
                                   删除报名
@@ -1055,6 +1061,7 @@ export default function EventDetailPage() {
                                       <Button
                                         size="sm"
                                         variant="outline"
+                                        className="h-10 w-full sm:w-auto"
                                         onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}&ended=true`)}
                                       >
                                         查看报名
@@ -1062,6 +1069,7 @@ export default function EventDetailPage() {
                                       <Button
                                         size="sm"
                                         variant="destructive"
+                                        className="h-10 w-full sm:w-auto"
                                         onClick={() => handleDeleteRegistration(reg.id)}
                                       >
                                         删除报名
@@ -1073,6 +1081,7 @@ export default function EventDetailPage() {
                                       <Button
                                         size="sm"
                                         variant="outline"
+                                        className="h-10 w-full sm:w-auto"
                                         onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
                                       >
                                         继续编辑
@@ -1080,6 +1089,7 @@ export default function EventDetailPage() {
                                       <Button
                                         size="sm"
                                         variant="destructive"
+                                        className="h-10 w-full sm:w-auto"
                                         onClick={() => handleDeleteRegistration(reg.id)}
                                       >
                                         删除报名
@@ -1095,6 +1105,7 @@ export default function EventDetailPage() {
                                   <Button
                                     size="sm"
                                     variant="outline"
+                                    className="h-10 w-full sm:w-auto"
                                     onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
                                   >
                                     重新报名
@@ -1102,6 +1113,7 @@ export default function EventDetailPage() {
                                   <Button
                                     size="sm"
                                     variant="destructive"
+                                    className="h-10 w-full sm:w-auto"
                                     onClick={() => handleDeleteRegistration(reg.id)}
                                   >
                                     删除报名
@@ -1115,6 +1127,7 @@ export default function EventDetailPage() {
                                   <Button
                                     size="sm"
                                     variant="outline"
+                                    className="h-10 w-full sm:w-auto"
                                     onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
                                   >
                                     查看报名
@@ -1122,6 +1135,7 @@ export default function EventDetailPage() {
                                   <Button
                                     size="sm"
                                     variant="destructive"
+                                    className="h-10 w-full sm:w-auto"
                                     onClick={() => handleCancelRegistration(reg.id, reg.status)}
                                   >
                                     取消报名
@@ -1138,6 +1152,7 @@ export default function EventDetailPage() {
                                       <Button
                                         size="sm"
                                         variant="outline"
+                                        className="h-10 w-full sm:w-auto"
                                         onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}&ended=true`)}
                                       >
                                         查看报名
@@ -1145,6 +1160,7 @@ export default function EventDetailPage() {
                                       <Button
                                         size="sm"
                                         variant="destructive"
+                                        className="h-10 w-full sm:w-auto"
                                         onClick={() => handleDeleteRegistration(reg.id)}
                                       >
                                         删除报名
@@ -1156,6 +1172,7 @@ export default function EventDetailPage() {
                                       <Button
                                         size="sm"
                                         variant="outline"
+                                        className="h-10 w-full sm:w-auto"
                                         onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
                                       >
                                         重新报名
@@ -1163,6 +1180,7 @@ export default function EventDetailPage() {
                                       <Button
                                         size="sm"
                                         variant="destructive"
+                                        className="h-10 w-full sm:w-auto"
                                         onClick={() => handleDeleteRegistration(reg.id)}
                                       >
                                         删除报名
@@ -1178,6 +1196,7 @@ export default function EventDetailPage() {
                                   <Button
                                     size="sm"
                                     variant="outline"
+                                    className="h-10 w-full sm:w-auto"
                                     onClick={() => router.push(`/portal/events/${eventId}/register?edit=${reg.id}`)}
                                   >
                                     查看报名
@@ -1185,6 +1204,7 @@ export default function EventDetailPage() {
                                   <Button
                                     size="sm"
                                     variant="destructive"
+                                    className="h-10 w-full sm:w-auto"
                                     onClick={() => handleCancelRegistration(reg.id, reg.status)}
                                   >
                                     取消报名

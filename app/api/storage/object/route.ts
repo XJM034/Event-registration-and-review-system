@@ -171,12 +171,11 @@ async function getShareTokenAccessContext(
 
   const matchesPersistedPlayerFile = storedValueIncludesStorageRef(sharedPlayer, ref, ref.bucket)
   const matchesPendingSharedUpload =
-    ref.bucket === 'player-photos'
-      && isPublicShareOwnedStoragePath(ref.path, {
-        registrationId: shareTokenData.registration_id,
-        playerId: shareTokenData.player_id,
-        playerIndex: shareTokenData.player_index,
-      })
+    isPublicShareOwnedStoragePath(ref.path, {
+      registrationId: shareTokenData.registration_id,
+      playerId: shareTokenData.player_id,
+      playerIndex: shareTokenData.player_index,
+    })
 
   if (!matchesPersistedPlayerFile && !matchesPendingSharedUpload) {
     return null

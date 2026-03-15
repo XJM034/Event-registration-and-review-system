@@ -81,7 +81,7 @@ export default function HomePage() {
       <AdminShell
         title="赛事管理"
         actions={(
-          <Button onClick={handleCreateEvent} className="shrink-0">
+          <Button onClick={handleCreateEvent} className="h-10 w-full shrink-0 sm:w-auto">
             创建赛事
           </Button>
         )}
@@ -97,7 +97,7 @@ export default function HomePage() {
     <AdminShell
       title="赛事管理"
       actions={(
-        <Button onClick={handleCreateEvent} className="shrink-0">
+        <Button onClick={handleCreateEvent} className="h-10 w-full shrink-0 sm:w-auto">
           创建赛事
         </Button>
       )}

@@ -100,6 +100,7 @@ export default function EditCoachDialog({
                 placeholder="教练姓名"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="h-11"
               />
             </div>
 
@@ -110,6 +111,7 @@ export default function EditCoachDialog({
                 placeholder="参赛单位"
                 value={formData.school}
                 onChange={(e) => setFormData({ ...formData, school: e.target.value })}
+                className="h-11"
               />
             </div>
 
@@ -121,6 +123,7 @@ export default function EditCoachDialog({
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                 rows={3}
+                className="min-h-24"
               />
             </div>
           </div>
