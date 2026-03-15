@@ -233,12 +233,6 @@ export default function AccountSettingsPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl">
-      {/* 页面标题 */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">账号设置</h1>
-        <p className="text-muted-foreground">管理您的账号信息和偏好设置</p>
-      </div>
-
       {/* 个人信息 */}
       <Card className="mb-6">
         <CardHeader>

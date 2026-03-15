@@ -122,11 +122,10 @@ export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
   }
 
   return (
-    <header className="border-b border-border bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-6">
+    <header className="border-b border-border bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <h1 className="truncate text-lg font-semibold text-foreground sm:text-xl">赛事活动管理</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{adminDisplayName}，您好</p>
+          <p className="text-sm text-muted-foreground">{adminDisplayName}，您好</p>
         </div>
 
         <div className="flex items-center justify-end gap-2 sm:gap-3">

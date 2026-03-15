@@ -440,58 +440,52 @@ export default function MyNotificationsPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">我的通知</h1>
-          <p className="text-muted-foreground">
-            查看系统通知和消息 {unreadCount > 0 && `(${unreadCount}条未读)`}
-          </p>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Button
-            variant="outline"
-            onClick={() => {
-              loadNotifications(true)  // 改为 true，显示加载状态
-              refreshUnreadCount()
-            }}
-            disabled={isLoading}
-            className="h-10 w-full sm:w-auto"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-            刷新
-          </Button>
-          {unreadCount > 0 && (
-            <Button variant="outline" onClick={markAllAsRead} className="h-10 w-full sm:w-auto">
-              <CheckCheck className="h-4 w-4 mr-2" />
-              全部标记已读
-            </Button>
-          )}
-        </div>
-      </div>
-
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="mb-2 grid h-auto w-full grid-cols-3 gap-2 sm:inline-grid sm:w-auto sm:grid-cols-3">
-          <TabsTrigger value="all" className="min-h-11 flex-wrap gap-1 px-3 py-2 text-sm">
-            全部
-            {notifications.length > 0 && (
-              <Badge variant="secondary" className="ml-2">
-                {notifications.length}
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <TabsList className="grid h-auto w-full grid-cols-3 gap-2 sm:inline-grid sm:w-auto sm:grid-cols-3">
+            <TabsTrigger value="all" className="min-h-11 flex-wrap gap-1 px-3 py-2 text-sm">
+              全部
+              {notifications.length > 0 && (
+                <Badge variant="secondary" className="ml-2">
+                  {notifications.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="unread" className="min-h-11 flex-wrap gap-1 px-3 py-2 text-sm">
+              未读
+              <Badge variant={unreadCount > 0 ? "destructive" : "secondary"} className="ml-2">
+                {unreadCount}
               </Badge>
+            </TabsTrigger>
+            <TabsTrigger value="read" className="min-h-11 flex-wrap gap-1 px-3 py-2 text-sm">
+              已读
+              <Badge variant="secondary" className="ml-2">
+                {notifications.length - unreadCount}
+              </Badge>
+            </TabsTrigger>
+          </TabsList>
+
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={() => {
+                loadNotifications(true)  // 改为 true，显示加载状态
+                refreshUnreadCount()
+              }}
+              disabled={isLoading}
+              className="h-10 w-full sm:w-auto"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              刷新
+            </Button>
+            {unreadCount > 0 && (
+              <Button variant="outline" onClick={markAllAsRead} className="h-10 w-full sm:w-auto">
+                <CheckCheck className="h-4 w-4 mr-2" />
+                全部标记已读
+              </Button>
             )}
-          </TabsTrigger>
-          <TabsTrigger value="unread" className="min-h-11 flex-wrap gap-1 px-3 py-2 text-sm">
-            未读
-            <Badge variant={unreadCount > 0 ? "destructive" : "secondary"} className="ml-2">
-              {unreadCount}
-            </Badge>
-          </TabsTrigger>
-          <TabsTrigger value="read" className="min-h-11 flex-wrap gap-1 px-3 py-2 text-sm">
-            已读
-            <Badge variant="secondary" className="ml-2">
-              {notifications.length - unreadCount}
-            </Badge>
-          </TabsTrigger>
-        </TabsList>
+          </div>
+        </div>
 
         <TabsContent value={activeTab} className="animate-in fade-in-0 duration-200">
           {filteredNotifications.length === 0 ? (
@@ -549,7 +543,7 @@ export default function MyNotificationsPage() {
                           {!notification.is_read && (
                             <Button
                               size="sm"
-                              variant="ghost"
+                              variant="outline"
                               className="h-10 w-full justify-start sm:h-9 sm:w-auto sm:justify-center"
                               onClick={() => markAsRead(notification.id)}
                             >
@@ -560,12 +554,12 @@ export default function MyNotificationsPage() {
                           {notification.event_id && (
                             <Button
                               size="sm"
-                              variant="ghost"
+                              variant="outline"
                               className="h-10 w-full justify-start sm:h-9 sm:w-auto sm:justify-center"
                               onClick={(e) => {
                                 e.preventDefault()
-                                // 在新标签页打开，避免当前页面状态丢失
-                                window.open(`/portal/events/${notification.event_id}`, '_blank')
+                                // 站内跳转到赛事详情页
+                                router.push(`/portal/events/${notification.event_id}`)
                               }}
                             >
                               查看赛事
@@ -574,7 +568,7 @@ export default function MyNotificationsPage() {
                           {notification.registration_id && (
                             <Button
                               size="sm"
-                              variant="ghost"
+                              variant="outline"
                               className="h-10 w-full justify-start sm:h-9 sm:w-auto sm:justify-center"
                               onClick={(e) => {
                                 e.preventDefault()

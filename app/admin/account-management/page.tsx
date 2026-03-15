@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 function TabPanelLoading() {
@@ -79,12 +79,6 @@ export default function AccountManagementPage() {
   return (
     <div className="mx-auto max-w-7xl">
       <Card>
-        <CardHeader className="border-b">
-          <CardTitle className="text-xl sm:text-2xl">账号管理</CardTitle>
-          <CardDescription>
-            超级管理员可管理教练和管理员账号；普通管理员可维护自己的账号信息和密码。
-          </CardDescription>
-        </CardHeader>
         <CardContent className="p-4 sm:p-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList

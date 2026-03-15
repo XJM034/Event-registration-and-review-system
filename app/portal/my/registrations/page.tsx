@@ -548,18 +548,13 @@ function MyRegistrationsContent() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold">我的报名</h1>
-        <p className="text-muted-foreground">查看和管理您的所有报名记录</p>
-      </div>
-
       <Card>
         <CardContent className="p-4">
-          <div className="space-y-4">
-            <Tabs value={activeTab} onValueChange={handleTabChange}>
-              <TabsList className="grid h-auto w-full grid-cols-2 gap-2 md:w-[420px] md:grid-cols-4">
+          <Tabs value={activeTab} onValueChange={handleTabChange}>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <TabsList className="grid h-auto w-full grid-cols-2 gap-2 lg:w-auto lg:grid-cols-4">
                 {REGISTRATION_TABS.map((tab) => (
-                  <TabsTrigger key={tab.value} value={tab.value} className="min-h-11 flex-wrap gap-1 px-3 py-2 text-sm">
+                  <TabsTrigger key={tab.value} value={tab.value} className="min-h-11 gap-1 px-3 py-2 text-sm">
                     {tab.label}
                     <Badge variant="secondary" className="ml-1.5">
                       {tabCounts[tab.value]}
@@ -567,18 +562,18 @@ function MyRegistrationsContent() {
                   </TabsTrigger>
                 ))}
               </TabsList>
-            </Tabs>
 
-            <div className="relative w-full md:w-[360px]">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="搜索赛事名称或队伍名称..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="h-11 pl-10"
-              />
+              <div className="relative w-full lg:w-[300px]">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="搜索赛事名称或队伍名称..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="h-11 pl-10"
+                />
+              </div>
             </div>
-          </div>
+          </Tabs>
         </CardContent>
       </Card>
 
