@@ -155,14 +155,12 @@ export default function AdminHeader({ onCreateEvent }: AdminHeaderProps) {
                   日志查询
                 </DropdownMenuItem>
               )}
-              {isSuperAdmin && (
-                <DropdownMenuItem
-                  onClick={() => router.push('/admin/project-management')}
-                >
-                  <Settings2 className="h-4 w-4 mr-2" />
-                  项目管理
-                </DropdownMenuItem>
-              )}
+              <DropdownMenuItem
+                onClick={() => router.push('/admin/project-management')}
+              >
+                <Settings2 className="h-4 w-4 mr-2" />
+                项目管理
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={(e) => { e.preventDefault(); setShowLogoutDialog(true) }}
                 className="text-red-600 focus:bg-red-50 focus:text-red-700 dark:text-red-400 dark:focus:bg-red-500/15 dark:focus:text-red-300"

@@ -57,9 +57,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const session = await getCurrentAdminSession()
-    if (!session || !session.user.is_super) {
+    if (!session) {
       return NextResponse.json(
-        { error: '需要超级管理员权限', success: false },
+        { error: '未授权访问', success: false },
         { status: 403 }
       )
     }

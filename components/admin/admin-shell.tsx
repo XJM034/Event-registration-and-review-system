@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { useTransition } from 'react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -48,7 +49,6 @@ import { cn } from '@/lib/utils'
 interface AdminShellProps {
   children: ReactNode
   actions?: ReactNode
-  forceSuperNavigation?: boolean
 }
 
 type AdminNavItem = {
@@ -68,27 +68,18 @@ const DEFAULT_ADMIN_PROFILE: AdminShellProfile = {
   isSuper: false,
 }
 
-export default function AdminShell({ children, actions, forceSuperNavigation = false }: AdminShellProps) {
+export default function AdminShell({ children, actions }: AdminShellProps) {
   const router = useRouter()
   const pathname = usePathname()
-  const derivedForceSuperNavigation = forceSuperNavigation
-    || pathname.startsWith('/admin/security-audit-logs')
-    || pathname.startsWith('/admin/project-management')
   const [desktopCollapsed, setDesktopCollapsed] = useState(false)
   const [tabletPinnedExpanded, setTabletPinnedExpanded] = useState(false)
   const [viewportWidth, setViewportWidth] = useState(1280)
   const [hydrated, setHydrated] = useState(false)
   const [isSidebarAnimating, setIsSidebarAnimating] = useState(false)
   const [showLogoutDialog, setShowLogoutDialog] = useState(false)
+  const [isNavigating, setIsNavigating] = useState(false)
   const [profile, setProfile] = useState<AdminShellProfile>(() => {
-    const storedProfile = readStoredAdminProfile() || DEFAULT_ADMIN_PROFILE
-    if (derivedForceSuperNavigation && !storedProfile.isSuper) {
-      return {
-        ...storedProfile,
-        isSuper: true,
-      }
-    }
-    return storedProfile
+    return readStoredAdminProfile() || DEFAULT_ADMIN_PROFILE
   })
   const sidebarAnimationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -176,9 +167,48 @@ export default function AdminShell({ children, actions, forceSuperNavigation = f
     }
   }, [router])
 
+  // 使用 ref 保存导航前的侧边栏状态，避免 React 批处理导致的状态不一致
+  const sidebarStateRef = useRef<{
+    desktopCollapsed: boolean
+    tabletPinnedExpanded: boolean
+    isNavigating: boolean
+  }>({
+    desktopCollapsed: false,
+    tabletPinnedExpanded: false,
+    isNavigating: false,
+  })
+
+  // 导航时保存当前侧边栏状态
+  const handleNavigationStart = () => {
+    sidebarStateRef.current = {
+      desktopCollapsed,
+      tabletPinnedExpanded,
+      isNavigating: true,
+    }
+    setIsNavigating(true)
+  }
+
+  // 导航完成后恢复
+  useEffect(() => {
+    if (isNavigating) {
+      const timer = setTimeout(() => {
+        sidebarStateRef.current.isNavigating = false
+        setIsNavigating(false)
+      }, 350)
+      return () => clearTimeout(timer)
+    }
+  }, [isNavigating])
+
   const effectiveViewportWidth = hydrated ? viewportWidth : 1280
-  const effectiveDesktopCollapsed = hydrated ? desktopCollapsed : false
-  const effectiveTabletPinnedExpanded = hydrated ? tabletPinnedExpanded : false
+
+  // 导航期间使用 ref 保存的状态，防止闪烁
+  const effectiveDesktopCollapsed = sidebarStateRef.current.isNavigating
+    ? sidebarStateRef.current.desktopCollapsed
+    : (hydrated ? desktopCollapsed : false)
+
+  const effectiveTabletPinnedExpanded = sidebarStateRef.current.isNavigating
+    ? sidebarStateRef.current.tabletPinnedExpanded
+    : (hydrated ? tabletPinnedExpanded : false)
 
   const isMobile = effectiveViewportWidth < 768
   const isTablet = effectiveViewportWidth >= 768 && effectiveViewportWidth <= 1023
@@ -196,7 +226,7 @@ export default function AdminShell({ children, actions, forceSuperNavigation = f
       },
       {
         id: 'account-management',
-        label: '账号管理',
+        label: '账号设置',
         href: '/admin/account-management',
         icon: Users,
         active: pathname.startsWith('/admin/account-management'),
@@ -204,23 +234,23 @@ export default function AdminShell({ children, actions, forceSuperNavigation = f
     ]
 
     if (profile.isSuper) {
-      items.push(
-        {
-          id: 'logs',
-          label: '日志查询',
-          href: '/admin/security-audit-logs',
-          icon: FileText,
-          active: pathname.startsWith('/admin/security-audit-logs'),
-        },
-        {
-          id: 'project-management',
-          label: '项目管理',
-          href: '/admin/project-management',
-          icon: Settings2,
-          active: pathname.startsWith('/admin/project-management'),
-        },
-      )
+      items.push({
+        id: 'logs',
+        label: '日志查询',
+        href: '/admin/security-audit-logs',
+        icon: FileText,
+        active: pathname.startsWith('/admin/security-audit-logs'),
+      })
     }
+
+    // 项目管理 - 所有管理员可见
+    items.push({
+      id: 'project-management',
+      label: '项目管理',
+      href: '/admin/project-management',
+      icon: Settings2,
+      active: pathname.startsWith('/admin/project-management'),
+    })
 
     return items
   }, [pathname, profile.isSuper])
@@ -322,6 +352,7 @@ export default function AdminShell({ children, actions, forceSuperNavigation = f
                   <TooltipTrigger asChild>
                     <Link
                       href={item.href}
+                      onClick={handleNavigationStart}
                       className={cn(
                         'relative flex min-h-10 items-center justify-center rounded-lg px-3 py-2 transition-colors hover:bg-muted',
                         item.active && 'bg-primary/10 text-primary',
@@ -337,6 +368,7 @@ export default function AdminShell({ children, actions, forceSuperNavigation = f
               ) : (
                 <Link
                   href={item.href}
+                  onClick={handleNavigationStart}
                   className={cn(
                     'flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-muted',
                     item.active && 'bg-primary/10 text-primary',
@@ -357,8 +389,10 @@ export default function AdminShell({ children, actions, forceSuperNavigation = f
     <div className="flex min-h-screen overflow-hidden bg-background">
       {!isMobile ? (
         <aside
+          key="desktop-sidebar"
           className={cn(
-            'flex shrink-0 flex-col border-border bg-card shadow-sm transition-[width] duration-300 ease-in-out',
+            'flex shrink-0 flex-col border-border bg-card shadow-sm',
+            !isNavigating && 'transition-[width] duration-300 ease-in-out',
             'relative',
             sidebarWidthClass,
           )}
@@ -436,6 +470,7 @@ export default function AdminShell({ children, actions, forceSuperNavigation = f
               <Link
                 key={item.id}
                 href={item.href}
+                onClick={handleNavigationStart}
                 className={cn(
                   'flex flex-1 flex-col items-center justify-center gap-1 min-w-0 py-2 px-1 rounded-lg transition-colors touch-manipulation',
                   item.active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'

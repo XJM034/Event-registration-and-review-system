@@ -238,9 +238,12 @@ export async function middleware(request: NextRequest) {
       return withSessionCleanup(NextResponse.redirect(new URL('/auth/login', request.url)))
     }
 
-    // 项目管理路径 - 仅允许超级管理员访问
-    if (pathname.startsWith('/admin/project-management') && !isSuper) {
-      return NextResponse.redirect(new URL('/events', request.url))
+    // 项目管理路径 - 允许所有管理员访问
+    if (pathname.startsWith('/admin/project-management')) {
+      if (!isAdmin) {
+        return withSessionCleanup(NextResponse.redirect(new URL('/auth/login', request.url)))
+      }
+      return response
     }
 
     return response
@@ -259,16 +262,12 @@ export async function middleware(request: NextRequest) {
       return withSessionCleanup(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
     }
 
-    // 项目管理 API：仅允许超级管理员访问
+    // 项目管理 API：允许所有管理员访问
     if (pathname.startsWith('/api/project-management')) {
-      const { isAdmin, isSuper } = await checkAdmin()
+      const { isAdmin } = await checkAdmin()
 
       if (!isAdmin) {
         return withSessionCleanup(NextResponse.json({ error: 'Unauthorized' }, { status: 401 }))
-      }
-
-      if (!isSuper) {
-        return withSessionCleanup(NextResponse.json({ error: 'Forbidden' }, { status: 403 }))
       }
     }
 

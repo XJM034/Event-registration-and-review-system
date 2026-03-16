@@ -11,9 +11,9 @@ export async function PUT(request: NextRequest, context: RouteParams) {
     const { id } = await context.params
     const session = await getCurrentAdminSession()
 
-    if (!session || !session.user.is_super) {
+    if (!session) {
       return NextResponse.json(
-        { error: '需要超级管理员权限', success: false },
+        { error: '未授权访问', success: false },
         { status: 403 }
       )
     }
@@ -69,9 +69,9 @@ export async function DELETE(request: NextRequest, context: RouteParams) {
     const { id } = await context.params
     const session = await getCurrentAdminSession()
 
-    if (!session || !session.user.is_super) {
+    if (!session) {
       return NextResponse.json(
-        { error: '需要超级管理员权限', success: false },
+        { error: '未授权访问', success: false },
         { status: 403 }
       )
     }
@@ -134,9 +134,9 @@ export async function PATCH(request: NextRequest, context: RouteParams) {
     const { id } = await context.params
     const session = await getCurrentAdminSession()
 
-    if (!session || !session.user.is_super) {
+    if (!session) {
       return NextResponse.json(
-        { error: '需要超级管理员权限', success: false },
+        { error: '未授权访问', success: false },
         { status: 403 }
       )
     }
