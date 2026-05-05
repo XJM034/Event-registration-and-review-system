@@ -13,7 +13,7 @@
 - 审核流程：待审核列表、队伍/队员级审核、驳回原因生成
 - 数据导出：管理员导出报名压缩包，教练可导出模板 PDF
 - 账号管理：管理员个人账号维护；超级管理员可管理教练/管理员账号
-- 项目管理：超级管理员维护项目类型、项目、组别三级结构
+- 项目管理：管理员维护项目类型、项目、组别三级结构
 
 ## 技术栈
 
@@ -106,21 +106,13 @@ pnpm dev
 
 ## 测试账号说明
 
-### 当前联调稳定账号
+### 当前联调账号
 
-以下 3 个账号由当前测试环境维护，后续手工联调可优先使用：
-
-- 超级管理员：`18140044662` / `044662Aa1!`
-- 普通管理员：`15196653658` / `653658Aa1!`
-- 教练：`13800000001` / `000001Aa1!`
+当前测试环境可能维护了固定的管理员、普通管理员和教练账号。不要把真实联调口令写入仓库文档；如需手工联调账号，请从受控交接渠道或测试环境负责人处获取。
 
 ### 仓库初始化默认账号
 
-`docs/sql/create-auth-accounts.sql` 初始化出来的默认账号仍然是：
-
-- 超级管理员：`18140044662` / `admin123`
-- 超级管理员：`13164550100` / `admin123`
-- 教练：`13800000001` ~ `13800000005` / `user123`
+`docs/sql/create-auth-accounts.sql` 初始化出来的默认账号仅用于全新本地环境；账号与默认口令以该脚本为准，README 不重复保存口令。
 
 通过 `/admin/account-management` 创建账号、重置密码后，实际测试环境中的账号口令可能与 SQL 默认值不同。
 
@@ -160,13 +152,15 @@ lib/
 
 docs/
 ├── README.md                     # 文档索引
+├── AI_REFERENCE.md               # AI agent 按需读取的详细项目参考
 ├── STORAGE_SETUP.md              # Storage 配置说明
 └── sql/                          # SQL 脚本与 schema 快照
 ```
 
 ## 关键文档
 
-- `CLAUDE.md`：最完整的项目工作说明、API 清单、已知不一致
+- `CLAUDE.md` / `AGENTS.md`：AI agent 的短工作入口，二者应保持镜像
+- `docs/AI_REFERENCE.md`：认证、路由、数据、上传、导出、安全边界和测试地图
 - `docs/README.md`：文档索引
 - `docs/STORAGE_SETUP.md`：Storage bucket 配置说明
 - `SECURITY.md`：安全配置与检查清单
@@ -208,5 +202,5 @@ docs/
 ## 补充说明
 
 - 管理员导出接口当前始终返回 `zip`，不是按是否有附件切换 `xlsx` / `zip`
-- 队员分享页当前前端会尝试复用 `/api/portal/upload`，但该接口受教练登录态保护；这一点已记录在 `CLAUDE.md` 的“已知不一致”中
-- 如需最准确的实现说明，请以 `CLAUDE.md` 和 `docs/sql/actual-supabase-schema.sql` 为准
+- 公开队员分享页上传使用 `/api/player-share/[token]/upload`，不要误写为只能复用 `/api/portal/upload`
+- 如需最准确的实现说明，请以代码、`docs/AI_REFERENCE.md` 和 `docs/sql/actual-supabase-schema.sql` 为准
