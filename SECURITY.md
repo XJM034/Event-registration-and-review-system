@@ -2,7 +2,7 @@
 
 本文档描述的是**当前仓库实际实现**下的安全边界、已落地控制、已知风险和上线前检查项，不是通用模板。
 
-最后更新：2026-03-09
+最后更新：2026-05-05
 
 ## 当前安全模型
 
@@ -25,7 +25,7 @@
 - 公开路径：`/auth/login`、`/auth/forgot-password`、`/api/player-share/*`、`/player-share/*`、`/init`
 - `/portal/*`：要求教练 Supabase Session
 - `/events/*`、`/admin/*`：要求管理员身份
-- `/admin/project-management`、`/api/project-management/*`：要求超级管理员
+- `/admin/project-management`、`/api/project-management/*`：当前允许所有管理员访问
 - `/api/admin/coaches*`、`/api/admin/admins*`：要求超级管理员
 
 注意：
@@ -77,10 +77,15 @@
 - `X-Content-Type-Options: nosniff`
 - `Referrer-Policy: strict-origin-when-cross-origin`
 - `X-XSS-Protection: 1; mode=block`
+- `Strict-Transport-Security`
+- `Permissions-Policy`
+- `Cross-Origin-Opener-Policy`
+- `Cross-Origin-Resource-Policy`
+- `Content-Security-Policy`（当前为基础策略）
 - `productionBrowserSourceMaps: false`
 - `poweredByHeader: false`
 
-当前**未配置 CSP**，这意味着前端一旦出现 XSS，管理端可读令牌会更敏感。
+当前 CSP 还不是完整的脚本级策略。前端一旦出现 XSS，管理端可读令牌仍然敏感。
 
 ### 3. 上传接口保护
 
@@ -109,12 +114,12 @@
 - 当前包含：
   - 扩展名校验
   - MIME 校验
+  - 文件签名校验
   - 20MB 限制
 
 注意：
 
-- 门户上传当前**没有像管理端那样做文件签名校验**
-- 当前上传接口统一返回 `getPublicUrl(...)` 结果
+- 上传接口会根据 bucket 是否私有，返回受控对象 URL 或 public URL
 - `docs/sql/create-buckets-simple.sql` 中的 4 个 bucket 当前都被设置为 `public=true`
 
 ### 4. 账号管理保护
@@ -127,8 +132,14 @@
 ### 5. 调试接口的现状
 
 - `/api/debug/*` 当前有 `NODE_ENV === 'production'` 的 404 保护
-- 但 `/api/test-*` 系列接口当前**没有统一的生产环境禁用保护**
+- `/api/test-*` 系列接口当前也有 `NODE_ENV === 'production'` 的 404 保护
 - `/api/init-admin` 当前不会真的初始化账号，但仍会返回管理员列表和提示信息
+
+### 6. 公开分享上传
+
+- 当前存在 `POST /api/player-share/[token]/upload`
+- 该入口会校验分享 token、报名状态、截止时间、bucket、文件签名、大小限制和 rate limit
+- 后续改动不要回退到匿名页复用 `/api/portal/upload`
 
 ## 当前已知风险与不一致
 
@@ -145,12 +156,11 @@
 2. **管理端存在可读管理员令牌**
    - `admin-session-tab` Cookie 和 `sessionStorage.tab_admin_session_token` 都可被前端脚本读取
    - 风险：一旦发生 XSS，管理端身份更容易被利用
-   - 建议：后续补 CSP，并持续避免内联脚本和不可信 HTML 注入
+   - 建议：继续加强脚本级 CSP，并持续避免内联脚本和不可信 HTML 注入
 
-3. **公开分享页上传能力与鉴权冲突**
-   - `app/player-share/[token]/page.tsx` 会调用 `/api/portal/upload`
-   - 但 `/api/portal/*` 需要教练登录态
-   - 结果：匿名分享页上传当前会失败
+3. **不要在仓库文档中保存真实联调账号口令**
+   - SQL 初始化脚本里的默认账号可用于全新本地环境
+   - 当前测试环境的真实口令应通过受控交接渠道获取，不应写入 `README.md`、`CLAUDE.md` 或 `AGENTS.md`
 
 4. **测试/初始化入口仍留在仓库**
    - `app/test-login/page.tsx` 仍存在，但已被 `middleware.ts` 重定向到 `/auth/login`
@@ -158,24 +168,25 @@
    - 风险：容易误导测试和运维；生产环境应明确清理或限制
 
 5. **登录页底部仍展示旧默认密码提示**
-   - `app/auth/login/page.tsx` 仍提示 `admin123（管理员）/ user123（教练）`
+   - `app/auth/login/page.tsx` 仍提示 SQL 默认口令
    - 但当前管理端已支持新建账号和重置密码，真实测试环境口令可能已变化
 
 ### 中优先级
 
-1. **`/api/test-*` 诊断接口应在生产禁用**
+1. **`/api/test-*` 诊断接口已由 middleware 在生产禁用，仍建议定期复核**
    - 如：
      - `/api/test-connection`
      - `/api/test-env`
      - `/api/test-memfire`
      - `/api/test-optimized-portal`
      - `/api/test-portal-simulation`
+   - 当前 `middleware.ts` 中 `NODE_ENV === 'production'` 时会返回 404
 
-2. **门户上传校验强度弱于管理端上传**
-   - 当前缺少文件签名校验
-   - 风险：仅靠扩展名和 MIME 约束，防护强度不一致
+2. **门户上传与管理端上传都已做文件签名校验，仍需关注 bucket 隐私策略**
+   - `docs/sql/create-buckets-simple.sql` 会创建 public bucket
+   - 如需更严格隐私保护，应改为 private bucket + 受控对象读取
 
-3. **隐私文件当前依赖公开 bucket / 公开 URL**
+3. **隐私文件可能依赖公开 bucket / 公开 URL**
    - `player-photos`、`team-documents`、`registration-files` 当前简单脚本都设为 public
    - 如需更严格隐私保护，应改为 private bucket + 签名 URL
 
@@ -201,10 +212,9 @@
 1. 删除或限制以下入口：
    - `app/test-login/page.tsx`
    - `app/init/page.tsx`
-   - `/api/test-*`
    - `/api/init-admin`
 2. 去掉登录页中写死的测试口令提示
-3. 评估 `admin-session-tab` / `sessionStorage` 方案，并补 CSP
+3. 评估 `admin-session-tab` / `sessionStorage` 方案，并继续加强脚本级 CSP
 4. 审核 bucket 是否继续公开
 5. 修掉当前 TypeScript / ESLint 问题后，取消忽略构建错误
 
