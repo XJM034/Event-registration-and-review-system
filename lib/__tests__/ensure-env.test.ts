@@ -78,4 +78,18 @@ describe('scripts/ensure-env.mjs', () => {
     expect(fs.readFileSync(machineEnvPath, 'utf8')).toContain('SUPABASE_SERVICE_ROLE_KEY=service-role-key')
     expect(fs.readFileSync(machineEnvPath, 'utf8')).toContain('JWT_SECRET=jwt-secret-value')
   })
+
+  it('does not require the service role key during Vercel builds', () => {
+    const { workspace, homeDir } = createTempWorkspace()
+
+    const result = runEnsureEnv([], workspace, homeDir, {
+      ...requiredEnv,
+      SUPABASE_SERVICE_ROLE_KEY: '',
+      VERCEL: '1',
+    })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('Using runtime environment variables from process.env')
+    expect(fs.existsSync(path.join(workspace, '.env.local'))).toBe(false)
+  })
 })

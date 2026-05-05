@@ -9,11 +9,18 @@ const localEnvPath = path.join(repoRoot, '.env.local')
 const machineEnvPath = process.env.LAS_VEGAS_ENV_FILE
   || path.join(os.homedir(), '.config', 'event-registration-and-review-system', 'las-vegas.env')
 
-const requiredKeys = [
+const runtimeRequiredKeys = [
   'NEXT_PUBLIC_SUPABASE_URL',
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
   'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY',
   'SUPABASE_SERVICE_ROLE_KEY',
+  'JWT_SECRET',
+]
+
+const vercelBuildRequiredKeys = [
+  'NEXT_PUBLIC_SUPABASE_URL',
+  'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY',
   'JWT_SECRET',
 ]
 
@@ -27,10 +34,13 @@ const preferredKeyOrder = [
 ]
 
 const syncOnly = process.argv.includes('--sync')
+const isVercelBuild = !syncOnly && Boolean(process.env.VERCEL)
+const activeRequiredKeys = isVercelBuild ? vercelBuildRequiredKeys : runtimeRequiredKeys
 
 const runtimeEnvKeys = [
   ...new Set([
-    ...requiredKeys,
+    ...runtimeRequiredKeys,
+    ...vercelBuildRequiredKeys,
     ...preferredKeyOrder,
     'ADMIN_SESSION_SECRET',
   ]),
@@ -113,9 +123,9 @@ function isPlaceholderValue(key, value) {
   return false
 }
 
-function getMissingKeys(env) {
+function getMissingKeys(env, keys = activeRequiredKeys) {
   const normalizedEnv = normalizeEnv(env)
-  return requiredKeys.filter((key) => isPlaceholderValue(key, normalizedEnv[key]))
+  return keys.filter((key) => isPlaceholderValue(key, normalizedEnv[key]))
 }
 
 function serializeEnv(env) {
@@ -154,6 +164,9 @@ function exitWithInstructions() {
   console.error('[env] Missing required environment variables.')
   console.error(`[env] Expected required keys in process.env, ${localEnvPath}, or machine profile at ${machineEnvPath}.`)
   console.error('[env] Required keys: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY (or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY), SUPABASE_SERVICE_ROLE_KEY, JWT_SECRET.')
+  if (isVercelBuild) {
+    console.error('[env] Vercel builds do not require SUPABASE_SERVICE_ROLE_KEY at build time, but runtime API routes still require it when invoked.')
+  }
   console.error('[env] After fixing .env.local once, run `pnpm env:sync` to make future clones auto-recover on this machine.')
   process.exit(1)
 }
