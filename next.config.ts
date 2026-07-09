@@ -7,17 +7,32 @@ const CONTENT_SECURITY_POLICY = [
   "object-src 'none'",
 ].join('; ')
 
+const LEGACY_MEMFIRE_STORAGE_HOST = 'd4ntvs8g91htqli3urg0.baseapi.memfiredb.com'
+
+function getStorageImageHosts() {
+  const hosts = new Set([LEGACY_MEMFIRE_STORAGE_HOST])
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (supabaseUrl) {
+    try {
+      hosts.add(new URL(supabaseUrl).hostname)
+    } catch {
+      // Ignore invalid local env values here; scripts/ensure-env.mjs reports them.
+    }
+  }
+
+  return [...hosts]
+}
+
 const nextConfig: NextConfig = {
   // Separate Turbopack dev artifacts from production build output.
   distDir: process.env.NODE_ENV === 'development' ? '.next-dev' : '.next',
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'd4ntvs8g91htqli3urg0.baseapi.memfiredb.com',
-        pathname: '/storage/v1/object/public/**',
-      },
-    ],
+    remotePatterns: getStorageImageHosts().map((hostname) => ({
+      protocol: 'https',
+      hostname,
+      pathname: '/storage/v1/object/public/**',
+    })),
   },
   eslint: {
     ignoreDuringBuilds: true,

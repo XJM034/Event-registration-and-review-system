@@ -1,15 +1,15 @@
--- Current Supabase app schema snapshot for the Eventregistration project.
--- Refreshed after the MemFire-to-Supabase migration on 2026-07-09.
--- Active Supabase project ref at refresh time: ernfouwkblxwzshmbsda.
+-- Supabase migration for the Eventregistration MemFire project.
+-- Generated from repo SQL assets, code usage, and MemFire dashboard/API checks on 2026-07-09.
 --
 -- Scope:
--- - Captures application tables, functions, triggers, RLS/GRANTs, and Storage bucket settings.
--- - Excludes Supabase platform-managed schemas and Storage internals.
--- - Does not contain business rows, auth users, admin/coach seed accounts, or secrets.
+-- - Recreates application schema, functions, triggers, RLS/GRANTs, and Storage bucket settings.
+-- - Does not migrate business rows from MemFire.
+-- - Does not create Supabase platform-managed storage tables.
+-- - Does not seed admin/coach auth users or default passwords.
 --
--- For replaying the migration into an empty target, use this file or
--- docs/sql/supabase-memfire-settings-migration.sql. When using Supabase MCP
--- apply_migration, apply without wrapping in an explicit BEGIN/COMMIT.
+-- Apply only after the target Supabase project is active.
+-- When using Supabase MCP apply_migration, apply this file without wrapping it
+-- in an explicit BEGIN/COMMIT transaction.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

@@ -321,6 +321,7 @@ export default function ReviewListTab({ eventId }: ReviewListTabProps) {
         onOpenChange={setShowExportDialog}
         eventId={eventId}
         selectedCount={selectedIds.length}
+        defaultExportScope="pending"
         onExport={handleExport}
       />
     </>

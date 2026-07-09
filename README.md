@@ -1,6 +1,6 @@
 # 体育赛事报名与审核系统
 
-基于 Next.js 15 + Supabase/MemFire 的赛事报名、审核与导出系统，当前包含 3 个主要入口：
+基于 Next.js 15 + Supabase 的赛事报名、审核与导出系统，当前包含 3 个主要入口：
 
 - 管理端：赛事管理、动态表单配置、报名审核、导出、账号管理
 - 门户端：赛事浏览、在线报名、我的报名、通知、模板导出
@@ -18,11 +18,11 @@
 ## 技术栈
 
 - Next.js 15（App Router）+ React 19 + TypeScript
-- Supabase / MemFire（Postgres、Auth、Storage）
+- Supabase（Postgres、Auth、Storage）；旧 MemFire 配置仅保留为本地迁移备份
 - Tailwind CSS + shadcn/ui + Radix UI
 - react-hook-form + zod
 - @dnd-kit（拖拽排序）
-- xlsx + jszip + pdf-lib（导出与模板处理）
+- exceljs + jszip + pdf-lib（导出与模板处理）
 
 ## 快速开始
 
@@ -81,13 +81,15 @@ pnpm env:sync
 首次搭建环境，至少需要执行这些脚本：
 
 1. `docs/sql/actual-supabase-schema.sql`
-   作用：导入当前项目使用的完整数据库结构快照
+   作用：导入当前项目使用的 Supabase app schema 快照（不含平台托管 Storage 内部表、业务数据和账号种子）
 2. `docs/sql/create-buckets-simple.sql`
    作用：创建 `event-posters`、`registration-files`、`player-photos`、`team-documents` 4 个 Storage bucket
 3. `docs/sql/create-auth-accounts.sql`（如果你需要初始化默认测试账号）
    作用：创建仓库 SQL 脚本内置的管理员/教练默认账号
 
-如果你是从旧库迁移，而不是全新初始化，请优先查看 `docs/sql/` 目录里的增量脚本，而不是直接重复执行全量脚本。
+如果你是从旧库迁移，而不是全新初始化，请优先查看 `docs/MEMFIRE_TO_SUPABASE_MIGRATION.md` 和 `docs/sql/` 目录里的增量脚本，而不是直接重复执行全量脚本。
+
+注意：`docs/sql/actual-supabase-schema.sql` 已在 2026-07-08 刷新为当前 Supabase app schema 快照。初始化生产级或联调级数据库前，仍应阅读 `docs/DOC_FRESHNESS_AUDIT.md` 并用目标环境实测确认 Auth、Storage、RLS 和 service role 配置。
 
 ### 5. 启动开发服务器
 
@@ -125,6 +127,7 @@ pnpm test
 pnpm build
 pnpm start
 pnpm env:sync
+pnpm security:check
 pnpm test:template-e2e
 ```
 
@@ -160,6 +163,7 @@ docs/
 ## 关键文档
 
 - `CLAUDE.md` / `AGENTS.md`：AI agent 的短工作入口，二者应保持镜像
+- `docs/DOC_FRESHNESS_AUDIT.md`：文档、schema、脚本与代码的已知漂移和维护队列
 - `docs/AI_REFERENCE.md`：认证、路由、数据、上传、导出、安全边界和测试地图
 - `docs/README.md`：文档索引
 - `docs/STORAGE_SETUP.md`：Storage bucket 配置说明
@@ -191,7 +195,7 @@ docs/
 
 | 变量名 | 说明 | 必需 |
 |--------|------|------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase/MemFire 项目 URL | ✅ |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase 项目 URL | ✅ |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY` | 主 public key 变量名 | ✅ |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 历史兼容别名；填任一 public key 后脚本会自动补齐 | ✅ |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key（上传、审核、账号管理等服务端操作） | ✅ |
@@ -203,4 +207,4 @@ docs/
 
 - 管理员导出接口当前始终返回 `zip`，不是按是否有附件切换 `xlsx` / `zip`
 - 公开队员分享页上传使用 `/api/player-share/[token]/upload`，不要误写为只能复用 `/api/portal/upload`
-- 如需最准确的实现说明，请以代码、`docs/AI_REFERENCE.md` 和 `docs/sql/actual-supabase-schema.sql` 为准
+- 如需最准确的实现说明，请以代码、`docs/AI_REFERENCE.md`、`docs/MEMFIRE_TO_SUPABASE_MIGRATION.md`、`docs/DOC_FRESHNESS_AUDIT.md`、`docs/sql/actual-supabase-schema.sql` 和相关增量 SQL 互相校验

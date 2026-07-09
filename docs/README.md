@@ -2,29 +2,32 @@
 
 本目录保存体育赛事报名与审核系统的详细文档。根目录 `CLAUDE.md` / `AGENTS.md` 只作为 AI agent 的短入口，详细实现事实从这里按需读取。
 
-最后更新：2026-05-05
+最后更新：2026-07-08
 
 ## 首选阅读顺序
 
 1. `../README.md`：项目启动、环境变量、常用命令。
 2. `../CLAUDE.md` / `../AGENTS.md`：AI agent 常驻规则，二者应保持镜像。
-3. `AI_REFERENCE.md`：认证、路由、数据、上传、导出、安全边界、测试地图和已知差异。
-4. `../SECURITY.md`：安全模型、风险和上线检查。
-5. `sql/actual-supabase-schema.sql`：数据库结构主参考。
+3. `DOC_FRESHNESS_AUDIT.md`：文档、schema、脚本与代码的已知漂移和活跃维护队列。
+4. `AI_REFERENCE.md`：认证、路由、数据、上传、导出、安全边界、测试地图和已知差异。
+5. `../SECURITY.md`：安全模型、风险和上线检查。
+6. `sql/actual-supabase-schema.sql` 与相关增量 SQL：数据库结构、函数、触发器、RLS/GRANT 证据。
 
-若上述文档与代码冲突，以代码和 `sql/actual-supabase-schema.sql` 为准，并同步修正文档。
+若上述文档与代码冲突，以代码、schema 快照、增量 SQL 和实测结果互相校验，并同步修正文档或写入 `DOC_FRESHNESS_AUDIT.md`。
 
 ## 核心文档
 
 - `AI_REFERENCE.md`：AI agent 按需读取的详细项目参考。
-- `STORAGE_SETUP.md`：Supabase/MemFire Storage bucket 配置。
+- `DOC_FRESHNESS_AUDIT.md`：当前文档时效性审计、schema 漂移和待处理队列。
+- `STORAGE_SETUP.md`：Supabase Storage bucket 配置。
 - `USER_MANUAL.md`：管理员、教练、队员的用户操作手册。
 - `../SECURITY.md`：安全配置、已落地控制、风险与应急流程。
 - `../README.md`：快速开始和项目概览。
 
 ## SQL 与数据库
 
-- `sql/actual-supabase-schema.sql`：当前数据库结构快照，优先级最高。
+- `sql/actual-supabase-schema.sql`：2026-07-08 MemFire-to-Supabase 迁移后的当前 app schema 快照；排除 Supabase 平台托管的 Storage 内部表。
+- `MEMFIRE_TO_SUPABASE_MIGRATION.md`：MemFire 备份、新 Supabase 项目、迁移记录和验证结果。
 - `sql/create-buckets-simple.sql`：创建 `event-posters`、`registration-files`、`player-photos`、`team-documents`。
 - `sql/storage-policies.sql`：Storage/RLS 策略参考。
 - 其他 `sql/*.sql`：账号、项目管理、统一认证、安全加固等历史或增量脚本。执行前先确认当前环境是否需要全量还是增量。
@@ -41,9 +44,15 @@
 
 - 根 `CLAUDE.md` / `AGENTS.md` 保持短、硬、可执行；不要放长 API 表、长目录树或历史全文。
 - 认证、权限、路由、schema、Storage、上传、导出、安全策略、命令或验证流程变化时，同步检查 `AI_REFERENCE.md`、`SECURITY.md`、`README.md`。
-- 数据库结构变化必须同步 `sql/actual-supabase-schema.sql`，必要时补增量脚本。
+- 数据库结构变化必须同步 `sql/actual-supabase-schema.sql`；如果无法立即刷新快照，必须在 `DOC_FRESHNESS_AUDIT.md` 记录缺口、证据和下一步。
 - 大段从根文档移除的内容必须先归档到 `md/archive/`，不要静默删除。
 - 大功能完成、准备 handoff、准备 PR / merge，或发现 AI 指南与代码不一致时，重跑 `$claude-agents-bootstrap`。
+
+## 活跃队列
+
+- `DOC_FRESHNESS_AUDIT.md` 是当前唯一活跃的文档/schema 漂移队列。
+- 新增条目需要代码、schema、脚本或目标环境证据。
+- 完成条目必须写明修复文件和验证命令；长期历史记录归档到 `md/archive/`。
 
 ## 历史归档
 

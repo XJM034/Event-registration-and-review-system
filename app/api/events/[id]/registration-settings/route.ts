@@ -127,7 +127,15 @@ export async function POST(request: NextRequest, context: RouteParams) {
       existingQuery = existingQuery.is('division_id', null)
     }
 
-    const { data: existing } = await existingQuery.single()
+    const { data: existing, error: existingError } = await existingQuery.maybeSingle()
+
+    if (existingError) {
+      console.error('Find existing settings error:', existingError)
+      return jsonNoStore(
+        { error: '保存设置失败', success: false },
+        { status: 500 }
+      )
+    }
 
     let result
     if (existing) {

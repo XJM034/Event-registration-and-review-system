@@ -2,7 +2,7 @@
 
 本文档描述的是**当前仓库实际实现**下的安全边界、已落地控制、已知风险和上线前检查项，不是通用模板。
 
-最后更新：2026-05-05
+最后更新：2026-07-08
 
 ## 当前安全模型
 
@@ -59,6 +59,7 @@
   - 审核写通知
   - 管理端上传
   - 门户上传
+  - 公开分享上传、导出、审计日志等受控服务端路径
 - `NEXT_PUBLIC_API_URL` 当前主代码未直接依赖，不是生产必填项
 
 ## 已落地的安全控制
@@ -93,8 +94,10 @@
 
 - 要求管理员会话
 - 使用 `SUPABASE_SERVICE_ROLE_KEY` 上传
-- 当前只允许 bucket：
+- 当前允许 bucket：
   - `event-posters`
+  - `registration-files`
+  - `player-photos`
   - `team-documents`
 - 包含：
   - 扩展名校验
@@ -120,7 +123,8 @@
 注意：
 
 - 上传接口会根据 bucket 是否私有，返回受控对象 URL 或 public URL
-- `docs/sql/create-buckets-simple.sql` 中的 4 个 bucket 当前都被设置为 `public=true`
+- 应用层隐私模型在 `lib/storage-object.ts` 中定义：`registration-files`、`player-photos`、`team-documents` 按私有对象处理，经 `/api/storage/object` 受控读取；`event-posters` 可公开读取
+- `docs/sql/create-buckets-simple.sql` 会把 4 个 bucket 都设为 `public=true`，它只是快速初始化脚本；目标安全状态需要继续执行 `docs/sql/security-privatize-sensitive-storage-buckets.sql` 或在控制台确认敏感 bucket 为 private
 
 ### 4. 账号管理保护
 
@@ -138,7 +142,9 @@
 ### 6. 公开分享上传
 
 - 当前存在 `POST /api/player-share/[token]/upload`
+- 允许 bucket：`player-photos`、`team-documents`
 - 该入口会校验分享 token、报名状态、截止时间、bucket、文件签名、大小限制和 rate limit
+- `player-photos` 当前限制 5MB，`team-documents` 当前限制 20MB
 - 后续改动不要回退到匿名页复用 `/api/portal/upload`
 
 ## 当前已知风险与不一致
@@ -167,9 +173,10 @@
    - `app/init/page.tsx` 仍存在，且调用 `/api/init-admin` 的方法与后端不一致
    - 风险：容易误导测试和运维；生产环境应明确清理或限制
 
-5. **登录页底部仍展示旧默认密码提示**
-   - `app/auth/login/page.tsx` 仍提示 SQL 默认口令
-   - 但当前管理端已支持新建账号和重置密码，真实测试环境口令可能已变化
+5. **schema 快照和目标环境必须持续同步**
+   - `docs/sql/actual-supabase-schema.sql` 已在 2026-07-08 刷新为当前 Supabase app schema 快照
+   - 风险：后续如果只改目标库或增量 SQL、却不刷新快照，仍可能误判 RLS、GRANT、账号字段或审计表状态
+   - 处理路径：先读 `docs/DOC_FRESHNESS_AUDIT.md` 与 `docs/MEMFIRE_TO_SUPABASE_MIGRATION.md`，再用目标 Supabase 环境或 `pnpm security:check` 实测
 
 ### 中优先级
 
@@ -182,15 +189,12 @@
      - `/api/test-portal-simulation`
    - 当前 `middleware.ts` 中 `NODE_ENV === 'production'` 时会返回 404
 
-2. **门户上传与管理端上传都已做文件签名校验，仍需关注 bucket 隐私策略**
-   - `docs/sql/create-buckets-simple.sql` 会创建 public bucket
-   - 如需更严格隐私保护，应改为 private bucket + 受控对象读取
+2. **Storage 脚本与目标隐私模型容易混淆**
+   - 快速创建脚本会创建 public bucket，但当前代码把敏感 bucket 当 private，经 `/api/storage/object` 受控读取
+   - `docs/sql/actual-storage-buckets-data.sql` 已刷新为新 Supabase 4 个 bucket 的实测状态
+   - 如涉及隐私文件，应验证 `registration-files`、`player-photos`、`team-documents` 是否为 private
 
-3. **隐私文件可能依赖公开 bucket / 公开 URL**
-   - `player-photos`、`team-documents`、`registration-files` 当前简单脚本都设为 public
-   - 如需更严格隐私保护，应改为 private bucket + 签名 URL
-
-4. **日志仍较多**
+3. **日志仍较多**
    - 中间件、导出、分享页 API、诊断接口里仍有大量 `console.log`
    - 当前未发现把 `SUPABASE_SERVICE_ROLE_KEY`、`JWT_SECRET` 直接写进日志
    - 但仍建议上线前做脱敏和降噪
@@ -213,9 +217,9 @@
    - `app/test-login/page.tsx`
    - `app/init/page.tsx`
    - `/api/init-admin`
-2. 去掉登录页中写死的测试口令提示
-3. 评估 `admin-session-tab` / `sessionStorage` 方案，并继续加强脚本级 CSP
-4. 审核 bucket 是否继续公开
+2. 评估 `admin-session-tab` / `sessionStorage` 方案，并继续加强脚本级 CSP
+3. 审核敏感 bucket 是否保持 private，并验证 `/api/storage/object` 访问链路
+4. 刷新 `docs/sql/actual-supabase-schema.sql` 或记录无法刷新原因
 5. 修掉当前 TypeScript / ESLint 问题后，取消忽略构建错误
 
 ## 部署前检查清单
@@ -239,9 +243,9 @@
 ### 上传与存储
 
 - [ ] 所有 bucket 已创建
-- [ ] bucket 公开/私有策略已按业务确认
+- [ ] `event-posters` 公开读取，`registration-files`、`player-photos`、`team-documents` 私有访问已按业务确认
 - [ ] 管理端上传、门户上传、删除上传都已验证
-- [ ] 如涉及隐私文件，已确认是否需要改为私有 bucket + 签名 URL
+- [ ] `/api/storage/object` 对管理员、教练和公开分享 token 的受控读取已验证
 
 ### 代码与部署
 
@@ -263,4 +267,5 @@
 ## 参考文档
 
 - 详细审计报告：[docs/md/security/pre-launch-security-audit.md](docs/md/security/pre-launch-security-audit.md)
+- 文档时效性队列：[docs/DOC_FRESHNESS_AUDIT.md](docs/DOC_FRESHNESS_AUDIT.md)
 - 项目实现说明：[CLAUDE.md](CLAUDE.md)

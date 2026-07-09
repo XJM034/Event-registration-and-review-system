@@ -15,6 +15,7 @@ interface ExportConfigDialogProps {
   onOpenChange: (open: boolean) => void
   eventId: string
   selectedCount: number
+  defaultExportScope?: ExportConfig['exportScope']
   onExport: (config: ExportConfig) => void
 }
 
@@ -38,11 +39,12 @@ export default function ExportConfigDialog({
   onOpenChange,
   eventId,
   selectedCount,
+  defaultExportScope = 'pending',
   onExport
 }: ExportConfigDialogProps) {
   const [loading, setLoading] = useState(true)
   const [exportScope, setExportScope] = useState<'selected' | 'approved' | 'pending' | 'all'>(
-    getDefaultExportScope(selectedCount)
+    getDefaultExportScope(selectedCount, defaultExportScope)
   )
   const [groupBy, setGroupBy] = useState<'none' | 'division' | 'unit' | 'division_unit'>('division_unit')
   const [teamFields, setTeamFields] = useState<FieldConfig[]>([])
@@ -53,10 +55,10 @@ export default function ExportConfigDialog({
 
   useEffect(() => {
     if (open) {
-      setExportScope(getDefaultExportScope(selectedCount))
+      setExportScope(getDefaultExportScope(selectedCount, defaultExportScope))
       fetchFieldsConfig()
     }
-  }, [open, eventId, selectedCount])
+  }, [open, eventId, selectedCount, defaultExportScope])
 
   const fetchFieldsConfig = async () => {
     setLoading(true)

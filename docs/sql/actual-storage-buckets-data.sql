@@ -1,38 +1,46 @@
---
--- PostgreSQL database dump
---
+-- Current Supabase Storage bucket settings for Eventregistration.
+-- Refreshed from project ernfouwkblxwzshmbsda on 2026-07-08.
+-- This file intentionally records bucket metadata only, not stored objects.
 
-\restrict XCeTZQdT2dZ4aOJEKdVhceyE8cBEzt22uw58WILgHWqaO2Y7GDUYzoS93xiNd2n
-
--- Dumped from database version 17.4
--- Dumped by pg_dump version 17.6
-
-SET statement_timeout = 0;
-SET lock_timeout = 0;
-SET idle_in_transaction_session_timeout = 0;
-SET transaction_timeout = 0;
-SET client_encoding = 'UTF8';
-SET standard_conforming_strings = on;
-SELECT pg_catalog.set_config('search_path', '', false);
-SET check_function_bodies = false;
-SET xmloption = content;
-SET client_min_messages = warning;
-SET row_security = off;
-
---
--- Data for Name: buckets; Type: TABLE DATA; Schema: storage; Owner: -
---
-
-COPY storage.buckets (id, name, owner, created_at, updated_at, public, avif_autodetection, file_size_limit, allowed_mime_types, owner_id, type) FROM stdin;
-event-posters	event-posters	\N	2025-09-09 07:41:31.436276+00	2025-09-09 07:41:31.436276+00	t	f	\N	\N	\N	STANDARD
-registration-files	registration-files	\N	2025-09-09 07:41:31.436276+00	2025-09-09 07:41:31.436276+00	f	f	\N	\N	\N	STANDARD
-player-photos	player-photos	\N	2025-09-16 02:11:14.456516+00	2025-09-16 02:11:14.456516+00	t	f	5242880	{image/jpeg,image/png,image/jpg}	\N	STANDARD
-\.
-
-
---
--- PostgreSQL database dump complete
---
-
-\unrestrict XCeTZQdT2dZ4aOJEKdVhceyE8cBEzt22uw58WILgHWqaO2Y7GDUYzoS93xiNd2n
-
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES
+  (
+    'event-posters',
+    'event-posters',
+    true,
+    5242880,
+    ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/gif']::text[]
+  ),
+  (
+    'player-photos',
+    'player-photos',
+    false,
+    5242880,
+    ARRAY['image/jpeg', 'image/png', 'image/jpg', 'image/webp']::text[]
+  ),
+  (
+    'registration-files',
+    'registration-files',
+    false,
+    10485760,
+    ARRAY['image/jpeg', 'image/png', 'image/webp', 'application/pdf']::text[]
+  ),
+  (
+    'team-documents',
+    'team-documents',
+    false,
+    10485760,
+    ARRAY[
+      'image/jpeg',
+      'image/png',
+      'image/jpg',
+      'image/webp',
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/octet-stream'
+    ]::text[]
+  )
+ON CONFLICT (id) DO UPDATE SET
+  public = EXCLUDED.public,
+  file_size_limit = EXCLUDED.file_size_limit,
+  allowed_mime_types = EXCLUDED.allowed_mime_types;

@@ -10,4 +10,9 @@ describe('getDefaultExportScope', () => {
     expect(getDefaultExportScope(0)).toBe('pending')
     expect(getDefaultExportScope(-1)).toBe('pending')
   })
+
+  it('uses the caller-provided fallback when no rows are selected', () => {
+    expect(getDefaultExportScope(0, 'approved')).toBe('approved')
+    expect(getDefaultExportScope(-1, 'all')).toBe('all')
+  })
 })

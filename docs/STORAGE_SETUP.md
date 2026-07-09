@@ -1,5 +1,7 @@
 # Supabase Storage 存储桶配置指南
 
+最后更新：2026-07-08
+
 ## 问题说明
 
 如果用户在报名端上传图片时遇到 **"文件上传失败: Bucket not found"** 错误，说明 Supabase Storage 中缺少必需的存储桶。
@@ -17,7 +19,7 @@
 
 ## 配置方法
 
-### 方法一：使用 SQL 脚本（推荐）
+### 方法一：使用 SQL 脚本（推荐路径）
 
 1. **登录 Supabase Dashboard**
    - 访问 https://supabase.com/dashboard
@@ -29,31 +31,31 @@
 
 3. **执行 SQL 脚本**
 
-   选择以下任一脚本执行：
+   通常先执行步骤 A 创建 bucket，再执行步骤 B 收口敏感 bucket；选项 C 只在确认策略匹配时使用。
 
-   **选项 A：简单版本（无 RLS 策略）**
+   **步骤 A：先创建 bucket（快速版本）**
    ```bash
    # 复制并执行文件内容
    docs/sql/create-buckets-simple.sql
    ```
 
-   这个脚本会创建所有必需的存储桶，使用服务密钥认证，无需配置 RLS 策略。
+   这个脚本会创建所有必需的存储桶，使用服务密钥认证，无需配置 RLS 策略。注意：当前脚本会把 4 个 bucket 都设为 `public=true`，只适合作为快速补齐 bucket 的初始化步骤，不代表当前安全目标。
 
-   **选项 B：完整版本（包含 RLS 策略）**
-   ```bash
-   # 复制并执行文件内容
-   docs/sql/storage-policies.sql
-   ```
-
-   这个脚本会创建存储桶并配置完整的行级安全策略。
-
-   **选项 C：安全收口（已存在项目）**
+   **步骤 B：把敏感 bucket 收口为 private**
    ```bash
    # 复制并执行文件内容
    docs/sql/security-privatize-sensitive-storage-buckets.sql
    ```
 
-   这个脚本会把 `registration-files`、`player-photos`、`team-documents` 改为私有 bucket。
+   当前应用层安全模型要求 `registration-files`、`player-photos`、`team-documents` 通过 `/api/storage/object` 受控读取，这三个 bucket 应保持 `public=false`。
+
+   **选项 C：完整版本（包含 RLS 策略参考）**
+   ```bash
+   # 复制并执行文件内容
+   docs/sql/storage-policies.sql
+   ```
+
+   这个脚本会创建存储桶并配置 Storage/RLS 策略参考。执行前应先确认它是否符合当前目标环境策略。
 
 4. **执行脚本**
    - 将脚本内容复制到 SQL Editor
@@ -118,6 +120,8 @@
    WHERE id IN ('event-posters', 'registration-files', 'player-photos', 'team-documents');
    ```
 
+   目标状态应为：`event-posters.public = true`，其余三个敏感 bucket 的 `public = false`。
+
 2. **测试文件上传**
    - 在管理端创建赛事并上传海报（测试 event-posters）
    - 在报名端提交报名并上传队伍 Logo（测试 registration-files）
@@ -147,6 +151,10 @@ A:
 3. 清除浏览器缓存并重新登录
 4. 检查网络连接和 Supabase 服务状态
 
+### Q: 为什么 `create-buckets-simple.sql` 和本文档的 private 要求不同？
+
+A: `create-buckets-simple.sql` 是早期快速初始化脚本，用于快速解决 bucket 缺失问题；当前代码已经把敏感文件统一路由到 `/api/storage/object` 受控读取，因此目标环境应继续执行 `security-privatize-sensitive-storage-buckets.sql` 或手动改为 private。相关漂移记录见 `docs/DOC_FRESHNESS_AUDIT.md`。
+
 ### Q: 可以修改文件大小限制吗？
 
 A: 可以。在 Storage 设置中修改相应存储桶的 `file_size_limit` 值，或者重新执行 SQL 脚本并修改大小参数。
@@ -163,6 +171,8 @@ A: 可以。在 Storage 设置中修改相应存储桶的 `file_size_limit` 值�
 - SQL 脚本（简化版本）: `docs/sql/create-buckets-simple.sql`
 - SQL 脚本（完整版本）: `docs/sql/storage-policies.sql`
 - SQL 脚本（安全收口）: `docs/sql/security-privatize-sensitive-storage-buckets.sql`
+- 当前 bucket dump: `docs/sql/actual-storage-buckets-data.sql`
+- 文档时效性审计: `docs/DOC_FRESHNESS_AUDIT.md`
 - 数据库架构文档: `docs/sql/actual-supabase-schema.sql`
 - 项目文档: `CLAUDE.md`
 

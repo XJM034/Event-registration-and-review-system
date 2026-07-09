@@ -742,6 +742,7 @@ export default function RegistrationListTab({ eventId }: RegistrationListTabProp
         onOpenChange={setShowExportDialog}
         eventId={eventId}
         selectedCount={selectedIds.length}
+        defaultExportScope="approved"
         onExport={handleExport}
       />
 

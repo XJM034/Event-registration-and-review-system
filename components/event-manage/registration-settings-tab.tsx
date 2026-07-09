@@ -2324,7 +2324,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                     </SelectContent>
                   </Select>
                 </div>
-                <Button onClick={() => addCustomField('team')} className="h-10 w-full md:w-auto">
+                <Button type="button" onClick={() => addCustomField('team')} className="h-10 w-full md:w-auto">
                   <Plus className="h-4 w-4 mr-2" />
                   添加
                 </Button>
@@ -2338,6 +2338,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
               <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <h3 className="text-sm font-semibold">角色管理</h3>
                 <Button
+                  type="button"
                   size="sm"
                   variant="outline"
                   onClick={() => setShowRoleDialog(true)}
@@ -2494,7 +2495,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
                             </SelectContent>
                           </Select>
                         </div>
-                        <Button onClick={() => addCustomField('player')} className="h-10 w-full md:w-auto">
+                        <Button type="button" onClick={() => addCustomField('player')} className="h-10 w-full md:w-auto">
                           <Plus className="h-4 w-4 mr-2" />
                           添加
                         </Button>
@@ -2509,6 +2510,7 @@ export default function RegistrationSettingsTab({ eventId, eventStartDate }: Reg
 
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button
+            type="button"
             onClick={saveSettings}
             disabled={isLoading}
             className="h-10 w-full sm:w-auto"
