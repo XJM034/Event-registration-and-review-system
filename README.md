@@ -66,6 +66,7 @@ JWT_SECRET=your_jwt_secret_here
 ```bash
 NEXT_PUBLIC_API_URL=http://localhost:3000
 VERCEL_URL=your-domain.example.com
+CRON_SECRET=your_random_cron_secret_here
 ```
 
 填好一次后，建议执行：
@@ -130,6 +131,18 @@ pnpm env:sync
 pnpm security:check
 pnpm test:template-e2e
 ```
+
+## Supabase 防暂停定时触发
+
+仓库包含 `vercel.json` Cron 配置：生产部署后，Vercel 会每天 `03:00 UTC` 调用一次 `/api/cron/supabase-keepalive`。该接口只用 service role 轻量读取 `events.id limit 1`，不写业务数据。
+
+使用前需要在 Vercel 项目环境变量里配置：
+
+```bash
+CRON_SECRET=<随机长字符串>
+```
+
+接口会校验 `Authorization: Bearer $CRON_SECRET`；未配置或鉴权失败时不会访问 Supabase。若 Supabase 项目已经被暂停，需要先在 Supabase Dashboard 手动 unpause，定时触发只能减少后续再次因长期无请求而暂停的概率。
 
 ## 项目结构
 

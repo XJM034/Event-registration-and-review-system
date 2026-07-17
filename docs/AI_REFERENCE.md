@@ -17,6 +17,7 @@
 - 包管理器固定为 `pnpm@10.15.1`。
 - `scripts/ensure-env.mjs` 会在 dev/build/lint/test 前检查或恢复 `.env.local`。
 - Vercel build 场景下 `scripts/ensure-env.mjs` 不要求 `SUPABASE_SERVICE_ROLE_KEY` 作为构建期硬依赖；运行时 API 调用仍需要该变量。
+- `vercel.json` 配置了每天一次的 Cron：`/api/cron/supabase-keepalive`。该 route 需要 `CRON_SECRET`，并用 service role 轻量读取 `events.id limit 1`，用于保持 Supabase 目标项目有活动请求。
 - `scripts/verify-security-posture.mjs` 连接真实 Supabase 检查 Auth 设置、审计表和匿名隔离。
 - `scripts/verify-template-export-e2e.ts` 验证模板导出关键路径。
 - 当前没有 `.github` CI 工作流；本地命令是主要验证面。
@@ -48,6 +49,7 @@
 - `/api/portal/*` 需要教练 session，管理员访问返回 403。
 - `/api/project-management/*` 当前允许所有管理员访问。
 - `/api/admin/coaches*`、`/api/admin/admins*` 需要超级管理员。
+- `/api/cron/supabase-keepalive` 是 Vercel Cron 入口，不走用户会话，必须校验 `Authorization: Bearer $CRON_SECRET`。
 
 ## 数据与 schema
 
@@ -102,6 +104,7 @@
 - `middleware.ts` 屏蔽生产调试接口、旧注册入口，并做 API mutation 同源检查。
 - `next.config.ts` 设置基础安全响应头，包括 CSP、HSTS、COOP、CORP、Permissions-Policy。
 - 公开分享、导出、admin-session 等敏感入口有应用层 rate limit。
+- Vercel Cron keepalive route 使用独立 `CRON_SECRET` 鉴权；不要把它暴露给前端或写进仓库。
 - 多个公开/敏感入口写 best-effort 审计日志，分享 token 只记录摘要。
 - 目标安全状态应以 `SECURITY.md`、`docs/MEMFIRE_TO_SUPABASE_MIGRATION.md`、Supabase advisors 和 `pnpm security:check` / `node scripts/verify-security-posture.mjs` 的实测结果为准。
 

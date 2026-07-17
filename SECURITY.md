@@ -49,6 +49,9 @@
   - 如未配置，当前代码会回退使用 `JWT_SECRET`
 - `VERCEL_URL`
   - 用于 `metadataBase`
+- `CRON_SECRET`
+  - 用于保护 Vercel Cron 入口 `/api/cron/supabase-keepalive`
+  - 如未配置，该入口会返回 500 且不会访问 Supabase
 
 ### 说明
 
@@ -61,6 +64,7 @@
   - 门户上传
   - 公开分享上传、导出、审计日志等受控服务端路径
 - `NEXT_PUBLIC_API_URL` 当前主代码未直接依赖，不是生产必填项
+- `CRON_SECRET` 应使用随机长字符串，只配置在部署平台 Secret 中，不要暴露给前端或提交到仓库
 
 ## 已落地的安全控制
 
@@ -139,7 +143,14 @@
 - `/api/test-*` 系列接口当前也有 `NODE_ENV === 'production'` 的 404 保护
 - `/api/init-admin` 当前不会真的初始化账号，但仍会返回管理员列表和提示信息
 
-### 6. 公开分享上传
+### 6. Vercel Cron keepalive
+
+- `/api/cron/supabase-keepalive` 仅用于 Vercel Cron 定时触发
+- 入口必须携带 `Authorization: Bearer $CRON_SECRET`
+- 成功鉴权后只用 service role 轻量读取 `events.id limit 1`，不写业务数据
+- 如果 Supabase 项目已经暂停，需要先在 Supabase Dashboard 手动恢复；该 Cron 只用于恢复后减少长期无请求导致再次暂停的概率
+
+### 7. 公开分享上传
 
 - 当前存在 `POST /api/player-share/[token]/upload`
 - 允许 bucket：`player-photos`、`team-documents`
