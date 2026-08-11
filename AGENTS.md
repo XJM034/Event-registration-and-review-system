@@ -2,7 +2,7 @@
 
 本文件是本仓库给 Claude Code / Codex 等 AI agent 的常驻工作指南。它只保留高频规则；实现细节请按下面的读取顺序进入支持文档，并以代码、schema、增量 SQL 和实测结果互相校验。
 
-最后刷新：2026-07-08
+最后刷新：2026-08-11
 
 ## 项目契约
 
@@ -38,6 +38,7 @@ pnpm test:template-e2e
 - `predev` / `prebuild` / `prelint` / `pretest` 会运行 `scripts/ensure-env.mjs`。
 - 本机环境变量可同步到 `~/.config/event-registration-and-review-system/las-vegas.env`。
 - Vercel build 场景下 `ensure-env` 不硬性要求 `SUPABASE_SERVICE_ROLE_KEY`；运行时敏感 API 仍需要 service role。
+- `SUPABASE_EXPECTED_PROJECT_REF` 必须与 Supabase URL 的 project ref 一致；构建或运行时报目标不一致时，不要绕过检查，应先修正部署环境变量。
 - 构建当前仍在 `next.config.ts` 中忽略 lint 与 TypeScript 错误；不要把 `pnpm build` 通过误读为类型质量已通过。
 
 ## Context7 规则

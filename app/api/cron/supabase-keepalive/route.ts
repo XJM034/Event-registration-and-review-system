@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getSupabaseProjectRef } from '@/lib/env'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 
 export const dynamic = 'force-dynamic'
+
+const KEEPALIVE_TABLES = ['events', 'registration_settings', 'project_types'] as const
 
 type CronAuthResult =
   | { ok: true }
@@ -55,18 +58,33 @@ export async function GET(request: NextRequest) {
 
   try {
     const supabase = createServiceRoleClient()
-    const { data, error } = await supabase
-      .from('events')
-      .select('id')
-      .limit(1)
+    const checks = await Promise.all(
+      KEEPALIVE_TABLES.map(async (table) => {
+        const { data, error } = await supabase
+          .from(table)
+          .select('id')
+          .limit(1)
 
-    if (error) {
-      console.error('Supabase keepalive failed:', error)
+        return {
+          table,
+          rowCount: data?.length ?? 0,
+          error,
+        }
+      }),
+    )
+    const failedCheck = checks.find((check) => check.error)
+
+    if (failedCheck?.error) {
+      console.error('Supabase keepalive failed:', {
+        table: failedCheck.table,
+        error: failedCheck.error,
+      })
       return jsonNoStore(
         {
           success: false,
           error: 'Supabase keepalive failed',
-          message: error.message,
+          table: failedCheck.table,
+          message: failedCheck.error.message,
           durationMs: Date.now() - start,
           timestamp: new Date().toISOString(),
         },
@@ -74,12 +92,23 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const projectRef = getSupabaseProjectRef()
+    const durationMs = Date.now() - start
+    const successfulChecks = checks.map(({ table, rowCount }) => ({ table, rowCount }))
+
+    console.info('Supabase keepalive succeeded:', {
+      projectRef,
+      queryCount: successfulChecks.length,
+      durationMs,
+    })
+
     return jsonNoStore({
       success: true,
-      checked: 'events',
-      rowCount: data?.length ?? 0,
+      projectRef,
+      queryCount: successfulChecks.length,
+      checks: successfulChecks,
       schedule: request.headers.get('x-vercel-cron-schedule'),
-      durationMs: Date.now() - start,
+      durationMs,
       timestamp: new Date().toISOString(),
     })
   } catch (error) {

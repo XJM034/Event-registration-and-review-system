@@ -7,6 +7,10 @@ const { fromMock, selectMock, limitMock } = vi.hoisted(() => ({
   limitMock: vi.fn(),
 }))
 
+vi.mock('@/lib/env', () => ({
+  getSupabaseProjectRef: vi.fn(() => 'target-project-ref'),
+}))
+
 vi.mock('@/lib/supabase/service-role', () => ({
   createServiceRoleClient: vi.fn(() => ({
     from: fromMock,
@@ -27,10 +31,10 @@ describe('supabase keepalive cron route', () => {
     vi.clearAllMocks()
     vi.stubEnv('CRON_SECRET', 'test-cron-secret')
 
-    limitMock.mockResolvedValue({
-      data: [{ id: 'event-1' }],
+    limitMock.mockImplementation(async () => ({
+      data: [{ id: 'row-1' }],
       error: null,
-    })
+    }))
     selectMock.mockReturnValue({ limit: limitMock })
     fromMock.mockReturnValue({ select: selectMock })
   })
@@ -75,19 +79,28 @@ describe('supabase keepalive cron route', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('cache-control')).toBe('no-store, max-age=0')
     expect(payload.success).toBe(true)
-    expect(payload.checked).toBe('events')
-    expect(payload.rowCount).toBe(1)
+    expect(payload.projectRef).toBe('target-project-ref')
+    expect(payload.queryCount).toBe(3)
+    expect(payload.checks).toEqual([
+      { table: 'events', rowCount: 1 },
+      { table: 'registration_settings', rowCount: 1 },
+      { table: 'project_types', rowCount: 1 },
+    ])
     expect(payload.schedule).toBe('0 3 * * *')
-    expect(fromMock).toHaveBeenCalledWith('events')
-    expect(selectMock).toHaveBeenCalledWith('id')
-    expect(limitMock).toHaveBeenCalledWith(1)
+    expect(fromMock.mock.calls).toEqual([
+      ['events'],
+      ['registration_settings'],
+      ['project_types'],
+    ])
+    expect(selectMock).toHaveBeenCalledTimes(3)
+    expect(limitMock).toHaveBeenCalledTimes(3)
   })
 
   it('returns 503 when Supabase cannot be reached', async () => {
-    limitMock.mockResolvedValue({
-      data: null,
-      error: { message: 'project is paused' },
-    })
+    limitMock
+      .mockResolvedValueOnce({ data: [{ id: 'event-1' }], error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: 'project is paused' } })
+      .mockResolvedValueOnce({ data: [{ id: 'project-type-1' }], error: null })
 
     const response = await keepSupabaseAlive(
       createRequest({ authorization: 'Bearer test-cron-secret' }),
@@ -96,6 +109,7 @@ describe('supabase keepalive cron route', () => {
 
     expect(response.status).toBe(503)
     expect(payload.success).toBe(false)
+    expect(payload.table).toBe('registration_settings')
     expect(payload.message).toBe('project is paused')
   })
 })

@@ -17,7 +17,7 @@
 - 包管理器固定为 `pnpm@10.15.1`。
 - `scripts/ensure-env.mjs` 会在 dev/build/lint/test 前检查或恢复 `.env.local`。
 - Vercel build 场景下 `scripts/ensure-env.mjs` 不要求 `SUPABASE_SERVICE_ROLE_KEY` 作为构建期硬依赖；运行时 API 调用仍需要该变量。
-- `vercel.json` 配置了每天一次的 Cron：`/api/cron/supabase-keepalive`。该 route 需要 `CRON_SECRET`，并用 service role 轻量读取 `events.id limit 1`，用于保持 Supabase 目标项目有活动请求。
+- `vercel.json` 配置了每天一次的 Cron：`/api/cron/supabase-keepalive`。该 route 需要 `CRON_SECRET`，并用 service role 分别轻量读取 `events`、`registration_settings`、`project_types`。`SUPABASE_EXPECTED_PROJECT_REF` 会锁定目标项目，成功日志会记录实际 project ref 和查询次数。
 - `scripts/verify-security-posture.mjs` 连接真实 Supabase 检查 Auth 设置、审计表和匿名隔离。
 - `scripts/verify-template-export-e2e.ts` 验证模板导出关键路径。
 - 当前没有 `.github` CI 工作流；本地命令是主要验证面。
@@ -122,7 +122,8 @@
 - `lib/__tests__/player-share-token.test.ts`、`public-share-audit.test.ts`：分享 token 和公开审计。
 - `lib/__tests__/export-*.test.ts`、`excel-workbook.test.ts`：导出工具。
 - `lib/__tests__/next-config-security-headers.test.ts`：安全响应头。
-- `lib/__tests__/ensure-env.test.ts`：环境变量恢复逻辑。
+- `lib/__tests__/ensure-env.test.ts`：环境变量恢复和 Supabase 目标项目校验。
+- `lib/__tests__/supabase-keepalive-route.test.ts`：Cron 鉴权、多表轻量读取、目标项目和失败响应。
 
 ## 文档归档
 

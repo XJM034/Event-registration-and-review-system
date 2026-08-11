@@ -1,6 +1,6 @@
 # MemFire to Supabase Migration
 
-Last updated: 2026-07-08
+Last updated: 2026-08-11
 
 This document tracks the active migration from the MemFire Cloud project used by this repo to the Supabase project owned by the same account. It intentionally excludes secret values.
 
@@ -14,6 +14,7 @@ This document tracks the active migration from the MemFire Cloud project used by
 - `.env.local` and `.env.memfire.local` are ignored by Git via `.env*.local`.
 - `.env.local` and the machine profile now point to the new Supabase project.
 - `.env.memfire.local` still points to MemFire and is the local rollback/reference copy.
+- `SUPABASE_EXPECTED_PROJECT_REF=ernfouwkblxwzshmbsda` is required so builds and runtime clients reject a stale or mismatched backend URL.
 
 ### MemFire Source Project
 
@@ -177,6 +178,19 @@ Final verified state:
 - Triggers present: `registration_share_token_trigger`, `update_*_updated_at`, and `on_auth_user_created`.
 - Supabase security advisors report no lints after `memfire_advisor_fixes`.
 - Supabase performance advisors only report unused indexes, which is expected on a newly created empty database with no traffic.
+
+## 2026-08-11 Production Cutover Correction
+
+The Supabase project was automatically paused after a second low-activity cycle. Investigation confirmed that the Vercel Cron was deployed, enabled, and scheduled, but the Production Supabase environment variables still contained the pre-migration MemFire values created before the 2026-07-08 cutover. The keepalive route therefore ran against MemFire instead of project `ernfouwkblxwzshmbsda`.
+
+Recovery and prevention:
+
+- Restored Supabase project `ernfouwkblxwzshmbsda` and confirmed status `ACTIVE_HEALTHY`.
+- Verified all six migration versions above, 13 public app tables with RLS enabled, Storage tables, and a service-role read from `events`.
+- Replaced the four Vercel Production Supabase variables with values validated against the restored target.
+- Added required `SUPABASE_EXPECTED_PROJECT_REF` validation to `scripts/ensure-env.mjs` and `lib/env.ts` so a future stale URL fails the build/runtime instead of silently targeting another backend.
+- Expanded the daily keepalive to three read-only database requests and added project-ref/query-count observability.
+- Added route and environment regression tests. Production Cron registration, manual execution, runtime log, and deployed-host verification are release acceptance requirements for this flow.
 
 `docs/sql/supabase-memfire-settings-migration.sql` has been updated to reflect this final state. If applied through Supabase MCP `apply_migration`, split it similarly or remove explicit transaction wrapping.
 

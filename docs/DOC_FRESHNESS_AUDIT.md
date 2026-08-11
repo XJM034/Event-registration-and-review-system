@@ -1,6 +1,6 @@
 # 文档时效性审计
 
-最后审计：2026-07-08
+最后审计：2026-08-11
 
 本文件是当前仓库的活跃文档维护队列，用来记录“文档、代码、schema、脚本、目标环境”之间已确认的差异。它不是业务需求文档；处理代码、数据库、安全、Storage、导出或认证问题前，先按本文件回到真实证据。
 
@@ -9,6 +9,7 @@
 - 根 `CLAUDE.md` / `AGENTS.md` 已保持镜像，适合作为短入口，不再承载长 API 表或历史审计。
 - `README.md`、`docs/AI_REFERENCE.md`、`SECURITY.md`、`docs/STORAGE_SETUP.md` 已在本轮按代码证据修正部分过时描述。
 - `docs/sql/actual-supabase-schema.sql` 已在 2026-07-08 MemFire-to-Supabase 迁移后刷新为当前 Supabase app-schema 快照；它排除 Supabase 平台托管的 Storage 内部表和业务数据。
+- 2026-08-11 已确认 Vercel Production 的 Supabase 变量仍指向迁移前 MemFire，导致已启用的 keepalive Cron 命中旧后端；目标变量已纠正，并新增 project ref 强校验和生产 Cron 实跑验收。
 - 涉及数据库结构或 RLS/GRANT 时，仍必须同时查代码、`actual-supabase-schema.sql`、`docs/MEMFIRE_TO_SUPABASE_MIGRATION.md`、相关增量 SQL，并在可能时用目标数据库实测确认。
 - `app/api/events/[id]/registrations/export/route.ts.backup` 是被 Git 跟踪的旧备份文件，仍引用已移除依赖 `xlsx`，应作为归档或删除候选处理。
 
@@ -33,6 +34,8 @@
 - `next.config.ts` 仍配置 `eslint.ignoreDuringBuilds = true` 和 `typescript.ignoreBuildErrors = true`，所以 `pnpm build` 通过不代表类型或 lint 质量通过。
 - 导出实现使用 `exceljs` + `jszip` + `pdf-lib`；旧 `xlsx` 依赖已不在 `package.json`。
 - 当前本地 `.env.local` 和机器 profile 指向 Supabase project `ernfouwkblxwzshmbsda`；旧 MemFire 配置保留在 `.env.memfire.local`。
+- `SUPABASE_EXPECTED_PROJECT_REF` 是必需环境变量；`scripts/ensure-env.mjs` 在构建前、`lib/env.ts` 在运行时拒绝 URL project ref 不一致的配置。
+- Vercel Cron 的存在不能单独证明保活有效；生产发布必须检查 deployed Cron、手动触发，并从运行日志核对 `projectRef` 和查询次数。
 
 ### 认证、路由与权限
 
@@ -65,6 +68,7 @@
 | P2 | 跟踪的备份代码 | `app/api/events/[id]/registrations/export/route.ts.backup` 被 Git 跟踪并引用旧 `xlsx` | `git ls-files`、文件内容搜索 | 暂不删除；列为归档/删除候选 |
 | P2 | `lib/types.ts` | 仍有旧窄类型，例如 `Registration.status` 不含 `draft/submitted/cancelled` | `lib/types.ts` 与 schema/代码状态分支 | 未在本轮修代码；涉及类型工作时优先处理 |
 | P2 | `app/init/page.tsx` | 页面用 `POST /api/init-admin`，后端只有 `GET`，且该入口不是主流程 | `app/init/page.tsx`、`app/api/init-admin/route.ts` | 保留为已知非主流程风险 |
+| P0 | Vercel Production Supabase 配置 | 迁移后仍保留旧 MemFire URL，Cron 虽启用但命中旧后端 | Vercel env 创建时间、生产 bundle 域名、Cron 列表、Supabase pause 邮件 | 已恢复项目并纠正变量；由 project ref 校验、Cron 手动执行和运行日志验收防复发 |
 
 ## Schema 使用规则
 

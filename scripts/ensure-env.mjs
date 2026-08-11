@@ -13,6 +13,7 @@ const runtimeRequiredKeys = [
   'NEXT_PUBLIC_SUPABASE_URL',
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
   'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY',
+  'SUPABASE_EXPECTED_PROJECT_REF',
   'SUPABASE_SERVICE_ROLE_KEY',
   'JWT_SECRET',
 ]
@@ -21,6 +22,7 @@ const vercelBuildRequiredKeys = [
   'NEXT_PUBLIC_SUPABASE_URL',
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
   'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY',
+  'SUPABASE_EXPECTED_PROJECT_REF',
   'JWT_SECRET',
 ]
 
@@ -28,6 +30,7 @@ const preferredKeyOrder = [
   'NEXT_PUBLIC_SUPABASE_URL',
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
   'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY',
+  'SUPABASE_EXPECTED_PROJECT_REF',
   'SUPABASE_SERVICE_ROLE_KEY',
   'JWT_SECRET',
   'NEXT_PUBLIC_API_URL',
@@ -128,6 +131,31 @@ function getMissingKeys(env, keys = activeRequiredKeys) {
   return keys.filter((key) => isPlaceholderValue(key, normalizedEnv[key]))
 }
 
+function getSupabaseProjectRef(url) {
+  try {
+    return new URL(url).hostname.split('.')[0] || null
+  } catch {
+    return null
+  }
+}
+
+function assertExpectedSupabaseProject(env) {
+  const expectedProjectRef = env.SUPABASE_EXPECTED_PROJECT_REF?.trim()
+  const url = env.NEXT_PUBLIC_SUPABASE_URL?.trim()
+  const actualProjectRef = url ? getSupabaseProjectRef(url) : null
+
+  if (!expectedProjectRef || !actualProjectRef) {
+    return
+  }
+
+  if (actualProjectRef !== expectedProjectRef) {
+    console.error(
+      `[env] NEXT_PUBLIC_SUPABASE_URL targets project "${actualProjectRef}", expected "${expectedProjectRef}".`,
+    )
+    process.exit(1)
+  }
+}
+
 function serializeEnv(env) {
   const normalizedEnv = normalizeEnv(env)
   const extraKeys = Object.keys(normalizedEnv)
@@ -163,7 +191,7 @@ function isSameEnv(left, right) {
 function exitWithInstructions() {
   console.error('[env] Missing required environment variables.')
   console.error(`[env] Expected required keys in process.env, ${localEnvPath}, or machine profile at ${machineEnvPath}.`)
-  console.error('[env] Required keys: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY (or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY), SUPABASE_SERVICE_ROLE_KEY, JWT_SECRET.')
+  console.error('[env] Required keys: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY (or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY), SUPABASE_EXPECTED_PROJECT_REF, SUPABASE_SERVICE_ROLE_KEY, JWT_SECRET.')
   if (isVercelBuild) {
     console.error('[env] Vercel builds do not require SUPABASE_SERVICE_ROLE_KEY at build time, but runtime API routes still require it when invoked.')
   }
@@ -194,6 +222,8 @@ if (syncOnly) {
     exitWithInstructions()
   }
 
+  assertExpectedSupabaseProject(syncSourceEnv)
+
   if (!isSameEnv(localEnv, syncSourceEnv)) {
     writeEnvFile(localEnvPath, syncSourceEnv)
     console.log(`[env] Updated local env from ${syncSourceLabel}`)
@@ -219,11 +249,14 @@ if (machineMissingKeys.length === 0) {
   sourceEnv = localEnv
   sourceLabel = localEnvPath
 } else if (runtimeMissingKeys.length === 0) {
+  assertExpectedSupabaseProject(runtimeEnv)
   console.log('[env] Using runtime environment variables from process.env')
   process.exit(0)
 } else {
   exitWithInstructions()
 }
+
+assertExpectedSupabaseProject(sourceEnv)
 
 if (localMissingKeys.length > 0 || !isSameEnv(localEnv, sourceEnv)) {
   writeEnvFile(localEnvPath, sourceEnv)

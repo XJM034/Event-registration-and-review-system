@@ -50,7 +50,8 @@ cp .env.example .env.local
 至少需要配置以下变量：
 
 ```bash
-NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.baseapi.memfiredb.com
+NEXT_PUBLIC_SUPABASE_URL=https://ernfouwkblxwzshmbsda.supabase.co
+SUPABASE_EXPECTED_PROJECT_REF=ernfouwkblxwzshmbsda
 
 # 两个 public key 名称是历史兼容别名，填其中一个即可；
 # `pnpm env:sync` / `pnpm dev` 会自动补齐另一个
@@ -134,15 +135,25 @@ pnpm test:template-e2e
 
 ## Supabase 防暂停定时触发
 
-仓库包含 `vercel.json` Cron 配置：生产部署后，Vercel 会每天 `03:00 UTC` 调用一次 `/api/cron/supabase-keepalive`。该接口只用 service role 轻量读取 `events.id limit 1`，不写业务数据。
+仓库包含 `vercel.json` Cron 配置：生产部署后，Vercel 会每天 `03:00 UTC` 调用一次 `/api/cron/supabase-keepalive`。该接口使用 service role 分别轻量读取 `events`、`registration_settings`、`project_types`，不写业务数据；成功日志和响应会包含实际命中的 Supabase project ref。
 
 使用前需要在 Vercel 项目环境变量里配置：
 
 ```bash
 CRON_SECRET=<随机长字符串>
+SUPABASE_EXPECTED_PROJECT_REF=ernfouwkblxwzshmbsda
 ```
 
-接口会校验 `Authorization: Bearer $CRON_SECRET`；未配置或鉴权失败时不会访问 Supabase。若 Supabase 项目已经被暂停，需要先在 Supabase Dashboard 手动 unpause，定时触发只能减少后续再次因长期无请求而暂停的概率。
+接口会校验 `Authorization: Bearer $CRON_SECRET`；未配置或鉴权失败时不会访问 Supabase。`scripts/ensure-env.mjs` 会在构建前核对 URL 中的 project ref，避免迁移后仍误连旧项目。若 Supabase 项目已经被暂停，需要先在 Supabase Dashboard 手动恢复。
+
+生产部署后必须验证实际生效状态，不能只看 `vercel.json`：
+
+```bash
+vercel crons ls --format json
+vercel crons run /api/cron/supabase-keepalive
+```
+
+验收标准是 Cron 已启用、没有 undeployed/modified 项，手动触发成功，并且运行日志中的 `projectRef` 等于 `SUPABASE_EXPECTED_PROJECT_REF`。定时触发只能降低免费项目因长期无请求再次暂停的概率，不能替代监控或付费计划保证。
 
 ## 项目结构
 
@@ -209,6 +220,7 @@ docs/
 | 变量名 | 说明 | 必需 |
 |--------|------|------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase 项目 URL | ✅ |
+| `SUPABASE_EXPECTED_PROJECT_REF` | 期望连接的 Supabase project ref；构建和运行时会校验 URL 目标 | ✅ |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY` | 主 public key 变量名 | ✅ |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 历史兼容别名；填任一 public key 后脚本会自动补齐 | ✅ |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key（上传、审核、账号管理等服务端操作） | ✅ |

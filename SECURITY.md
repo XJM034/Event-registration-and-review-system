@@ -38,6 +38,7 @@
 ### 必需
 
 - `NEXT_PUBLIC_SUPABASE_URL`
+- `SUPABASE_EXPECTED_PROJECT_REF`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_OR_ANON_KEY` 或 `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `JWT_SECRET`
@@ -63,6 +64,7 @@
   - 管理端上传
   - 门户上传
   - 公开分享上传、导出、审计日志等受控服务端路径
+- `SUPABASE_EXPECTED_PROJECT_REF` 必须与 `NEXT_PUBLIC_SUPABASE_URL` 的 hostname project ref 一致；`scripts/ensure-env.mjs` 和 `lib/env.ts` 会拒绝目标不一致的配置
 - `NEXT_PUBLIC_API_URL` 当前主代码未直接依赖，不是生产必填项
 - `CRON_SECRET` 应使用随机长字符串，只配置在部署平台 Secret 中，不要暴露给前端或提交到仓库
 
@@ -147,7 +149,8 @@
 
 - `/api/cron/supabase-keepalive` 仅用于 Vercel Cron 定时触发
 - 入口必须携带 `Authorization: Bearer $CRON_SECRET`
-- 成功鉴权后只用 service role 轻量读取 `events.id limit 1`，不写业务数据
+- 成功鉴权后用 service role 分别轻量读取 `events`、`registration_settings`、`project_types`，不写业务数据
+- 成功响应和运行日志必须包含实际 `projectRef`；生产验收需要执行 `vercel crons ls --format json`、手动 `vercel crons run /api/cron/supabase-keepalive`，并核对运行日志
 - 如果 Supabase 项目已经暂停，需要先在 Supabase Dashboard 手动恢复；该 Cron 只用于恢复后减少长期无请求导致再次暂停的概率
 
 ### 7. 公开分享上传
@@ -238,6 +241,7 @@
 ### Secret 与配置
 
 - [ ] `NEXT_PUBLIC_SUPABASE_URL` 已正确配置
+- [ ] `SUPABASE_EXPECTED_PROJECT_REF` 与 URL 的 project ref 一致
 - [ ] Public key 已正确配置（两个别名至少一个有效）
 - [ ] `SUPABASE_SERVICE_ROLE_KEY` 已正确配置且仅服务端可用
 - [ ] `JWT_SECRET` 已配置为强随机值

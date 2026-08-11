@@ -3,7 +3,38 @@ export function getSupabaseUrl() {
   if (!value) {
     throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL')
   }
+
+  const expectedProjectRef = process.env.SUPABASE_EXPECTED_PROJECT_REF?.trim()
+  if (expectedProjectRef) {
+    const actualProjectRef = getSupabaseProjectRef(value)
+
+    if (actualProjectRef !== expectedProjectRef) {
+      throw new Error(
+        `NEXT_PUBLIC_SUPABASE_URL targets project "${actualProjectRef}", expected "${expectedProjectRef}"`,
+      )
+    }
+  }
+
   return value
+}
+
+export function getSupabaseProjectRef(url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()) {
+  if (!url) {
+    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL')
+  }
+
+  try {
+    const hostname = new URL(url).hostname
+    const [projectRef] = hostname.split('.')
+
+    if (!projectRef) {
+      throw new Error('Missing hostname')
+    }
+
+    return projectRef
+  } catch {
+    throw new Error('Invalid NEXT_PUBLIC_SUPABASE_URL')
+  }
 }
 
 export function getSupabaseAnonKey() {

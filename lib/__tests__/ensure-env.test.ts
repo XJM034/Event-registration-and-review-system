@@ -9,6 +9,7 @@ const scriptPath = path.resolve(__dirname, '../../scripts/ensure-env.mjs')
 const requiredEnv = {
   NEXT_PUBLIC_SUPABASE_URL: 'https://project-ref.supabase.co',
   NEXT_PUBLIC_SUPABASE_ANON_KEY: 'anon-key',
+  SUPABASE_EXPECTED_PROJECT_REF: 'project-ref',
   SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
   JWT_SECRET: 'jwt-secret-value',
 }
@@ -91,5 +92,20 @@ describe('scripts/ensure-env.mjs', () => {
     expect(result.status).toBe(0)
     expect(result.stdout).toContain('Using runtime environment variables from process.env')
     expect(fs.existsSync(path.join(workspace, '.env.local'))).toBe(false)
+  })
+
+  it('rejects a Supabase URL that targets a different project', () => {
+    const { workspace, homeDir } = createTempWorkspace()
+
+    const result = runEnsureEnv([], workspace, homeDir, {
+      ...requiredEnv,
+      NEXT_PUBLIC_SUPABASE_URL: 'https://wrong-project.supabase.co',
+      VERCEL: '1',
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain(
+      'NEXT_PUBLIC_SUPABASE_URL targets project "wrong-project", expected "project-ref"',
+    )
   })
 })
